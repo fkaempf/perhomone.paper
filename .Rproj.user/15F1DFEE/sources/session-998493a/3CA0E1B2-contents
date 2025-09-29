@@ -60,6 +60,11 @@ mba <- mba %>%
                             str_trim())
 ```
 
+
+
+
+
+
 ### 1.2 Function to load connectivity
 ```{r}
 fetch_connectivity <- function(synapse_threshold = 5) {
@@ -274,15 +279,52 @@ target.vAB3 <- in.and.out %>%
 
 define kstrongest path function
 ```{r}
-# Requires: igraph, dplyr
+add_valence_flag <- function(df, nt_by_type, is_inhib_by_nt) {
+  df %>%
+    rowwise() %>%
+    mutate(
+      # split path and drop endpoint
+      nodes = list(setdiff(strsplit(path, " -> ", fixed = TRUE)[[1]], end)),
+      # lookup NTs
+      nts   = list(unname(nt_by_type[unlist(nodes)])),
+      # lookup inhibitory flags
+      inhib = list(unname(is_inhib_by_nt[unlist(nts)])),
+      # count inhibitors
+      n_inhib = sum(unlist(inhib), na.rm = TRUE),
+      # convert to +1 / -1
+      d = ifelse(n_inhib %% 2 == 0, 1, -1)
+    ) %>%
+    ungroup()
+}
+
+
+
 find_k_strongest_paths <- function(
   g,
   starts,
   targets,
+  mba,
   n_paths = 3,
-  diversity = c("otheredges","othernodes","none")
+  diversity = c("otheredges","othernodes","none"),
+  ignore_pattern = NULL  # grepl() pattern; matched node names are excluded (start/target kept),
+  
 ){
+  
+  type2nt <- mba %>%select(type,consensus_nt)%>%group_by(type)%>%distinct()%>%rename(nt=consensus_nt)
+  nt_by_type <- setNames(type2nt$nt, type2nt$type)
+  inhibitory_nts <- c("gaba","glycine","histamine")
+  all_nts <- unique(type2nt$nt)
+  is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
+    
   diversity <- match.arg(diversity)
+
+  # optional: drop nodes matching ignore_pattern (but never drop starts/targets)
+  if (!is.null(ignore_pattern)) {
+    drop <- V(g)$name[grepl(ignore_pattern, V(g)$name)]
+    keep <- unique(c(starts, targets))
+    drop <- setdiff(drop, keep)
+    if (length(drop)) g <- igraph::delete_vertices(g, drop)
+  }
 
   # weights → log-costs; guard zeros/NAs
   w <- E(g)$weight
@@ -337,6 +379,12 @@ find_k_strongest_paths <- function(
       }
     }
 
+    if (length(pair_paths) == 0) {
+      pair_paths <- list(list(
+        start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+      ))
+    }
+
     results[[paste(s,t,sep="->")]] <- pair_paths
   }
 
@@ -350,7 +398,10 @@ find_k_strongest_paths <- function(
 
   results_df_wo_na <- dplyr::filter(results_df, !is.na(strength))
   all_nodes <- unique(all_nodes)
-
+  
+  results_df_wo_na= add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt)%>%
+              mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
+  
   list(df = results_df_wo_na, nodes = all_nodes, raw = results)
 }
 
@@ -365,8 +416,8 @@ path finding new
 ```{r}
 #olfactory
 start.types.olf <- c('ORN_DA1','ORN_VA1v')
-res.vAB3.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.vAB3 ,n_paths=3,diversity='otheredges')
-res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.PPN1,n_paths=3,diversity='otheredges')
+res.vAB3.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.olf$df$dataset <- "vAB3"
 res.PPN1.olf$df$dataset <- "PPN1"
@@ -387,7 +438,7 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
-  labs(title = "Path strength Visual") +
+  labs(title = "Path strength Olfactory 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
@@ -397,23 +448,51 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-
 ggplot(df_all.olf, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
-  labs(title = "Hops in strongest path Olfactory") +
+  labs(title = "Hops in strongest path Olfactory 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5))
 
 
+
+ann_strength <- df_all.olf %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (olfactory) by valence 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+```
+
+
+```{r}
 #visual
 start.types.vis <- mba%>%filter(superclass=='ol_sensory')%>%pull(type)%>%unique()
-res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.vAB3 ,n_paths=3,diversity='otheredges')
-res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.PPN1,n_paths=3,diversity='otheredges')
+res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.vis$df$dataset <- "vAB3"
 res.PPN1.vis$df$dataset <- "PPN1"
 df_all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.vis)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -427,7 +506,7 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
-  labs(title = "Path strength Visual") +
+  labs(title = "Path strength Visual 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
@@ -436,26 +515,54 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.vis, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
-  labs(title = "Hops in strongest path Visual") +
+  labs(title = "Hops in strongest path Visual 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5))
+
+
+
+ann_strength <- df_all.vis %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (visual) by valence 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```
 
 
 ```{r}
+
+
 #contact chemosensor ppk23
 
 start.types.ppk23 <- mba.static%>%filter(grepl('ppk23',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3 ,n_paths=3,diversity='otheredges')
-res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1,n_paths=3,diversity='otheredges')
+res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3 ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
+res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
 
 res.vAB3.ppk23$df$dataset <- "vAB3"
 res.PPN1.ppk23$df$dataset <- "PPN1"
-df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df) %>%
-  filter(!(grepl("AN05B102", path) | grepl("AN09B017", path)))
+df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.ppk23)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -469,7 +576,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
-  labs(title = "Path strength ppk23") +
+  labs(title = "Path strength PPK23 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
@@ -478,24 +585,51 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
-  labs(title = "Hops in strongest path ppk23") +
+  labs(title = "Hops in strongest path PPK23 11998_11431") +
   theme(plot.title = element_text(hjust = 0.5))
 
 
-#contact chemosensor ppk25
 
+ann_strength <- df_all.ppk23 %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valences
+ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (PPK23) by valence 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+```
+
+
+```{r}
+#contact chemosensor ppk25
 start.types.ppk25 <- mba.static%>%filter(grepl('ppk25',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3 ,n_paths=3,diversity='otheredges')
-res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1,n_paths=3,diversity='otheredges')
+res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3 ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
+res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
 
 res.vAB3.ppk25$df$dataset <- "vAB3"
 res.PPN1.ppk25$df$dataset <- "PPN1"
-df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df) %>%
-  filter(!(grepl("AN05B102", path) | grepl("AN09B017", path)))
+df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.ppk25)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -518,6 +652,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
@@ -525,6 +660,28 @@ ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
   labs(title = "Hops in strongest path ppk25") +
   theme(plot.title = element_text(hjust = 0.5))
 
+
+
+ann_strength <- df_all.ppk25 %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (ppk25) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```
 
 All Neurons downstream
@@ -554,10 +711,10 @@ target.PPN1.all <- cf_partner_summary(cf_ids(malecns=all.PPN1.ids),partners='out
 
 
 
-#olfactory
 start.types.olf <- c('ORN_DA1','ORN_VA1v')
-res.vAB3.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.vAB3.all ,n_paths=3,diversity='otheredges')
-res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.PPN1.all,n_paths=3,diversity='otheredges')
+start.types.olf <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('olfactory',class))%>%pull(type)%>%unique()
+res.vAB3.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.olf$df$dataset <- "vAB3"
 res.PPN1.olf$df$dataset <- "PPN1"
@@ -588,7 +745,6 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-
 ggplot(df_all.olf, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
@@ -597,14 +753,44 @@ ggplot(df_all.olf, aes(x = dataset, y = hops)) +
   theme(plot.title = element_text(hjust = 0.5))
 
 
+
+ann_strength <- df_all.olf %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (olfactory) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+
+```
+
+
+```{r}
 #visual
 start.types.vis <- mba%>%filter(superclass=='ol_sensory')%>%pull(type)%>%unique()
-res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.vAB3.all ,n_paths=3,diversity='otheredges')
-res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.PPN1.all,n_paths=3,diversity='otheredges')
+res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.vis$df$dataset <- "vAB3"
 res.PPN1.vis$df$dataset <- "PPN1"
 df_all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.vis)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -627,6 +813,7 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.vis, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
@@ -635,16 +822,45 @@ ggplot(df_all.vis, aes(x = dataset, y = hops)) +
   theme(plot.title = element_text(hjust = 0.5))
 
 
+
+ann_strength <- df_all.vis %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (visual) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+```
+
+```{r}
+
+
 #contact chemosensor ppk23
 
 start.types.ppk23 <- mba.static%>%filter(grepl('ppk23',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=3,diversity='otheredges')
-res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=3,diversity='otheredges')
+res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
+res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
 
 res.vAB3.ppk23$df$dataset <- "vAB3"
 res.PPN1.ppk23$df$dataset <- "PPN1"
-df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df) %>%
-  filter(!(grepl("AN05B102", path) | grepl("AN09B017", path)))
+df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.ppk23)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -658,7 +874,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
-  labs(title = "Path strength ppk23") +
+  labs(title = "Path strength PPK23") +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
@@ -667,24 +883,51 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
-  labs(title = "Hops in strongest path ppk23") +
+  labs(title = "Hops in strongest path PPK23") +
   theme(plot.title = element_text(hjust = 0.5))
 
 
-#contact chemosensor ppk25
 
+ann_strength <- df_all.ppk23 %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (PPK23) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+```
+
+
+```{r}
+#contact chemosensor ppk25
 start.types.ppk25 <- mba.static%>%filter(grepl('ppk25',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=3,diversity='otheredges')
-res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=3,diversity='otheredges')
+res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
+res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
 
 res.vAB3.ppk25$df$dataset <- "vAB3"
 res.PPN1.ppk25$df$dataset <- "PPN1"
-df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df) %>%
-  filter(!(grepl("AN05B102", path) | grepl("AN09B017", path)))
+df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+
+
+
 t_res  <- t.test(strength ~ dataset, data = df_all.ppk25)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
@@ -707,6 +950,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
   )+
   scale_y_log10() 
 
+
 ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
@@ -716,199 +960,24 @@ ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
 
 
 
-
-
-```
-
-
-
-
-Open graph in RCy3
-
-```{r}
-library(RCy3)
-library(dplyr)
-library(stringr)
-
-# Define nodes of interest
-nodes_to_keep <- c("JO-B", "JO-B", "CB1078", "CB1542", "CB2108", "CB1383", "CB1066,CB3649",
-                   "CB2364", "CB3382", "PVLP033", "CB3162", "CB3382", "vpoEN", "SIP124m",
-                   "AVLP721m", "AVLP299_c", "DNp55", "CB1385", "AVLP711m", "SIP108m", 
-                   "SIP120m", "SIP116m", "SIP114m", "PVLP211m", "pMP2", "AVLP744m")
-
-in.plots <- c("vPN1", "aPN1", "aPN1_like", "vpoEN", "vpoIN", "pIP10", "pMP2", "JO-B")
-P1_2_add <- conn%>%
-  filter(pre_type %in% nodes_to_keep,
-         grepl("^P1_", post_type))%>%
-  pull(post_type)%>%
-  unique()
-
-
-nodes_to_keep <- c(unique(all_important_nodes), in.plots,P1_2_add)
-nodes_to_keep <- c(unique(all_important_nodes))
-#nodes_to_keep <- c('pMP2','aPN1_like','pIP10','aIP-g','aDT-e','pIP-e','vpoEN','aPN1','P1_14a','JO-B','WED118','aDT-g','aSP-a','aSP-k','vpoIN','vPN1','P1_6a','DNp55')
-
-
-
-#nodes_to_keep <- c(nodes_to_keep,conn%>%filter(post_type=='IN06B003')%>%filter(grepl('SN',pre_type))%>%pull(pre_type)%>%unique())
-#nodes_to_keep <- c(nodes_to_keep,mba%>%filter(grepl('TN1a',type))%>%pull(type)%>%unique())
-#nodes_to_keep <- c(nodes_to_keep,in.plots,mba%>%filter(grepl('vPR9',type))%>%pull(type)%>%unique())
-
-
-
-# Subset the graph
-g.sub.prout.mcns <- induced_subgraph(g.prout.mcns, vids = V(g.prout.mcns)[name %in% nodes_to_keep])
-
-# Shortest path distances from start_types
-node_names <- V(g.sub.prout.mcns)$name
-distance_to_start <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name %in% cell_types], weights = NA)
-V(g.sub.prout.mcns)$distance_to_start <- ifelse(node_names %in% cell_types, 0, as.integer(distance_to_start))
-
-# FRU/DSX metadata
-try(fru_dsx_values <- conn %>%
-      group_by(pre_type, post_type) %>%
-      mutate(pre_fru_dsx = !is.na(pre_fru_dsx),
-             post_fru_dsx = !is.na(post_fru_dsx)) %>%
-      summarize(pre_fru_dsx = first(pre_fru_dsx),
-                post_fru_dsx = first(post_fru_dsx)) %>%
-      ungroup() %>%
-      pivot_longer(cols = c(pre_fru_dsx, post_fru_dsx, pre_type, post_type),
-                   names_to = c("side", ".value"), names_sep = "_") %>%
-      select(-side) %>% distinct())
-
-# NT metadata
-# Helper function: majority vote (mode), returns first mode if tie
-majority_vote <- function(x) {
-  x <- x[!is.na(x)]
-  if (length(x) == 0) return(NA)
-  ux <- unique(x)
-  ux[which.max(tabulate(match(x, ux)))]
-}
-
-# Compute majority NT per pre_type and post_type
-nt_values <- conn %>%
-  group_by(pre_type, post_type) %>%
-  summarize(
-    pre_nt = majority_vote(pre_nt),
-    post_nt = majority_vote(post_nt),
+ann_strength <- df_all.ppk25 %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
     .groups = "drop"
-  ) %>%
-  pivot_longer(cols = c(pre_nt, post_nt, pre_type, post_type),
-               names_to = c("side", ".value"),
-               names_sep = "_") %>%
-  select(-side) %>%
-  distinct()
+  )
 
-
-
-
-# Match metadata to vertices
-nt_for_vertices <- nt_values$nt[match(V(g.sub.prout.mcns)$name, nt_values$type)]
-V(g.sub.prout.mcns)$nt <- nt_for_vertices
-
-#NT for edges
-el <- as_edgelist(g.sub.prout.mcns)
-edge_sources <- el[, 1]
-
-# Create named vector manually instead of using deframe
-nt_table <- nt_values %>%
-  distinct(type, nt) %>%
-  filter(!is.na(nt))
-
-nt_lookup <- setNames(nt_table$nt, nt_table$type)
-
-# Assign NT to each edge by matching the source node name to nt_lookup
-E(g.sub.prout.mcns)$edge_nt <- nt_lookup[edge_sources]
-
-# Optionally fill NAs
-E(g.sub.prout.mcns)$edge_nt[is.na(E(g.sub.prout.mcns)$edge_nt)] <- "unknown"
-
-dimorphism_values <- conn %>%
-  group_by(pre_type, post_type) %>%
-  summarize(
-    pre_dimorphism = majority_vote(pre.dimorphism),
-    post_dimorphism = majority_vote(post.dimorphism),
-    .groups = "drop"
-  ) %>%
-  pivot_longer(cols = c(pre_dimorphism, post_dimorphism, pre_type, post_type),
-               names_to = c("side", ".value"),
-               names_sep = "_") %>%
-  select(-side) %>%
-  distinct()
-
-dimorphism_lookup <- setNames(dimorphism_values$dimorphism, dimorphism_values$type)
-V(g.sub.prout.mcns)$dimorphism <- dimorphism_lookup[V(g.sub.prout.mcns)$name]
-V(g.sub.prout.mcns)$dimorphism[is.na(V(g.sub.prout.mcns)$dimorphism)] <- "ismorphic"
-
-
-
-# P1-P1 flag
-el <- as_edgelist(g.sub.prout.mcns)
-is_p1p1 <- grepl("^P1_", el[, 1])
-E(g.sub.prout.mcns)$is_p1_p1 <- is_p1p1
-
-# Scale weights
-E(g.sub.prout.mcns)$weight <- E(g.sub.prout.mcns)$weight * 100
-
-# --- Dynamic quantile-based binning for weights > 1 ---
-weights_all <- E(g.sub.prout.mcns)$weight
-weights_above_1 <- weights_all[weights_all > 1]
-
-# Compute quantiles and round nicely for legend clarity
-quantile_breaks <- quantile(weights_above_1, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
-rounded_breaks <- unique(round(quantile_breaks,2))  # ensure no duplicated breaks
-
-# Handle edge case: fewer than 5 unique bins
-if (length(rounded_breaks) < 5) {
-  rounded_breaks <- pretty(weights_above_1, n = 4)
-}
-
-# Assign bin index
-E(g.sub.prout.mcns)$arrow_class <- cut(
-  weights_all,
-  breaks = rounded_breaks,
-  include.lowest = TRUE,
-  labels = FALSE
-)
-
-# Optional: create human-readable bin label
-labels <- paste(head(rounded_breaks, -1), tail(rounded_breaks, -1), sep = "–")
-E(g.sub.prout.mcns)$arrow_class_label <- labels[E(g.sub.prout.mcns)$arrow_class]
-
-# Assign 0 and "0" for weights <= 1
-E(g.sub.prout.mcns)$arrow_class[weights_all <= 1] <- 0
-E(g.sub.prout.mcns)$arrow_class_label[weights_all <= 1] <- "≤1"
-
-# Create network in Cytoscape
-RCy3::createNetworkFromIgraph(g.sub.prout.mcns)
-```
-
-## Adjacency matrix
-```{r}
-p1p1_edges <- E(g.sub.prout.mcns)[is_p1p1]
-g.sub.prout.mcns.wo.P1P1 <- delete_edges(g.sub.prout.mcns, p1p1_edges)
-adj_matrix <- as_adjacency_matrix(g.sub.prout.mcns.wo.P1P1, attr = "weight", sparse = FALSE)
-adj_matrix[is.na(adj_matrix)] <- 0
-adj_matrix[is.nan(adj_matrix)] <- 0
-adj_matrix[is.infinite(adj_matrix)] <- 0
-nonzero_cols <- which(colSums(adj_matrix) != 0)
-nonzero_rows <- which(rowSums(adj_matrix) != 0)
-adj_matrix <- adj_matrix[nonzero_rows, nonzero_cols]
-#adj_matrix <- adj_matrix[colnames(adj_matrix)[grepl("P1_*",colnames(adj_matrix))]]
-
-library(pheatmap)
-pheatmap(
-  adj_matrix,
-  scale = "row",                     # Normalize rows (or "column" / "none")
-  clustering_distance_rows = "euclidean",
-  clustering_distance_cols = "euclidean",
-  clustering_method = "complete",   # or "average", "ward.D", etc.
-  color = colorRampPalette(c("blue", "white", "red"))(50), # Custom color scale
-  main = "vPN1 P1 connectivity",
-  fontsize_row = 6,
-  fontsize_col = 6,
-  cellwidth = 6,
-  cellheight = 6
-)
-
+# strength boxplots, split by valence
+ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (ppk25) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```

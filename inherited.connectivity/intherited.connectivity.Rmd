@@ -49,7 +49,7 @@ knitr::opts_chunk$set(
 ```{r}
 
 snapshot=neuprintr::neuprint_login(server='https://neuprint-cns.janelia.org/', dataset="male-cns:v0.9")
-malevnc::choose_flyem_dataset('male-cns:v0.9')
+
 synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()

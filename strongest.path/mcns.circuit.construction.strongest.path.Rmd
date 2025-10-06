@@ -47,17 +47,19 @@ synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
-mba <- mba %>%
-  mutate(type=coalesce(type,flywire_type,manc_type,hemibrain_type))%>%
-  mutate(
-    type = case_when(
-      grepl("putative_ppk23", receptor_type) ~ "m-cell",
-      grepl("putative_ppk25", receptor_type) ~ "f-cell",
-      TRUE ~ type
-    )
-  )%>%
-  mutate(cachero.type = str_extract(synonyms, "(?<=Cachero 2010:)[^;]+") %>%
-                            str_trim())
+
+
+ppk23.types <- mba%>%filter(receptor_type=='putative_ppk23')%>%pull(type)%>%unique()
+ppk25.types <- mba%>%filter(receptor_type=='putative_ppk25')%>%pull(type)%>%unique()
+IR52a.types <- mba%>%filter(receptor_type=='putative_IR52a')%>%pull(type)%>%unique()
+IR52b.types <- mba%>%filter(receptor_type=='putative_IR52b')%>%pull(type)%>%unique()
+
+mba.dimorphism <- mba %>%
+  count(type, dimorphism) %>%
+  group_by(type) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(type, dimorphism)
 ```
 
 
@@ -263,13 +265,13 @@ g.prout.mcns <- graph_from_adjacency_matrix(
 target cells PPN1 and vAB3
 ```{r}
 cutoff=0.1
-target.PPN1 <- in.and.out %>%
+target.PPN1 <- outputs.11431.sum %>%
     filter(post %in% setdiff(outputs.11431.sum%>%pull(post),outputs.11998.sum%>%pull(post)))%>%
     filter(!grepl('AN',post)) %>% 
     filter(!grepl('IN',post)) %>% 
     filter(weight>=100)%>%pull(post)
 
-target.vAB3 <- in.and.out %>%
+target.vAB3 <- outputs.11998.sum %>%
     filter(post %in% setdiff(outputs.11998.sum%>%pull(post),outputs.11431.sum%>%pull(post)))%>%
     filter(weight>=100)%>%
     filter(!grepl('AN',post)) %>% 
@@ -416,26 +418,26 @@ path finding new
 ```{r}
 #olfactory
 start.types.olf <- c('ORN_DA1','ORN_VA1v')
-start.types.olf <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('olfactory',class))%>%pull(type)%>%unique()
+#start.types.olf <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('olfactory',class))%>%pull(type)%>%unique()
 res.vAB3.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
 res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.olf$df$dataset <- "vAB3"
 res.PPN1.olf$df$dataset <- "PPN1"
-df_all.olf <- bind_rows(res.vAB3.olf$df, res.PPN1.olf$df)
+df_all.single.olf <- bind_rows(res.vAB3.olf$df, res.PPN1.olf$df)
 
 
 
-t_res  <- t.test(strength ~ dataset, data = df_all.olf)
+t_res  <- t.test(strength ~ dataset, data = df_all.single.olf)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.olf$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.single.olf$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.olf, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -449,7 +451,7 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.olf, aes(x = dataset, y = hops)) +
+ggplot(df_all.single.olf, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -458,7 +460,7 @@ ggplot(df_all.olf, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.olf %>%
+ann_strength <- df_all.single.olf %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -469,7 +471,7 @@ ann_strength <- df_all.olf %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.olf, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -480,6 +482,75 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 
 ```
+auditory
+```{r}
+
+#auditory
+start.types.aud <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('auditory',subclass))%>%pull(type)%>%unique()
+res.vAB3.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
+
+res.vAB3.aud$df$dataset <- "vAB3"
+res.PPN1.aud$df$dataset <- "PPN1"
+df_all.single.aud <- bind_rows(res.vAB3.aud$df, res.PPN1.aud$df)
+
+
+
+t_res  <- t.test(strength ~ dataset, data = df_all.single.aud)
+pval   <- unname(t_res$p.value)
+ann <- data.frame(
+  group1      = "PPN1",
+  group2      = "vAB3",
+  p           = pval,
+  y.position  = max(df_all.single.aud$strength, na.rm = TRUE) * 1.12
+)
+
+ggplot(df_all.single.aud, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  theme_bw() +
+  labs(title = "Path strength auditory 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  stat_pvalue_manual(
+    ann,
+    label = "p",         # use the column 'p'
+    tip.length = 0
+  )+
+  scale_y_log10() 
+
+
+ggplot(df_all.single.aud, aes(x = dataset, y = hops)) +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
+  scale_y_log10() +
+  theme_bw()+
+  labs(title = "Hops in strongest path auditory 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+ann_strength <- df_all.single.aud %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.single.aud, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (auditory) by valence 11998_11431") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+```
+
 
 
 ```{r}
@@ -490,20 +561,20 @@ res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, tar
 
 res.vAB3.vis$df$dataset <- "vAB3"
 res.PPN1.vis$df$dataset <- "PPN1"
-df_all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
+df_all.single.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
 
 
 
-t_res  <- t.test(strength ~ dataset, data = df_all.vis)
+t_res  <- t.test(strength ~ dataset, data = df_all.single.vis)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.vis$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.single.vis$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -517,7 +588,7 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.vis, aes(x = dataset, y = hops)) +
+ggplot(df_all.single.vis, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -526,7 +597,7 @@ ggplot(df_all.vis, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.vis %>%
+ann_strength <- df_all.single.vis %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -537,7 +608,7 @@ ann_strength <- df_all.vis %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -555,25 +626,35 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
 #contact chemosensor ppk23
 
 start.types.ppk23 <- mba.static%>%filter(grepl('ppk23',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3 ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
+res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns,
+                                         starts=start.types.ppk23,
+                                         targets=target.vAB3,
+                                         n_paths=3,
+                                         diversity='otheredges',
+                                         ignore_pattern='AN09B017',
+                                         mba=mba)
 res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
+res.vAB3.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.ppk23$df$dataset <- "vAB3"
 res.PPN1.ppk23$df$dataset <- "PPN1"
-df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+res.vAB3.ppk23.include$df$dataset <- "vAB3"
+res.PPN1.ppk23.include$df$dataset <- "PPN1"
+df_all.single.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+df_all.single.ppk23.include <- bind_rows(res.vAB3.ppk23.include$df, res.PPN1.ppk23.include$df)
 
 
-
-t_res  <- t.test(strength ~ dataset, data = df_all.ppk23)
+t_res  <- t.test(strength ~ dataset, data = df_all.single.ppk23)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.ppk23$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.single.ppk23$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -587,7 +668,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
+ggplot(df_all.single.ppk23, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -596,7 +677,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.ppk23 %>%
+ann_strength <- df_all.single.ppk23 %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -607,7 +688,7 @@ ann_strength <- df_all.ppk23 %>%
   )
 
 # strength boxplots, split by valences
-ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -624,23 +705,28 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
 start.types.ppk25 <- mba.static%>%filter(grepl('ppk25',receptor_type))%>%pull(type)%>%unique()
 res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3 ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
 res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
+res.vAB3.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3 ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1,n_paths=3,diversity='otheredges',mba=mba)
+
 
 res.vAB3.ppk25$df$dataset <- "vAB3"
 res.PPN1.ppk25$df$dataset <- "PPN1"
-df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+res.vAB3.ppk25.include$df$dataset <- "vAB3"
+res.PPN1.ppk25.include$df$dataset <- "PPN1"
+df_all.single.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+df_all.single.ppk25.include <- bind_rows(res.vAB3.ppk25.include$df, res.PPN1.ppk25.include$df)
 
 
-
-t_res  <- t.test(strength ~ dataset, data = df_all.ppk25)
+t_res  <- t.test(strength ~ dataset, data = df_all.single.ppk25)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.ppk25$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.single.ppk25$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.ppk25, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -654,7 +740,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
+ggplot(df_all.single.ppk25, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -663,7 +749,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.ppk25 %>%
+ann_strength <- df_all.single.ppk25 %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -674,7 +760,7 @@ ann_strength <- df_all.ppk25 %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.single.ppk25, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -719,20 +805,20 @@ res.PPN1.olf <- find_k_strongest_paths(g.prout.mcns, starts=start.types.olf, tar
 
 res.vAB3.olf$df$dataset <- "vAB3"
 res.PPN1.olf$df$dataset <- "PPN1"
-df_all.olf <- bind_rows(res.vAB3.olf$df, res.PPN1.olf$df)
+df_all.all.olf <- bind_rows(res.vAB3.olf$df, res.PPN1.olf$df)
 
 
 
-t_res  <- t.test(strength ~ dataset, data = df_all.olf)
+t_res  <- t.test(strength ~ dataset, data = df_all.all.olf)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.olf$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.olf$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.olf, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -746,7 +832,7 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.olf, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.olf, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -755,7 +841,7 @@ ggplot(df_all.olf, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.olf %>%
+ann_strength <- df_all.all.olf %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -766,7 +852,7 @@ ann_strength <- df_all.olf %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.olf, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.olf, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -779,6 +865,75 @@ ggplot(df_all.olf, aes(x = dataset, y = strength)) +
 
 ```
 
+auditory
+```{r}
+
+#auditory
+start.types.aud <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('auditory',subclass))%>%pull(type)%>%unique()
+res.vAB3.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
+
+res.vAB3.aud$df$dataset <- "vAB3"
+res.PPN1.aud$df$dataset <- "PPN1"
+df_all.all.aud <- bind_rows(res.vAB3.aud$df, res.PPN1.aud$df)
+
+
+
+t_res  <- t.test(strength ~ dataset, data = df_all.all.aud)
+pval   <- unname(t_res$p.value)
+ann <- data.frame(
+  group1      = "PPN1",
+  group2      = "vAB3",
+  p           = pval,
+  y.position  = max(df_all.all.aud$strength, na.rm = TRUE) * 1.12
+)
+
+ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  theme_bw() +
+  labs(title = "Path strength auditory") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  stat_pvalue_manual(
+    ann,
+    label = "p",         # use the column 'p'
+    tip.length = 0
+  )+
+  scale_y_log10() 
+
+
+ggplot(df_all.all.aud, aes(x = dataset, y = hops)) +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
+  scale_y_log10() +
+  theme_bw()+
+  labs(title = "Hops in strongest path auditory") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+ann_strength <- df_all.all.aud %>%
+  group_by(valence) %>%
+  summarise(
+    group1 = "PPN1",
+    group2 = "vAB3",
+    p = unname(t.test(strength ~ dataset)$p.value),
+    y.position = max(strength, na.rm = TRUE) * 1.12,
+    .groups = "drop"
+  )
+
+# strength boxplots, split by valence
+ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightgray") +
+  geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
+  scale_y_log10() +
+  theme_bw() +
+  labs(title = "Path strength (auditory) by valence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~ valence, nrow = 1) +
+  stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+```
+
 
 ```{r}
 #visual
@@ -788,20 +943,20 @@ res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, tar
 
 res.vAB3.vis$df$dataset <- "vAB3"
 res.PPN1.vis$df$dataset <- "PPN1"
-df_all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
+df_all.all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
 
 
 
-t_res  <- t.test(strength ~ dataset, data = df_all.vis)
+t_res  <- t.test(strength ~ dataset, data = df_all.all.vis)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.vis$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.vis$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -815,7 +970,7 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.vis, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.vis, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -824,7 +979,7 @@ ggplot(df_all.vis, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.vis %>%
+ann_strength <- df_all.all.vis %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -835,7 +990,7 @@ ann_strength <- df_all.vis %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.vis, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -855,23 +1010,27 @@ ggplot(df_all.vis, aes(x = dataset, y = strength)) +
 start.types.ppk23 <- mba.static%>%filter(grepl('ppk23',receptor_type))%>%pull(type)%>%unique()
 res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
 res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
+res.vAB3.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
 
 res.vAB3.ppk23$df$dataset <- "vAB3"
 res.PPN1.ppk23$df$dataset <- "PPN1"
-df_all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+res.vAB3.ppk23.include$df$dataset <- "vAB3"
+res.PPN1.ppk23.include$df$dataset <- "PPN1"
+df_all.all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+df_all.all.ppk23.include <- bind_rows(res.vAB3.ppk23.include$df, res.PPN1.ppk23.include$df)
 
 
-
-t_res  <- t.test(strength ~ dataset, data = df_all.ppk23)
+t_res  <- t.test(strength ~ dataset, data = df_all.all.ppk23)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.ppk23$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.ppk23$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -885,7 +1044,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.ppk23, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -894,7 +1053,7 @@ ggplot(df_all.ppk23, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.ppk23 %>%
+ann_strength <- df_all.all.ppk23 %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -905,7 +1064,7 @@ ann_strength <- df_all.ppk23 %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk23, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -922,23 +1081,28 @@ ggplot(df_all.ppk23, aes(x = dataset, y = strength)) +
 start.types.ppk25 <- mba.static%>%filter(grepl('ppk25',receptor_type))%>%pull(type)%>%unique()
 res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
 res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
+res.vAB3.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
+res.PPN1.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
+
 
 res.vAB3.ppk25$df$dataset <- "vAB3"
 res.PPN1.ppk25$df$dataset <- "PPN1"
-df_all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+res.vAB3.ppk25.include$df$dataset <- "vAB3"
+res.PPN1.ppk25.include$df$dataset <- "PPN1"
+df_all.all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+df_all.all.ppk25.include <- bind_rows(res.vAB3.ppk25.include$df, res.PPN1.ppk25.include$df)
 
 
-
-t_res  <- t.test(strength ~ dataset, data = df_all.ppk25)
+t_res  <- t.test(strength ~ dataset, data = df_all.all.ppk25)
 pval   <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.ppk25$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.ppk25$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk25, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -952,7 +1116,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
   scale_y_log10() 
 
 
-ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.ppk25, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
   theme_bw()+
@@ -961,7 +1125,7 @@ ggplot(df_all.ppk25, aes(x = dataset, y = hops)) +
 
 
 
-ann_strength <- df_all.ppk25 %>%
+ann_strength <- df_all.all.ppk25 %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -972,7 +1136,7 @@ ann_strength <- df_all.ppk25 %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk25, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -982,3 +1146,621 @@ ggplot(df_all.ppk25, aes(x = dataset, y = strength)) +
   facet_wrap(~ valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```
+
+Bind all and plot pie diagramms
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# add modality labels (as you already do)
+df_all.single.ppk25$modality <- 'female.touch'
+df_all.single.ppk23$modality <- 'male.touch'
+df_all.single.aud$modality   <- 'auditory'
+df_all.single.olf$modality   <- 'olfactory'
+df_all.single.vis$modality   <- 'visual'
+
+all.modalities <- rbind(
+  df_all.single.ppk25,
+  df_all.single.ppk23,
+  df_all.single.vis,
+  df_all.single.aud,
+  df_all.single.olf
+)
+
+# helper: build pie data per neuron, optionally filtering by valence
+pie_data <- function(df, dataset_name, valence_keep = NULL) {
+  df %>%
+    filter(dataset == dataset_name) %>%
+    { if (!is.null(valence_keep)) filter(., valence %in% valence_keep) else . } %>%
+    group_by(end, modality) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop_last") %>%
+    mutate(prop = total_strength / sum(total_strength)) %>%
+    ungroup() %>%
+    filter(is.finite(prop))  # drop ends with all-zero strength
+}
+
+# helper: plot pies faceted by neuron
+pie_plot <- function(pdat, title_txt) {
+  ggplot(pdat, aes(x = "", y = prop, fill = modality)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    facet_wrap(~ end) +
+    theme_void() +
+    labs(title = title_txt) +
+    geom_text(aes(label = percent(prop, accuracy = 1)),
+              position = position_stack(vjust = 0.5), size = 2)
+}
+
+## PPN1
+ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
+
+p_ppn1_all <- pie_plot(ppn1_all, "PPN1 (11431): modality contribution per target neuron (all)")
+p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1 (11431): modality contribution per target neuron (excitatory only)")
+p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1 (11431): modality contribution per target neuron (inhibitory only)")
+
+p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+
+#connected scatter plot
+
+ppn1_all$connection.type <- 'all'
+ppn1_exc$connection.type <- 'excitatory'
+ppn1_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.single.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.single.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.single.ppn1$x_pos),
+    labels = unique(connected.scatterplot.single.ppn1$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (excluding PPN1) to post PPN1 (11431) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+## vAB3
+vab3_all <- pie_data(all.modalities, "vAB3", NULL)
+vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
+vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
+
+p_vab3_all <- pie_plot(vab3_all, "vAB3 (11998): modality contribution per target neuron (all)")
+p_vab3_exc <- pie_plot(vab3_exc, "vAB3 (11998): modality contribution per target neuron (excitatory only)")
+p_vab3_inh <- pie_plot(vab3_inh, "vAB3 (11998): modality contribution per target neuron (inhibitory only) downstream")
+
+p_vab3_all; p_vab3_exc; p_vab3_inh
+
+#connected scatter plot
+
+vab3_all$connection.type <- 'all'
+vab3_exc$connection.type <- 'excitatory'
+vab3_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.single.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.single.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.single.vab3$x_pos),
+    labels = unique(connected.scatterplot.single.vab3$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (excluding vAB3) to post vAB3 (11998) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+
+```{r}
+
+
+# add modality labels (as you already do)
+df_all.all.ppk25$modality <- 'female.touch'
+df_all.all.ppk23$modality <- 'male.touch'
+df_all.all.aud$modality   <- 'auditory'
+df_all.all.olf$modality   <- 'olfactory'
+df_all.all.vis$modality   <- 'visual'
+
+all.modalities <- rbind(
+  df_all.all.ppk25,
+  df_all.all.ppk23,
+  df_all.all.vis,
+  df_all.all.aud,
+  df_all.all.olf
+)
+
+## PPN1
+ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
+
+p_ppn1_all <- pie_plot(ppn1_all, "PPN1: modality contribution per target neuron (all)")
+p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1: modality contribution per target neuron (excitatory only)")
+p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1: modality contribution per target neuron (inhibitory only)")
+
+p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+
+ppn1_all$connection.type <- 'all'
+ppn1_exc$connection.type <- 'excitatory'
+ppn1_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.all.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.ppn1$x_pos),
+    labels = unique(connected.scatterplot.all.ppn1$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (excluding PPN1) to post PPN1 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+## vAB3
+vab3_all <- pie_data(all.modalities, "vAB3", NULL)
+vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
+vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
+
+p_vab3_all <- pie_plot(vab3_all, "vAB3: modality contribution per target neuron (all)")
+p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron (excitatory only)")
+p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only)")
+
+
+p_vab3_all; p_vab3_exc; p_vab3_inh
+
+#connected scatter plot
+
+vab3_all$connection.type <- 'all'
+vab3_exc$connection.type <- 'excitatory'
+vab3_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.all.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.vab3$x_pos),
+    labels = unique(connected.scatterplot.all.vab3$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (excluding vAB3) to post vAB3 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+```
+Pie diagramms including vAB3/PPN1 in touch 
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# add modality labels (as you already do)
+df_all.single.ppk25.include$modality <- 'female.touch'
+df_all.single.ppk23.include$modality <- 'male.touch'
+df_all.single.aud$modality   <- 'auditory'
+df_all.single.olf$modality   <- 'olfactory'
+df_all.single.vis$modality   <- 'visual'
+
+all.modalities <- rbind(
+  df_all.single.ppk25.include,
+  df_all.single.ppk23.include,
+  df_all.single.vis,
+  df_all.single.aud,
+  df_all.single.olf
+)
+
+# helper: build pie data per neuron, optionally filtering by valence
+pie_data <- function(df, dataset_name, valence_keep = NULL) {
+  df %>%
+    filter(dataset == dataset_name) %>%
+    { if (!is.null(valence_keep)) filter(., valence %in% valence_keep) else . } %>%
+    group_by(end, modality) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop_last") %>%
+    mutate(prop = total_strength / sum(total_strength)) %>%
+    ungroup() %>%
+    filter(is.finite(prop))  # drop ends with all-zero strength
+}
+
+# helper: plot pies faceted by neuron
+pie_plot <- function(pdat, title_txt) {
+  ggplot(pdat, aes(x = "", y = prop, fill = modality)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    facet_wrap(~ end) +
+    theme_void() +
+    labs(title = title_txt) +
+    geom_text(aes(label = percent(prop, accuracy = 1)),
+              position = position_stack(vjust = 0.5), size = 2)
+}
+
+## PPN1
+ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
+
+p_ppn1_all <- pie_plot(ppn1_all, "PPN1 (11431): modality contribution per target neuron (all) Including PPN1")
+p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1 (11431): modality contribution per target neuron (excitatory only) Including PPN1")
+p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1 (11431): modality contribution per target neuron (inhibitory only) Including PPN1")
+
+
+p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+
+#connected scatter plot
+
+ppn1_all$connection.type <- 'all'
+ppn1_exc$connection.type <- 'excitatory'
+ppn1_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.single.include.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.single.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.single.include.ppn1$x_pos),
+    labels = unique(connected.scatterplot.single.include.ppn1$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including PPN1) to post PPN1 (11431) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+## vAB3
+vab3_all <- pie_data(all.modalities, "vAB3", NULL)
+vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
+vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
+
+p_vab3_all <- pie_plot(vab3_all, "vAB3 (11998): modality contribution per target neuron (all) Including vAB3")
+p_vab3_exc <- pie_plot(vab3_exc, "vAB3 (11998): modality contribution per target neuron (excitatory only) Including vAB3")
+p_vab3_inh <- pie_plot(vab3_inh, "vAB3 (11998): modality contribution per target neuron (inhibitory only) downstream Including vAB3")
+
+
+p_vab3_all; p_vab3_exc; p_vab3_inh
+
+
+#connected scatter plot
+
+vab3_all$connection.type <- 'all'
+vab3_exc$connection.type <- 'excitatory'
+vab3_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.single.include.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.single.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.single.include.vab3$x_pos),
+    labels = unique(connected.scatterplot.single.include.vab3$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including vAB3) to post vAB3 (11998) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+```
+
+
+```{r}
+
+
+# add modality labels (as you already do)
+df_all.all.ppk25.include$modality <- 'female.touch'
+df_all.all.ppk23.include$modality <- 'male.touch'
+df_all.all.aud$modality   <- 'auditory'
+df_all.all.olf$modality   <- 'olfactory'
+df_all.all.vis$modality   <- 'visual'
+
+all.modalities <- rbind(  
+  df_all.all.ppk25.include,
+  df_all.all.ppk23.include,
+  df_all.all.vis,
+  df_all.all.aud,
+  df_all.all.olf
+)
+
+## PPN1
+ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
+
+p_ppn1_all <- pie_plot(ppn1_all, "PPN1: modality contribution per target neuron (all)")
+p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1: modality contribution per target neuron (excitatory only) Including PPN1")
+p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1: modality contribution per target neuron (inhibitory only) Including PPN1")
+
+p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+
+ppn1_all$connection.type <- 'all'
+ppn1_exc$connection.type <- 'excitatory'
+ppn1_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.all.include.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.include.ppn1$x_pos),
+    labels = unique(connected.scatterplot.all.include.ppn1$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including PPN1) to post PPN1 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+df <- connected.scatterplot.all.include.ppn1%>%
+  group_by(connection.type,modality)%>%
+  summarize(strength=sum(total_strength)) %>%
+  group_by(connection.type) %>%
+  mutate(prop = strength / sum(strength)) %>%
+  ungroup() %>%
+  mutate(
+    x_pos = as.numeric(factor(modality, levels = unique(modality))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all"        ~  0,
+      connection.type == "excitatory" ~  0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(df$x_pos),
+    labels = unique(df$modality)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including PPN1) to post PPN1 (all) by connection type across neurons",
+    x = "Modality",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+## vAB3
+vab3_all <- pie_data(all.modalities, "vAB3", NULL)
+vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
+vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
+
+p_vab3_all <- pie_plot(vab3_all, "vAB3: modality contribution per target neuron (all)")
+p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron (excitatory only) Including vAB3")
+p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only) Including vAB3")
+
+# print any of these:
+p_vab3_all; p_vab3_exc; p_vab3_inh
+
+#connected scatter plot
+
+vab3_all$connection.type <- 'all'
+vab3_exc$connection.type <- 'excitatory'
+vab3_inh$connection.type <- 'inhibitory'
+
+connected.scatterplot.all.include.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
+                          mutate(
+                            x_pos = as.numeric(factor(end, levels = unique(end))),
+                            x_shift = case_when(
+                              connection.type == "inhibitory" ~ -0.2,
+                              connection.type == "all" ~ 0,
+                              connection.type == "excitatory" ~ 0.2
+                            ),
+                            x_jittered = x_pos + x_shift
+                          )
+
+ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.include.vab3$x_pos),
+    labels = unique(connected.scatterplot.all.include.vab3$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including vAB3) to post vAB3 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+df <- connected.scatterplot.all.include.vab3%>%
+  group_by(connection.type,modality)%>%
+  summarize(strength=sum(total_strength)) %>%
+  group_by(connection.type) %>%
+  mutate(prop = strength / sum(strength)) %>%
+  ungroup() %>%
+  mutate(
+    x_pos = as.numeric(factor(modality, levels = unique(modality))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all"        ~  0,
+      connection.type == "excitatory" ~  0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(df$x_pos),
+    labels = unique(df$modality)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including vAB3) to post vAB3 (all) by connection type across neurons",
+    x = "Modality",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+stacked barplot showing how much the strongest paths from the modalities take of the synapse budget 
+
+
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr)
+
+end.types.id <- mba %>%filter(type %in% unique(all.modalities.second_last$end) | flywire_type %in% unique(all.modalities.second_last$end))%>%pull(bodyid)
+
+all.modalities.second_last <- all.modalities %>%
+  mutate(second_last = map_chr(str_split(path, " -> "), ~ .x[length(.x) - 1]))
+aaa <- cf_partner_summary(cf_ids(malecns=end.types.id),partners = "in")%>%
+  group_by(type.post) %>%
+  mutate(total_weight = sum(weight, na.rm = TRUE)) %>%
+  mutate(normed_weight = weight/total_weight) %>% 
+  ungroup()
+
+all.modalities.second_last.final <- all.modalities.second_last %>%
+  left_join(
+    aaa %>% select(type.pre, type.post, normed_weight),
+    by = c("second_last" = "type.pre", "end" = "type.post")
+  ) %>%
+  distinct(second_last, end, .keep_all = TRUE) %>%
+  group_by(end) %>%
+  summarise(fraction.of.total.input = sum(normed_weight, na.rm = TRUE))
+```
+
+test that code is correct
+```{r}
+FLA001m.in <- cf_partner_summary(cf_ids(malecns=mba %>% 
+                                          filter(type == 'CB1119,CB1989') %>% 
+                                          pull(bodyid)),partners='in') %>% 
+              mutate(norm.weight=weight/sum(weight))
+subset <- all.modalities.second_last %>%  filter(end=='CB1119,CB1989') %>%  pull(second_last) %>% unique()
+
+FLA001m.in %>%  filter(type.pre %in% subset) %>%  pull(norm.weight) %>%  sum()
+```
+
+
+
+
+
+

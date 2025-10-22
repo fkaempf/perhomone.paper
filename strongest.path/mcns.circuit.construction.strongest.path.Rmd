@@ -187,11 +187,10 @@ conn<- conn%>%
 
 
 #nam <-calculate_normed_adj_matrix(conn.wo.gaba,cell.or.type='type',pre.or.post='avg') #avg
-nam <-calculate_normed_adj_matrix(conn,cell.or.type='type',pre.or.post='post') #avg
-nam_thresholded <-nam
+adj.output.normed <-calculate_normed_adj_matrix(conn,cell.or.type='type',pre.or.post='post') #avg
 
 g.prout.mcns <- graph_from_adjacency_matrix(
-  nam_thresholded,
+  adj.output.normed,
   mode = "directed",
   weighted = TRUE,
   diag = FALSE
@@ -1288,8 +1287,6 @@ ggplot(connected.scatterplot.single.vab3, aes(x = x_jittered, y = prop, group = 
 
 
 ```{r}
-
-
 # add modality labels (as you already do)
 df_all.all.ppk25$modality <- 'female.touch'
 df_all.all.ppk23$modality <- 'male.touch'
@@ -1727,36 +1724,41 @@ stacked barplot showing how much the strongest paths from the modalities take of
 library(dplyr)
 library(stringr)
 library(purrr)
-
-end.types.id <- mba %>%filter(type %in% unique(all.modalities.second_last$end) | flywire_type %in% unique(all.modalities.second_last$end))%>%pull(bodyid)
-
-all.modalities.second_last <- all.modalities %>%
+  all.modalities.second_last <- all.modalities %>%
   mutate(second_last = map_chr(str_split(path, " -> "), ~ .x[length(.x) - 1]))
-aaa <- cf_partner_summary(cf_ids(malecns=end.types.id),partners = "in")%>%
-  group_by(type.post) %>%
-  mutate(total_weight = sum(weight, na.rm = TRUE)) %>%
-  mutate(normed_weight = weight/total_weight) %>% 
-  ungroup()
 
-all.modalities.second_last.final <- all.modalities.second_last %>%
-  left_join(
-    aaa %>% select(type.pre, type.post, normed_weight),
-    by = c("second_last" = "type.pre", "end" = "type.post")
-  ) %>%
-  distinct(second_last, end, .keep_all = TRUE) %>%
-  group_by(end) %>%
-  summarise(fraction.of.total.input = sum(normed_weight, na.rm = TRUE))
+pairs <- all.modalities.second_last %>%
+  select(second_last, end) %>%
+  distinct() %>%
+  mutate(weight = igraph::E(g.prout.mcns)$weight[
+    igraph::get.edge.ids(g.prout.mcns, as.vector(t(as.matrix(cur_data()))), directed = TRUE, error = FALSE)
+  ])
+
+all.modalities.second_last <- all.modalities.second_last %>%
+  left_join(pairs, by = c("second_last", "end"))
+
+aaa <- all.modalities.second_last %>% 
+  select(second_last, end, weight, modality, dataset) %>% 
+  distinct() %>% 
+  group_by(end, modality, dataset) %>% 
+  summarise(weight = sum(weight) / 5, .groups = "drop")
+
+
+
+
 ```
 
 test that code is correct
 ```{r}
-FLA001m.in <- cf_partner_summary(cf_ids(malecns=mba %>% 
-                                          filter(type == 'CB1119,CB1989') %>% 
-                                          pull(bodyid)),partners='in') %>% 
-              mutate(norm.weight=weight/sum(weight))
-subset <- all.modalities.second_last %>%  filter(end=='CB1119,CB1989') %>%  pull(second_last) %>% unique()
 
-FLA001m.in %>%  filter(type.pre %in% subset) %>%  pull(norm.weight) %>%  sum()
+ggplot(aaa, aes(x = end, y = weight, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ dataset, scales = "free_x") +
+  theme_minimal() +
+  labs(x = "Neuron (end)", y = "Weight", fill = "Modality") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
 ```
 
 

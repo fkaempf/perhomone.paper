@@ -1,52 +1,83 @@
-```{r}
-library(malecns)
-library(coconatfly)
-library(fafbseg)
-library(neuprintr)
-library(ggplot2)
-library(dplyr)
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(plotly)
-library(stringr)
-library(igraph)
-library(tidygraph)
-library(ggraph)
-library(jsonlite)
-library(ggplot2)
-library(reshape2)
-library(Matrix)
-library(ggplot2)
-library(ggpubr)
-```
-
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(
   echo = TRUE,
   message = FALSE,
   warning = FALSE,
-  fig.align = 'center',
+  fig.align = "center",
   fig.width = 8,
   fig.height = 6
 )
+
+# Shared dependencies for strongest-path analyses and visualisations
+library(arrow)
+library(coconatfly)
+library(cowplot)
+library(dplyr)
+library(fafbseg)
+library(ggraph)
+library(ggplot2)
+library(ggpubr)
+library(grid)
+library(igraph)
+library(jsonlite)
+library(malecns)
+library(Matrix)
+library(neuprintr)
+library(nat.ggplot)
+library(patchwork)
+library(plotly)
+library(purrr)
+library(RCy3)
+library(reshape2)
+library(scales)
+library(stringr)
+library(tidygraph)
+library(tidyr)
 ```
 
+## Overview
+
+This notebook assembles precomputed strongest-path summaries across male and female pheromone circuits, enriches them with morphological annotations, and visualises modality-specific connectivity patterns. Each section builds on the previous one: we begin by loading cached data, derive adjacency matrices and helper utilities, and then profile path strength statistics for different sensory inputs.
 
 ## 1 Load data
 
-### 1.1 Load male boday annotations
 ```{r}
-synapse_threshold=5
-mba<-mcns_body_annotations()
-mba.static<-mcns_body_annotations()
-mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
+# read precomputed strongest path lookups
+
+df.ppk23.PPN1.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK23.2.PPN1.feather")
+df.ppk23.vAB3.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK23.2.vAB3.feather")
+df.ppk23.PPN1.include$dataset <- "PPN1"
+df.ppk23.vAB3.include$dataset <- "vAB3"
 
 
-ppk23.types <- mba%>%filter(receptor_type=='putative_ppk23')%>%pull(type)%>%unique()
-ppk25.types <- mba%>%filter(receptor_type=='putative_ppk25')%>%pull(type)%>%unique()
-IR52a.types <- mba%>%filter(receptor_type=='putative_IR52a')%>%pull(type)%>%unique()
-IR52b.types <- mba%>%filter(receptor_type=='putative_IR52b')%>%pull(type)%>%unique()
+df.ppk25.PPN1.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK25.2.PPN1.feather")
+df.ppk25.vAB3.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK25.2.vAB3.feather")
+df.ppk25.PPN1.include$dataset <- "PPN1"
+df.ppk25.vAB3.include$dataset <- "vAB3"
+
+df_all.all.ppk23.include <- bind_rows(df.ppk23.PPN1.include, df.ppk23.vAB3.include)
+df_all.all.ppk25.include <- bind_rows(df.ppk25.PPN1.include, df.ppk25.vAB3.include)
+```
+
+
+### 1.1 Load male body annotations
+```{r}
+
+choose_mcns()
+synapse_threshold <- 5
+mba <- mcns_body_annotations()
+mba.static <- mcns_body_annotations()
+mba <- mba %>% mutate(type = ifelse(type == "", NA, type))
+
+ppk23.types <- mba %>%
+  filter(receptor_type == "putative_ppk23") %>%
+  pull(type) %>%
+  unique()
+ppk25.types <- mba %>%
+  filter(receptor_type == "putative_ppk25") %>%
+  pull(type) %>%
+  unique()
 
 mba.dimorphism <- mba %>%
   count(type, dimorphism) %>%
@@ -64,32 +95,37 @@ mba.dimorphism <- mba %>%
 ### 1.2 Function to load connectivity
 ```{r}
 fetch_connectivity <- function(synapse_threshold = 5) {
-  mba <- mcns_body_annotations()%>%
-    mutate(type=coalesce(type,flywire_type,manc_type,hemibrain_type))%>%
+  mba <- mcns_body_annotations() %>%
+    mutate(type = coalesce(type, flywire_type, manc_type, hemibrain_type)) %>%
     mutate(cachero.type = str_extract(synonyms, "(?<=Cachero 2010:)[^;]+") %>%
-                            str_trim())
+      str_trim())
   connectivity <- cf_partners(cf_ids(malecns = mba %>% pull(bodyid)),
-                              partners = 'o',
-                              threshold = synapse_threshold)
+    partners = "o",
+    threshold = synapse_threshold
+  )
   connectivity <- connectivity %>%
-    left_join(mba %>%
-                select("type", "bodyid",'fru_dsx','consensus_nt','flywire_type','synonyms','receptor_type','cachero.type','dimorphism') %>%
-                mutate(bodyid=as.integer(bodyid))%>%
-                rename(pre_type = type,pre_fru_dsx=fru_dsx,pre_nt=consensus_nt,pre_fw_type=flywire_type,pre_synonyms=synonyms,pre_receptor_type=receptor_type,pre.dimorphism=dimorphism,pre.cachero.type=cachero.type),
-              by = c('pre_id'='bodyid'))%>%
-    rename(post_type = type)%>%
-    left_join(mba %>%
-                select("bodyid",'fru_dsx','consensus_nt','flywire_type','synonyms','receptor_type','cachero.type','dimorphism') %>%
-                mutate(bodyid=as.integer(bodyid))%>%
-                rename(post_fru_dsx=fru_dsx,post_nt=consensus_nt,post_fw_type=flywire_type,post_synonyms=synonyms,post_receptor_type=receptor_type,post.dimorphism=dimorphism,post.cachero.type=cachero.type),
-              by = c('post_id'='bodyid'))
+    left_join(
+      mba %>%
+        select("type", "bodyid", "fru_dsx", "consensus_nt", "flywire_type", "synonyms", "receptor_type", "cachero.type", "dimorphism") %>%
+        mutate(bodyid = as.integer(bodyid)) %>%
+        rename(pre_type = type, pre_fru_dsx = fru_dsx, pre_nt = consensus_nt, pre_fw_type = flywire_type, pre_synonyms = synonyms, pre_receptor_type = receptor_type, pre.dimorphism = dimorphism, pre.cachero.type = cachero.type),
+      by = c("pre_id" = "bodyid")
+    ) %>%
+    rename(post_type = type) %>%
+    left_join(
+      mba %>%
+        select("bodyid", "fru_dsx", "consensus_nt", "flywire_type", "synonyms", "receptor_type", "cachero.type", "dimorphism") %>%
+        mutate(bodyid = as.integer(bodyid)) %>%
+        rename(post_fru_dsx = fru_dsx, post_nt = consensus_nt, post_fw_type = flywire_type, post_synonyms = synonyms, post_receptor_type = receptor_type, post.dimorphism = dimorphism, post.cachero.type = cachero.type),
+      by = c("post_id" = "bodyid")
+    )
   return(connectivity)
 }
 ```
 
 ### 1.3 Load connectivity
 ```{r}
-conn <-fetch_connectivity()
+conn <- fetch_connectivity()
 conn_save <- conn
 
 conn <- conn %>%
@@ -108,56 +144,58 @@ conn <- conn %>%
 ```
 
 ## 2 Adjacency matrix
+
+With the enriched connectivity, build a column/row-normalised adjacency matrix that becomes the weighted igraph backbone for all path searches.
+
 ### 2.1 Function adjacency matrix
 ```{r}
-calculate_normed_adj_matrix <-function(connectivity,cell.or.type='type',pre.or.post='pre'){
+calculate_normed_adj_matrix <- function(connectivity, cell.or.type = "type", pre.or.post = "pre") {
   colScale <- function(A, na.rm = TRUE) {
     scalefac <- 1 / Matrix::colSums(A)
     if (na.rm) scalefac[!is.finite(scalefac)] <- 0
     B <- A %*% Matrix::Diagonal(x = scalefac)
     B
-    }
+  }
   rowScale <- function(A, na.rm = TRUE) {
     scalefac <- 1 / Matrix::rowSums(A)
     if (na.rm) scalefac[!is.finite(scalefac)] <- 0
     B <- Matrix::Diagonal(x = scalefac) %*% A
     B
-    }
-  if(cell.or.type=='cell'){
+  }
+  if (cell.or.type == "cell") {
     unique.identifier <- union(as.character(connectivity$pre_id), as.character(connectivity$post_id))
     adj.matrix <- sparseMatrix(
       i = match(connectivity$pre_id, unique.identifier),
       j = match(connectivity$post_id, unique.identifier),
       x = connectivity$weight,
       dims = c(length(unique.identifier), length(unique.identifier)),
-      dimnames = list(unique.identifier, unique.identifier))
-  }else{
+      dimnames = list(unique.identifier, unique.identifier)
+    )
+  } else {
     unique.identifier <- union(connectivity$pre_type, connectivity$post_type)
     adj.matrix <- sparseMatrix(
       i = match(connectivity$pre_type, unique.identifier),
       j = match(connectivity$post_type, unique.identifier),
       x = connectivity$weight,
       dims = c(length(unique.identifier), length(unique.identifier)),
-      dimnames = list(unique.identifier, unique.identifier))
+      dimnames = list(unique.identifier, unique.identifier)
+    )
   }
-  if(pre.or.post=='pre'){
+  if (pre.or.post == "pre") {
     adj.matrix.normed.pre <- rowScale(adj.matrix)
     colnames(adj.matrix.normed.pre) <- colnames(adj.matrix)
     rownames(adj.matrix.normed.pre) <- rownames(adj.matrix)
     return(adj.matrix.normed.pre)
-  }else if(pre.or.post=='avg'){
+  } else if (pre.or.post == "avg") {
     adj.matrix.normed.post <- colScale(adj.matrix)
     colnames(adj.matrix.normed.post) <- colnames(adj.matrix)
     rownames(adj.matrix.normed.post) <- rownames(adj.matrix)
     adj.matrix.normed.pre <- rowScale(adj.matrix)
     colnames(adj.matrix.normed.pre) <- colnames(adj.matrix)
     rownames(adj.matrix.normed.pre) <- rownames(adj.matrix)
-    
+
     return(avg_mat <- (adj.matrix.normed.post + adj.matrix.normed.post) / 2)
-    
-  }
-  
-  else{
+  } else {
     adj.matrix.normed.post <- colScale(adj.matrix)
     colnames(adj.matrix.normed.post) <- colnames(adj.matrix)
     rownames(adj.matrix.normed.post) <- rownames(adj.matrix)
@@ -166,22 +204,22 @@ calculate_normed_adj_matrix <-function(connectivity,cell.or.type='type',pre.or.p
 }
 ```
 
-### 2.1 Create adjacency matrix
+### 2.2 Create adjacency matrix
 ```{r}
-use.clone <- F
-conn<-conn_save
-conn<- conn%>%
-  mutate(pre_type=coalesce(pre_type,pre_fw_type),post_type=coalesce(post_type,post_fw_type))%>%
-  mutate(pre_type=if_else(is.na(pre_type),as.character(bodyid),pre_type),
-         post_type=if_else(is.na(post_type),as.character(partner),post_type))%>%
-  mutate(pre_type = gsub("[()]", "", pre_type))%>%
+use.clone <- FALSE
+conn <- conn_save
+conn <- conn %>%
+  mutate(pre_type = coalesce(pre_type, pre_fw_type), post_type = coalesce(post_type, post_fw_type)) %>%
+  mutate(
+    pre_type = if_else(is.na(pre_type), as.character(bodyid), pre_type),
+    post_type = if_else(is.na(post_type), as.character(partner), post_type)
+  ) %>%
+  mutate(pre_type = gsub("[()]", "", pre_type)) %>%
   mutate(post_type = gsub("[()]", "", post_type))
 
 
-
-
-#nam <-calculate_normed_adj_matrix(conn.wo.gaba,cell.or.type='type',pre.or.post='avg') #avg
-adj.output.normed <-calculate_normed_adj_matrix(conn,cell.or.type='type',pre.or.post='post') #avg
+# nam <-calculate_normed_adj_matrix(conn.wo.gaba,cell.or.type='type',pre.or.post='avg') #avg
+adj.output.normed <- calculate_normed_adj_matrix(conn, cell.or.type = "type", pre.or.post = "post") # avg
 
 g.prout.mcns <- graph_from_adjacency_matrix(
   adj.output.normed,
@@ -193,7 +231,7 @@ g.prout.mcns <- graph_from_adjacency_matrix(
 
 
 
-define kstrongest path function
+## 2.2 Define kstrongest path function
 ```{r}
 add_valence_flag <- function(df, nt_by_type, is_inhib_by_nt) {
   df %>%
@@ -202,7 +240,7 @@ add_valence_flag <- function(df, nt_by_type, is_inhib_by_nt) {
       # split path and drop endpoint
       nodes = list(setdiff(strsplit(path, " -> ", fixed = TRUE)[[1]], end)),
       # lookup NTs
-      nts   = list(unname(nt_by_type[unlist(nodes)])),
+      nts = list(unname(nt_by_type[unlist(nodes)])),
       # lookup inhibitory flags
       inhib = list(unname(is_inhib_by_nt[unlist(nts)])),
       # count inhibitors
@@ -214,24 +252,25 @@ add_valence_flag <- function(df, nt_by_type, is_inhib_by_nt) {
 }
 
 
-
 find_k_strongest_paths <- function(
   g,
   starts,
   targets,
   mba,
   n_paths = 3,
-  diversity = c("otheredges","othernodes","none"),
-  ignore_pattern = NULL  # grepl() pattern; matched node names are excluded (start/target kept),
-  
-){
-  
-  type2nt <- mba %>%select(type,consensus_nt)%>%group_by(type)%>%distinct()%>%rename(nt=consensus_nt)
+  diversity = c("otheredges", "othernodes", "none"),
+  ignore_pattern = NULL # grepl() pattern; matched node names are excluded (start/target kept),
+) {
+  type2nt <- mba %>%
+    select(type, consensus_nt) %>%
+    group_by(type) %>%
+    distinct() %>%
+    rename(nt = consensus_nt)
   nt_by_type <- setNames(type2nt$nt, type2nt$type)
-  inhibitory_nts <- c("gaba","glycine","histamine")
+  inhibitory_nts <- c("gaba", "glycine", "histamine")
   all_nts <- unique(type2nt$nt)
   is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
-    
+
   diversity <- match.arg(diversity)
 
   # optional: drop nodes matching ignore_pattern (but never drop starts/targets)
@@ -251,118 +290,134 @@ find_k_strongest_paths <- function(
   results <- list()
   all_nodes <- character(0)
 
-  for (s in starts) for (t in targets) {
-    if (!(s %in% V(g)$name) || !(t %in% V(g)$name)) {
-      results[[paste(s,t,sep="->")]] <- list(list(
-        start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
-      ))
-      next
-    }
-
-    g_tmp <- g
-    E(g_tmp)$log_weight <- log_w
-    pair_paths <- list()
-
-    for (i in seq_len(n_paths)) {
-      sp <- igraph::shortest_paths(
-        g_tmp, from = s, to = t,
-        weights = E(g_tmp)$log_weight,
-        output = "both"
-      )
-      if (length(sp$vpath[[1]]) == 0) break
-
-      vpath <- sp$vpath[[1]]
-      epath <- sp$epath[[1]]
-
-      final_strength <- exp(-sum(E(g_tmp)[epath]$log_weight))
-      hops <- length(epath)
-
-      pair_paths[[paste0("path", i)]] <- list(
-        start = s,
-        end = t,
-        path = paste(V(g)[vpath]$name, collapse = " -> "),
-        strength = final_strength,
-        hops = hops
-      )
-
-      all_nodes <- c(all_nodes, V(g)[vpath]$name)
-
-      if (diversity == "othernodes") {
-        inter <- setdiff(V(g)[vpath]$name, c(s, t))
-        if (length(inter)) g_tmp <- igraph::delete_vertices(g_tmp, inter)
-      } else if (diversity == "otheredges") {
-        g_tmp <- igraph::delete_edges(g_tmp, epath)
+  for (s in starts) {
+    for (t in targets) {
+      if (!(s %in% V(g)$name) || !(t %in% V(g)$name)) {
+        results[[paste(s, t, sep = "->")]] <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+        next
       }
-    }
 
-    if (length(pair_paths) == 0) {
-      pair_paths <- list(list(
-        start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
-      ))
-    }
+      g_tmp <- g
+      E(g_tmp)$log_weight <- log_w
+      pair_paths <- list()
 
-    results[[paste(s,t,sep="->")]] <- pair_paths
+      for (i in seq_len(n_paths)) {
+        sp <- igraph::shortest_paths(
+          g_tmp,
+          from = s, to = t,
+          weights = E(g_tmp)$log_weight,
+          output = "both"
+        )
+        if (length(sp$vpath[[1]]) == 0) break
+
+        vpath <- sp$vpath[[1]]
+        epath <- sp$epath[[1]]
+
+        final_strength <- exp(-sum(E(g_tmp)[epath]$log_weight))
+        hops <- length(epath)
+
+        pair_paths[[paste0("path", i)]] <- list(
+          start = s,
+          end = t,
+          path = paste(V(g)[vpath]$name, collapse = " -> "),
+          strength = final_strength,
+          hops = hops
+        )
+
+        all_nodes <- c(all_nodes, V(g)[vpath]$name)
+
+        if (diversity == "othernodes") {
+          inter <- setdiff(V(g)[vpath]$name, c(s, t))
+          if (length(inter)) g_tmp <- igraph::delete_vertices(g_tmp, inter)
+        } else if (diversity == "otheredges") {
+          g_tmp <- igraph::delete_edges(g_tmp, epath)
+        }
+      }
+
+      if (length(pair_paths) == 0) {
+        pair_paths <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+      }
+
+      results[[paste(s, t, sep = "->")]] <- pair_paths
+    }
   }
 
   # flatten
   results_df <- do.call(rbind, lapply(results, function(pl) {
-    do.call(rbind, lapply(pl, function(r)
-      data.frame(start=r$start, end=r$end, path=r$path,
-                 strength=r$strength, hops=r$hops,
-                 stringsAsFactors=FALSE)))
+    do.call(rbind, lapply(pl, function(r) {
+      data.frame(
+        start = r$start, end = r$end, path = r$path,
+        strength = r$strength, hops = r$hops,
+        stringsAsFactors = FALSE
+      )
+    }))
   }))
 
   results_df_wo_na <- dplyr::filter(results_df, !is.na(strength))
   all_nodes <- unique(all_nodes)
-  
-  results_df_wo_na= add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt)%>%
-              mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
-  
+
+  results_df_wo_na <- add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt) %>%
+    mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
+
   list(df = results_df_wo_na, nodes = all_nodes, raw = results)
 }
+```
+## 3 Downstream target selection
+
+Derive frequently targeted downstream neuron types for both vAB3 and PPN1 by summarising partner synapse weights. We drop broad projection categories (AN/IN) and keep targets contributing at least 0.1% of outgoing weight so subsequent plots focus on substantial partners.
+
+```{r downstream-target-selection}
+all.PPN1.ids <- mba %>%
+  filter(grepl("PPN1", synonyms)) %>%
+  pull(bodyid)
+all.vAB3.ids <- mba %>%
+  filter(grepl("vAB3", synonyms)) %>%
+  pull(bodyid)
+target.vAB3.all <- cf_partner_summary(cf_ids(malecns = all.vAB3.ids), partners = "out", normalise = F) %>%
+  group_by(type.post) %>%
+  summarize(weight = sum(weight)) %>%
+  filter(!grepl("AN", type.post)) %>%
+  filter(!grepl("IN", type.post)) %>%
+  arrange(desc(weight)) %>%
+  filter(weight / sum(weight) >= 0.001) %>%
+  filter(!is.na(type.post)) %>%
+  pull(type.post)
+
+target.PPN1.all <- cf_partner_summary(cf_ids(malecns = all.PPN1.ids), partners = "out", normalise = F) %>%
+  group_by(type.post) %>%
+  summarize(weight = sum(weight)) %>%
+  filter(!grepl("AN", type.post)) %>%
+  filter(!grepl("IN", type.post)) %>%
+  arrange(desc(weight)) %>%
+  filter(weight / sum(weight) >= 0.001) %>%
+  filter(!is.na(type.post)) %>%
+  pull(type.post)
+
+target.vAB3.all <- c(target.vAB3.all[1:10], intersect(target.vAB3.all, target.PPN1.all)[1:3])
+target.PPN1.all <- c(target.PPN1.all[1:10], intersect(target.vAB3.all, target.PPN1.all)[1:3])
 
 ```
 
+### 3.1 Olfactory strongest paths (DA1 & VA1v)
 
+For male (PPN1) and female (vAB3) downstream partners, evaluate the top three strongest paths originating from DA1 and VA1v ORNs. Compare path strengths, hop counts, and inhibitory/excitatory valence across datasets.
 
-All Neurons downstream
+```{r strongest-paths-olfactory}
 
-```{r}
-
-all.PPN1.ids <- mba%>%filter(grepl('PPN1',synonyms))%>%pull(bodyid)
-all.vAB3.ids <- mba%>%filter(grepl('vAB3 Clowney',notes))%>%pull(bodyid)
-target.vAB3.all <- cf_partner_summary(cf_ids(malecns=all.vAB3.ids),partners='out',normalise = F) %>% 
-  group_by(type.post)%>%
-  summarize(weight=sum(weight))%>%
-  filter(!grepl('AN',type.post)) %>% 
-  filter(!grepl('IN',type.post)) %>%
-  arrange(desc(weight)) %>%
-  filter(weight/sum(weight) >= 0.001) %>% 
-  filter(!is.na(type.post)) %>% 
-  pull(type.post)
-
-target.PPN1.all <- cf_partner_summary(cf_ids(malecns=all.PPN1.ids),partners='out',normalise = F) %>% 
-  group_by(type.post)%>%
-  summarize(weight=sum(weight))%>%
-  filter(!grepl('AN',type.post)) %>% 
-  filter(!grepl('IN',type.post)) %>%
-  arrange(desc(weight)) %>%
-  filter(weight/sum(weight) >= 0.001) %>% 
-  filter(!is.na(type.post)) %>% 
-  pull(type.post)
-
-target.vAB3.all <- c(target.vAB3.all[1:10],intersect(target.vAB3.all,target.PPN1.all)[1:3])
-target.PPN1.all <- c(target.PPN1.all[1:10],intersect(target.vAB3.all,target.PPN1.all)[1:3])
-
-
-
-
-start.types.DA1 <- c('ORN_DA1')
-start.types.VA1v <- c('ORN_VA1v')
-res.vAB3.DA1 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.DA1, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
-res.PPN1.DA1 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.DA1, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
-res.vAB3.VA1v <- find_k_strongest_paths(g.prout.mcns, starts=start.types.VA1v, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
-res.PPN1.VA1v <- find_k_strongest_paths(g.prout.mcns, starts=start.types.VA1v, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
+start.types.DA1 <- c("ORN_DA1")
+start.types.VA1v <- c("ORN_VA1v")
+res.vAB3.DA1 <- find_k_strongest_paths(g.prout.mcns, starts = start.types.DA1, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+write_feather(res.vAB3.DA1$df, "strongest.1000.paths.DA1.2.vAB3.feather")
+res.PPN1.DA1 <- find_k_strongest_paths(g.prout.mcns, starts = start.types.DA1, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+write_feather(res.PPN1.DA1$df, "strongest.1000.paths.DA1.2.PPN1.feather")
+res.vAB3.VA1v <- find_k_strongest_paths(g.prout.mcns, starts = start.types.VA1v, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+write_feather(res.vAB3.VA1v$df, "strongest.1000.paths.VA1v.2.vAB3.feather")
+res.PPN1.VA1v <- find_k_strongest_paths(g.prout.mcns, starts = start.types.VA1v, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+write_feather(res.PPN1.VA1v$df, "strongest.1000.paths.VA1v.2.PPN1.feather")
 
 res.vAB3.DA1$df$dataset <- "vAB3"
 res.PPN1.DA1$df$dataset <- "PPN1"
@@ -372,18 +427,18 @@ df_all.all.DA1 <- bind_rows(res.vAB3.DA1$df, res.PPN1.DA1$df)
 df_all.all.VA1v <- bind_rows(res.vAB3.VA1v$df, res.PPN1.VA1v$df)
 
 
-t_res.DA1  <- t.test(log(strength) ~ dataset, data = df_all.all.DA1)
-pval.DA1   <- unname(t_res.DA1$p.value)
-ann.DA1<- data.frame(
+t_res.DA1 <- t.test(log(strength) ~ dataset, data = df_all.all.DA1)
+pval.DA1 <- unname(t_res.DA1$p.value)
+ann.DA1 <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval.DA1,
   y.position  = max(df_all.all.DA1$strength, na.rm = TRUE) * 1.12
 )
 
-t_res.VA1v  <- t.test(log(strength) ~ dataset, data = df_all.all.VA1v)
-pval.VA1v   <- unname(t_res.VA1v$p.value)
-ann.VA1v<- data.frame(
+t_res.VA1v <- t.test(log(strength) ~ dataset, data = df_all.all.VA1v)
+pval.VA1v <- unname(t_res.VA1v$p.value)
+ann.VA1v <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval.VA1v,
@@ -398,10 +453,10 @@ ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann.DA1,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +
+  scale_y_log10()
 
 ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
@@ -411,26 +466,25 @@ ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann.VA1v,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +
+  scale_y_log10()
 
 
 ggplot(df_all.all.DA1, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path DA1") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ggplot(df_all.all.VA1v, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path VA1v") +
   theme(plot.title = element_text(hjust = 0.5))
-
 
 
 ann_strength.DA1 <- df_all.all.DA1 %>%
@@ -461,7 +515,7 @@ ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   theme_bw() +
   labs(title = "Path strength (DA1) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength.DA1, label = "p", tip.length = 0)
 
 ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
@@ -471,28 +525,30 @@ ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   theme_bw() +
   labs(title = "Path strength (VA1v) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength.VA1v, label = "p", tip.length = 0)
-
-
 ```
 
-auditory
-```{r}
+### 3.2 Auditory strongest paths
 
-#auditory
-start.types.aud <- mba.static%>%filter(grepl('cb_sensory',superclass))%>%filter(grepl('auditory',subclass))%>%pull(type)%>%unique()
-res.vAB3.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
-res.PPN1.aud <- find_k_strongest_paths(g.prout.mcns, starts=start.types.aud, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
+Aggregate strongest paths for mechanosensory neurons annotated as auditory and compare path strength distributions across datasets and valence assignments.
+
+```{r strongest-paths-auditory}
+start.types.aud <- mba.static %>%
+  filter(grepl("cb_sensory", superclass)) %>%
+  filter(grepl("auditory", subclass)) %>%
+  pull(type) %>%
+  unique()
+res.vAB3.aud <- find_k_strongest_paths(g.prout.mcns, starts = start.types.aud, targets = target.vAB3.all, n_paths = 3, diversity = "otheredges", mba = mba)
+res.PPN1.aud <- find_k_strongest_paths(g.prout.mcns, starts = start.types.aud, targets = target.PPN1.all, n_paths = 3, diversity = "otheredges", mba = mba)
 
 res.vAB3.aud$df$dataset <- "vAB3"
 res.PPN1.aud$df$dataset <- "PPN1"
 df_all.all.aud <- bind_rows(res.vAB3.aud$df, res.PPN1.aud$df)
 
 
-
-t_res  <- t.test(log(strength) ~ dataset, data = df_all.all.aud)
-pval   <- unname(t_res$p.value)
+t_res <- t.test(log(strength) ~ dataset, data = df_all.all.aud)
+pval <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
@@ -508,19 +564,18 @@ ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +
+  scale_y_log10()
 
 
 ggplot(df_all.all.aud, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path auditory") +
   theme(plot.title = element_text(hjust = 0.5))
-
 
 
 ann_strength <- df_all.all.aud %>%
@@ -541,26 +596,29 @@ ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   theme_bw() +
   labs(title = "Path strength (auditory) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
-
 ```
 
+### 3.3 Visual strongest paths
 
-```{r}
-#visual
-start.types.vis <- mba%>%filter(superclass=='ol_sensory')%>%pull(type)%>%unique()
-res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',mba=mba)
-res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts=start.types.vis, targets=target.PPN1.all,n_paths=3,diversity='otheredges',mba=mba)
+Repeat the strongest-path comparison for visual modalities derived from olfactory superclasses, highlighting differences in path length and balance of inhibitory/excitatory routes.
+
+```{r strongest-paths-visual}
+start.types.vis <- mba %>%
+  filter(superclass == "ol_sensory") %>%
+  pull(type) %>%
+  unique()
+res.vAB3.vis <- find_k_strongest_paths(g.prout.mcns, starts = start.types.vis, targets = target.vAB3.all, n_paths = 3, diversity = "otheredges", mba = mba)
+res.PPN1.vis <- find_k_strongest_paths(g.prout.mcns, starts = start.types.vis, targets = target.PPN1.all, n_paths = 3, diversity = "otheredges", mba = mba)
 
 res.vAB3.vis$df$dataset <- "vAB3"
 res.PPN1.vis$df$dataset <- "PPN1"
 df_all.all.vis <- bind_rows(res.vAB3.vis$df, res.PPN1.vis$df)
 
 
-
-t_res  <- t.test(log(strength) ~ dataset, data = df_all.all.vis)
-pval   <- unname(t_res$p.value)
+t_res <- t.test(log(strength) ~ dataset, data = df_all.all.vis)
+pval <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
@@ -576,19 +634,18 @@ ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +
+  scale_y_log10()
 
 
 ggplot(df_all.all.vis, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path Visual") +
   theme(plot.title = element_text(hjust = 0.5))
-
 
 
 ann_strength <- df_all.all.vis %>%
@@ -609,40 +666,76 @@ ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   theme_bw() +
   labs(title = "Path strength (visual) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
-
 ```
 
-```{r}
+### 3.4 PPK23 strongest paths
+
+Explore strongest paths seeded from PPK23 chemosensory neurons, both with explicit exclusion filters and when allowing all targets, to assess modality-specific routing differences.
+
+```{r strongest-paths-ppk23}
+# contact chemosensor ppk23
+
+start.types.ppk23 <- mba.static %>%
+  filter(grepl("ppk23", receptor_type)) %>%
+  pull(type) %>%
+  unique()
+
+if (!exists("df_all.all.ppk23.include")) {
+  res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns,
+    starts = start.types.ppk23,
+    targets = target.vAB3.all,
+    n_paths = 3,
+    diversity = "otheredges",
+    ignore_pattern = "AN09B017",
+    mba = mba
+  )
+  res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns,
+    starts = start.types.ppk23,
+    targets = target.PPN1.all,
+    n_paths = 3,
+    diversity = "otheredges",
+    ignore_pattern = "AN05B102",
+    mba = mba
+  )
+  res.vAB3.ppk23.include <- find_k_strongest_paths(g.prout.mcns,
+    starts = start.types.ppk23,
+    targets = target.vAB3.all,
+    n_paths = 100,
+    diversity = "otheredges",
+    mba = mba
+  )
+  res.PPN1.ppk23.include <- find_k_strongest_paths(g.prout.mcns,
+    starts = start.types.ppk23,
+    targets = target.PPN1.all,
+    n_paths = 100,
+    diversity = "otheredges",
+    mba = mba
+  )
+
+  res.vAB3.ppk23$df$dataset <- "vAB3"
+  res.PPN1.ppk23$df$dataset <- "PPN1"
+  res.vAB3.ppk23.include$df$dataset <- "vAB3"
+  res.PPN1.ppk23.include$df$dataset <- "PPN1"
+  df_all.all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
+  df_all.all.ppk23.include <- bind_rows(
+    res.vAB3.ppk23.include$df,
+    res.PPN1.ppk23.include$df
+  )
+}
 
 
-#contact chemosensor ppk23
-
-start.types.ppk23 <- mba.static%>%filter(grepl('ppk23',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
-res.PPN1.ppk23 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
-res.vAB3.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.vAB3.all ,n_paths=100,diversity='otheredges',mba=mba)
-res.PPN1.ppk23.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk23, targets=target.PPN1.all,n_paths=100,diversity='otheredges',mba=mba)
-
-res.vAB3.ppk23$df$dataset <- "vAB3"
-res.PPN1.ppk23$df$dataset <- "PPN1"
-res.vAB3.ppk23.include$df$dataset <- "vAB3"
-res.PPN1.ppk23.include$df$dataset <- "PPN1"
-df_all.all.ppk23 <- bind_rows(res.vAB3.ppk23$df, res.PPN1.ppk23$df)
-df_all.all.ppk23.include <- bind_rows(res.vAB3.ppk23.include$df, res.PPN1.ppk23.include$df)
-
-
-t_res  <- t.test(log(strength) ~ dataset, data = df_all.all.ppk23)
-pval   <- unname(t_res$p.value)
+t_res <- t.test(log(strength) ~ dataset, data = df_all.all.ppk23.include)
+pval <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.all.ppk23$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.ppk23.include$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk23.include, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -650,22 +743,21 @@ ggplot(df_all.all.ppk23, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +
+  scale_y_log10()
 
 
-ggplot(df_all.all.ppk23, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.ppk23.include, aes(x = dataset, y = hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path PPK23") +
   theme(plot.title = element_text(hjust = 0.5))
 
 
-
-ann_strength <- df_all.all.ppk23 %>%
+ann_strength <- df_all.all.ppk23.include %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -676,45 +768,51 @@ ann_strength <- df_all.all.ppk23 %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.ppk23, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk23.include, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
   theme_bw() +
   labs(title = "Path strength (PPK23) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```
+### 3.5 PPK25 strongest paths
+
+Repeat the analysis for PPK25 chemosensors to highlight sex-specific routing differences when these neurons are included or excluded from the strongest-path search.
+
+```{r strongest-paths-ppk25}
+# contact chemosensor ppk25
+start.types.ppk25 <- mba.static %>%
+  filter(grepl("ppk25", receptor_type)) %>%
+  pull(type) %>%
+  unique()
+
+if (!exists("df_all.all.ppk25.include")) {
+  res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts = start.types.ppk25, targets = target.vAB3.all, n_paths = 3, diversity = "otheredges", ignore_pattern = "AN09B017", mba = mba)
+  res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts = start.types.ppk25, targets = target.PPN1.all, n_paths = 3, diversity = "otheredges", ignore_pattern = "AN05B102", mba = mba)
+  res.vAB3.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts = start.types.ppk25, targets = target.vAB3.all, n_paths = 100, diversity = "otheredges", mba = mba)
+  res.PPN1.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts = start.types.ppk25, targets = target.PPN1.all, n_paths = 100, diversity = "otheredges", mba = mba)
+  res.vAB3.ppk25$df$dataset <- "vAB3"
+  res.PPN1.ppk25$df$dataset <- "PPN1"
+  res.vAB3.ppk25.include$df$dataset <- "vAB3"
+  res.PPN1.ppk25.include$df$dataset <- "PPN1"
+  df_all.all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
+  df_all.all.ppk25.include <- bind_rows(res.vAB3.ppk25.include$df, res.PPN1.ppk25.include$df)
+}
 
 
-```{r}
-#contact chemosensor ppk25
-start.types.ppk25 <- mba.static%>%filter(grepl('ppk25',receptor_type))%>%pull(type)%>%unique()
-res.vAB3.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=3,diversity='otheredges',ignore_pattern='AN09B017',mba=mba)
-res.PPN1.ppk25 <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=3,diversity='otheredges',ignore_pattern='AN05B102',mba=mba)
-res.vAB3.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.vAB3.all ,n_paths=100,diversity='otheredges',mba=mba)
-res.PPN1.ppk25.include <- find_k_strongest_paths(g.prout.mcns, starts=start.types.ppk25, targets=target.PPN1.all,n_paths=100,diversity='otheredges',mba=mba)
-
-
-res.vAB3.ppk25$df$dataset <- "vAB3"
-res.PPN1.ppk25$df$dataset <- "PPN1"
-res.vAB3.ppk25.include$df$dataset <- "vAB3"
-res.PPN1.ppk25.include$df$dataset <- "PPN1"
-df_all.all.ppk25 <- bind_rows(res.vAB3.ppk25$df, res.PPN1.ppk25$df)
-df_all.all.ppk25.include <- bind_rows(res.vAB3.ppk25.include$df, res.PPN1.ppk25.include$df)
-
-
-t_res  <- t.test(log(strength) ~ dataset, data = df_all.all.ppk25)
-pval   <- unname(t_res$p.value)
+t_res <- t.test(log(strength) ~ dataset, data = df_all.all.ppk25.include)
+pval <- unname(t_res$p.value)
 ann <- data.frame(
   group1      = "PPN1",
   group2      = "vAB3",
   p           = pval,
-  y.position  = max(df_all.all.ppk25$strength, na.rm = TRUE) * 1.12
+  y.position  = max(df_all.all.ppk25.include$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk25.include, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -722,22 +820,21 @@ ggplot(df_all.all.ppk25, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   stat_pvalue_manual(
     ann,
-    label = "p",         # use the column 'p'
+    label = "p", # use the column 'p'
     tip.length = 0
-  )+
-  scale_y_log10() 
+  ) +§
+  scale_y_log10()
 
 
-ggplot(df_all.all.ppk25, aes(x = dataset, y = hops)) +
+ggplot(df_all.all.ppk25.include, aes(x = dataset, y =   hops)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
   scale_y_log10() +
-  theme_bw()+
+  theme_bw() +
   labs(title = "Hops in strongest path ppk25") +
   theme(plot.title = element_text(hjust = 0.5))
 
 
-
-ann_strength <- df_all.all.ppk25 %>%
+ann_strength <- df_all.all.ppk25.include %>%
   group_by(valence) %>%
   summarise(
     group1 = "PPN1",
@@ -748,31 +845,33 @@ ann_strength <- df_all.all.ppk25 %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.ppk25, aes(x = dataset, y = strength)) +
+ggplot(df_all.all.ppk25.include, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
   theme_bw() +
   labs(title = "Path strength (ppk25) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  facet_wrap(~ valence, nrow = 1) +
+  facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
 ```
+## 4 Modality composition analyses
 
+Summarise modality contributions to downstream targets using pie charts and connected scatterplots. The helper functions below reshape the strongest-path data into modality-level proportions.
 
+### 4.1 External inputs (excluding PPN1/vAB3)
 
+Focus on modalities other than the target circuit itself by excluding PPN1 and vAB3 when computing modality contributions.
 
-```{r}
-library(scales)
-
+```{r modality-composition-external}
 
 # add modality labels (as you already do)
-df_all.all.ppk25$modality <- 'female.touch'
-df_all.all.ppk23$modality <- 'male.touch'
-df_all.all.aud$modality   <- 'auditory'
-df_all.all.DA1$modality   <- 'DA1'
-df_all.all.VA1v$modality   <- 'VA1v'
-df_all.all.vis$modality   <- 'visual'
+df_all.all.ppk25$modality <- "female.touch"
+df_all.all.ppk23$modality <- "male.touch"
+df_all.all.aud$modality <- "auditory"
+df_all.all.DA1$modality <- "DA1"
+df_all.all.VA1v$modality <- "VA1v"
+df_all.all.vis$modality <- "visual"
 
 all.modalities <- rbind(
   df_all.all.ppk25,
@@ -784,53 +883,58 @@ all.modalities <- rbind(
 pie_data <- function(df, dataset_name, valence_keep = NULL) {
   df %>%
     filter(dataset == dataset_name) %>%
-    { if (!is.null(valence_keep)) filter(., valence %in% valence_keep) else . } %>%
+    {
+      if (!is.null(valence_keep)) filter(., valence %in% valence_keep) else .
+    } %>%
     group_by(end, modality) %>%
     summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop_last") %>%
     mutate(prop = total_strength / sum(total_strength)) %>%
     ungroup() %>%
-    filter(is.finite(prop))  # drop ends with all-zero strength
+    filter(is.finite(prop)) # drop ends with all-zero strength
 }
 
 pie_plot <- function(pdat, title_txt) {
   ggplot(pdat, aes(x = "", y = prop, fill = modality)) +
     geom_col(width = 1, color = "white") +
     coord_polar(theta = "y") +
-    facet_wrap(~ end) +
+    facet_wrap(~end) +
     theme_void() +
     labs(title = title_txt) +
     geom_text(aes(label = percent(prop, accuracy = 1)),
-              position = position_stack(vjust = 0.5), size = 2)
+      position = position_stack(vjust = 0.5), size = 2
+    )
 }
 
-## PPN1
+# PPN1
 ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
-ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1)) # handles either text or numeric
 ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
 
 p_ppn1_all <- pie_plot(ppn1_all, "PPN1: modality contribution per target neuron (all)")
 p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1: modality contribution per target neuron (excitatory only)")
 p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1: modality contribution per target neuron (inhibitory only)")
 
-p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+p_ppn1_all
+p_ppn1_exc
+p_ppn1_inh
 
-ppn1_all$connection.type <- 'all'
-ppn1_exc$connection.type <- 'excitatory'
-ppn1_inh$connection.type <- 'inhibitory'
+ppn1_all$connection.type <- "all"
+ppn1_exc$connection.type <- "excitatory"
+ppn1_inh$connection.type <- "inhibitory"
 
-connected.scatterplot.all.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
-                          mutate(
-                            x_pos = as.numeric(factor(end, levels = unique(end))),
-                            x_shift = case_when(
-                              connection.type == "inhibitory" ~ -0.2,
-                              connection.type == "all" ~ 0,
-                              connection.type == "excitatory" ~ 0.2
-                            ),
-                            x_jittered = x_pos + x_shift
-                          )
+connected.scatterplot.all.ppn1 <- rbind(ppn1_all, ppn1_exc, ppn1_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
 
 ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
-  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
     breaks = unique(connected.scatterplot.all.ppn1$x_pos),
@@ -844,12 +948,13 @@ ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = int
     color = "Modality",
     shape = "Connection type"
   ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ theme(axis.text.x = element_text(
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.ppn1$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
 
-## vAB3
+# vAB3
 vab3_all <- pie_data(all.modalities, "vAB3", NULL)
 vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
 vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
@@ -859,27 +964,29 @@ p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron 
 p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only)")
 
 
-p_vab3_all; p_vab3_exc; p_vab3_inh
+p_vab3_all
+p_vab3_exc
+p_vab3_inh
 
-#connected scatter plot
+# connected scatter plot
 
-vab3_all$connection.type <- 'all'
-vab3_exc$connection.type <- 'excitatory'
-vab3_inh$connection.type <- 'inhibitory'
+vab3_all$connection.type <- "all"
+vab3_exc$connection.type <- "excitatory"
+vab3_inh$connection.type <- "inhibitory"
 
-connected.scatterplot.all.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
-                          mutate(
-                            x_pos = as.numeric(factor(end, levels = unique(end))),
-                            x_shift = case_when(
-                              connection.type == "inhibitory" ~ -0.2,
-                              connection.type == "all" ~ 0,
-                              connection.type == "excitatory" ~ 0.2
-                            ),
-                            x_jittered = x_pos + x_shift
-                          )
+connected.scatterplot.all.vab3 <- rbind(vab3_all, vab3_exc, vab3_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
 
 ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
-  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
     breaks = unique(connected.scatterplot.all.vab3$x_pos),
@@ -893,78 +1000,63 @@ ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = int
     color = "Modality",
     shape = "Connection type"
   ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ theme(axis.text.x = element_text(
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.vab3$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
-
-
-
 ```
 
+### 4.2 Including circuit feedback
 
+Repeat the modality composition analysis while keeping PPN1/vAB3 contributions to highlight feedback within the circuit.
 
-```{r}
-
-
+```{r modality-composition-including}
 # add modality labels (as you already do)
-df_all.all.ppk25.include$modality <- 'female.touch'
-df_all.all.ppk23.include$modality <- 'male.touch'
-df_all.all.aud$modality   <- 'auditory'
-df_all.all.DA1$modality   <- 'DA1'
-df_all.all.VA1v$modality   <- 'VA1v'
-df_all.all.vis$modality   <- 'visual'
+df_all.all.ppk25.include$modality <- "female.touch"
+df_all.all.ppk23.include$modality <- "male.touch"
+df_all.all.aud$modality <- "auditory"
+df_all.all.DA1$modality <- "DA1"
+df_all.all.VA1v$modality <- "VA1v"
+df_all.all.vis$modality <- "visual"
 
-all.modalities <- rbind(  
-  df_all.all.ppk25.include,
-  df_all.all.ppk23.include,
-  df_all.all.vis,
-  df_all.all.aud,
-  df_all.all.VA1v,
-  df_all.all.DA1
-)
-
-all.modalities <- rbind(  
-  df_all.all.ppk25.include,
-  df_all.all.ppk23.include,
-  df_all.all.VA1v,
-  df_all.all.DA1
-)
-
-all.modalities <- rbind(  
-  df_all.all.ppk25.include,
-  df_all.all.ppk23.include
-)
+# emphasise touch modalities when including PPN1/vAB3 contributions
+all.modalities <- dplyr::bind_rows(
+   df_all.all.ppk25.include %>% mutate(across(where(is.character), list)),
+   df_all.all.ppk23.include %>% mutate(across(where(is.character), list))
+ )
 
 
-## PPN1
+# PPN1
 ppn1_all <- pie_data(all.modalities, "PPN1", NULL)
-ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1))     # handles either text or numeric
+ppn1_exc <- pie_data(all.modalities, "PPN1", c("excitatory", 1)) # handles either text or numeric
 ppn1_inh <- pie_data(all.modalities, "PPN1", c("inhibitory", -1))
 
 p_ppn1_all <- pie_plot(ppn1_all, "PPN1: modality contribution per target neuron (all)")
 p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1: modality contribution per target neuron (excitatory only) Including PPN1")
 p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1: modality contribution per target neuron (inhibitory only) Including PPN1")
 
-p_ppn1_all; p_ppn1_exc; p_ppn1_inh
+p_ppn1_all
+p_ppn1_exc
+p_ppn1_inh
 
-ppn1_all$connection.type <- 'all'
-ppn1_exc$connection.type <- 'excitatory'
-ppn1_inh$connection.type <- 'inhibitory'
+ppn1_all$connection.type <- "all"
+ppn1_exc$connection.type <- "excitatory"
+ppn1_inh$connection.type <- "inhibitory"
 
-connected.scatterplot.all.include.ppn1 <- rbind(ppn1_all,ppn1_exc,ppn1_inh)%>%
-                          mutate(
-                            x_pos = as.numeric(factor(end, levels = unique(end))),
-                            x_shift = case_when(
-                              connection.type == "inhibitory" ~ -0.2,
-                              connection.type == "all" ~ 0,
-                              connection.type == "excitatory" ~ 0.2
-                            ),
-                            x_jittered = x_pos + x_shift
-                          )
+connected.scatterplot.all.include.ppn1 <- rbind(ppn1_all, ppn1_exc, ppn1_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
 
 ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
-  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
     breaks = unique(connected.scatterplot.all.include.ppn1$x_pos),
@@ -978,14 +1070,15 @@ ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, gro
     color = "Modality",
     shape = "Connection type"
   ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ theme(axis.text.x = element_text(
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.ppn1$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
 
-df <- connected.scatterplot.all.include.ppn1%>%
-  group_by(connection.type,modality)%>%
-  summarize(strength=sum(total_strength)) %>%
+temp_df <- connected.scatterplot.all.include.ppn1 %>%
+  group_by(connection.type, modality) %>%
+  summarize(strength = sum(total_strength)) %>%
   group_by(connection.type) %>%
   mutate(prop = strength / sum(strength)) %>%
   ungroup() %>%
@@ -993,18 +1086,18 @@ df <- connected.scatterplot.all.include.ppn1%>%
     x_pos = as.numeric(factor(modality, levels = unique(modality))),
     x_shift = case_when(
       connection.type == "inhibitory" ~ -0.2,
-      connection.type == "all"        ~  0,
-      connection.type == "excitatory" ~  0.2
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
     ),
     x_jittered = x_pos + x_shift
   )
 
-ggplot(df , aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
-    breaks = unique(df$x_pos),
-    labels = unique(df$modality)
+    breaks = unique(temp_df$x_pos),
+    labels = unique(temp_df$modality)
   ) +
   theme_bw() +
   labs(
@@ -1014,27 +1107,27 @@ ggplot(df , aes(x = x_jittered, y = prop, group = modality, color = modality)) +
     color = "Modality",
     shape = "Connection type"
   ) +
-  theme(axis.text.x = element_text(hjust = 0.5))+
+  theme(axis.text.x = element_text(hjust = 0.5)) +
   theme(
-        plot.title = element_text(hjust = 0.5)
-    )
+    plot.title = element_text(hjust = 0.5)
+  )
 
-ggplot(df%>% filter(connection.type != 'all'), aes(x = connection.type, y = prop, fill = modality)) +
-    geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
-    theme_bw() +
-    labs(
-        title = "Neurotransmitter valence of input (including PPN1) to post PPN1 (all) by connection type",
-        x = "Modality",
-        y = "Proportion",
-        fill = "Connection type"
-    )+
-  theme(axis.text.x = element_text(hjust = 0.5))+
+ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Neurotransmitter valence of input (including PPN1) to post PPN1 (all) by connection type",
+    x = "Modality",
+    y = "Proportion",
+    fill = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(hjust = 0.5)) +
   theme(
-        plot.title = element_text(hjust = 0.5)
-    )
+    plot.title = element_text(hjust = 0.5)
+  )
 
 
-## vAB3
+# vAB3
 vab3_all <- pie_data(all.modalities, "vAB3", NULL)
 vab3_exc <- pie_data(all.modalities, "vAB3", c("excitatory", 1))
 vab3_inh <- pie_data(all.modalities, "vAB3", c("inhibitory", -1))
@@ -1044,27 +1137,29 @@ p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron 
 p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only) Including vAB3")
 
 # print any of these:
-p_vab3_all; p_vab3_exc; p_vab3_inh
+p_vab3_all
+p_vab3_exc
+p_vab3_inh
 
-#connected scatter plot
+# connected scatter plot
 
-vab3_all$connection.type <- 'all'
-vab3_exc$connection.type <- 'excitatory'
-vab3_inh$connection.type <- 'inhibitory'
+vab3_all$connection.type <- "all"
+vab3_exc$connection.type <- "excitatory"
+vab3_inh$connection.type <- "inhibitory"
 
-connected.scatterplot.all.include.vab3 <- rbind(vab3_all,vab3_exc,vab3_inh)%>%
-                          mutate(
-                            x_pos = as.numeric(factor(end, levels = unique(end))),
-                            x_shift = case_when(
-                              connection.type == "inhibitory" ~ -0.2,
-                              connection.type == "all" ~ 0,
-                              connection.type == "excitatory" ~ 0.2
-                            ),
-                            x_jittered = x_pos + x_shift
-                          )
+connected.scatterplot.all.include.vab3 <- rbind(vab3_all, vab3_exc, vab3_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
 
 ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
-  geom_line(alpha = 0.6, linewidth = 0.8) +    # line inherits modality color
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
     breaks = unique(connected.scatterplot.all.include.vab3$x_pos),
@@ -1078,15 +1173,16 @@ ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, gro
     color = "Modality",
     shape = "Connection type"
   ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))+ theme(axis.text.x = element_text(
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.vab3$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
 
 
-df <- connected.scatterplot.all.include.vab3%>%
-  group_by(connection.type,modality)%>%
-  summarize(strength=sum(total_strength)) %>%
+temp_df <- connected.scatterplot.all.include.vab3 %>%
+  group_by(connection.type, modality) %>%
+  summarize(strength = sum(total_strength)) %>%
   group_by(connection.type) %>%
   mutate(prop = strength / sum(strength)) %>%
   ungroup() %>%
@@ -1094,18 +1190,18 @@ df <- connected.scatterplot.all.include.vab3%>%
     x_pos = as.numeric(factor(modality, levels = unique(modality))),
     x_shift = case_when(
       connection.type == "inhibitory" ~ -0.2,
-      connection.type == "all"        ~  0,
-      connection.type == "excitatory" ~  0.2
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
     ),
     x_jittered = x_pos + x_shift
   )
 
-ggplot(df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
-    breaks = unique(df$x_pos),
-    labels = unique(df$modality)
+    breaks = unique(temp_df$x_pos),
+    labels = unique(temp_df$modality)
   ) +
   theme_bw() +
   labs(
@@ -1118,31 +1214,25 @@ ggplot(df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-ggplot(df %>% filter(connection.type != 'all'), aes(x = connection.type, y = prop, fill = modality)) +
-    geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
-    theme_bw() +
-    labs(
-        title = "Neurotransmitter valence of input (including vAB3) to post vAB3 (all) by connection type",
-        x = "Modality",
-        y = "Proportion",
-        fill = "Connection type"
-    ) +
-    theme(
-        plot.title = element_text(hjust = 0.5)
-    )
-
-
-
+ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Neurotransmitter valence of input (including vAB3) to post vAB3 (all) by connection type",
+    x = "Modality",
+    y = "Proportion",
+    fill = "Connection type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
 ```
+### 4.3 Stacked barplot of synaptic contributions
 
-stacked barplot showing how much the strongest paths from the modalities take of the synapse budget 
+Estimate how much of the synaptic budget each modality consumes at the penultimate step along the strongest paths.
 
-
-```{r}
-library(dplyr)
-library(stringr)
-library(purrr)
-  all.modalities.second_last <- all.modalities %>%
+```{r strongest-paths-budget}
+all.modalities.second_last <- all.modalities %>%
   mutate(second_last = map_chr(str_split(path, " -> "), ~ .x[length(.x) - 1]))
 
 pairs <- all.modalities.second_last %>%
@@ -1155,36 +1245,35 @@ pairs <- all.modalities.second_last %>%
 all.modalities.second_last <- all.modalities.second_last %>%
   left_join(pairs, by = c("second_last", "end"))
 
-aaa <- all.modalities.second_last %>% 
-  select(second_last, end, weight, modality, dataset) %>% 
-  distinct() %>% 
-  group_by(end, modality, dataset) %>% 
+aaa <- all.modalities.second_last %>%
+  select(second_last, end, weight, modality, dataset) %>%
+  distinct() %>%
+  group_by(end, modality, dataset) %>%
   summarise(weight = sum(weight) / 5, .groups = "drop")
-
-
-
-
 ```
 
-test that code is correct
-```{r}
+### 4.4 Faceted sanity check
 
+Confirm the aggregated weights visually by faceting barplots across datasets.
+
+```{r strongest-paths-budget-check}
 ggplot(aaa, aes(x = end, y = weight, fill = modality)) +
   geom_bar(stat = "identity", position = "stack") +
-  facet_wrap(~ dataset, scales = "free_x") +
+  facet_wrap(~dataset, scales = "free_x") +
   theme_minimal() +
   labs(x = "Neuron (end)", y = "Weight", fill = "Modality") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
-
 ```
 
-Look at certain subnetworks in cytoscpae
-```{r}
-library(stringr)
-library(igraph)
+## 5 Cytoscape export
 
-input<- all.modalities %>% filter(modality %in% c('male.touch','female.touch','DA1','VA1v'))
+Extract an induced subgraph of interest and push it into Cytoscape for interactive exploration.
+
+### 5.1 Vertex-induced subgraph
+
+```{r cytoscape-export}
+
+input <- all.modalities %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
 # 1) collect unique node names from the path strings
 nodes <- unique(unlist(strsplit(input$path, " *-> *")))
 
@@ -1193,60 +1282,57 @@ nodes_in_g <- intersect(nodes, V(g.prout.mcns)$name)
 
 # 3) induced subgraph on those vertices
 g_sub_vertices <- induced_subgraph(g.prout.mcns, vids = V(g.prout.mcns)[name %in% nodes_in_g])
-
-
-library(RCy3)
-
-cytoscapePing()                                      # sanity check
-net.suid <- createNetworkFromIgraph(g_sub_vertices,     # or g_sub_vertices
-                                    title = "mcns subnetwork",
-                                    collection = "mcns")
+cytoscapePing() # sanity check
+net.suid <- createNetworkFromIgraph(g_sub_vertices, # or g_sub_vertices
+  title = "mcns subnetwork",
+  collection = "mcns"
+)
 
 layoutNetwork("force-directed")
 fitContent()
-
 ```
 
 
 
-```{r}
+### 5.2 Edge-derived subgraph
+
+Parse the strongest paths into edge lists to build a subgraph that respects actual edge usage, then ship the result to Cytoscape with modality metadata.
+
+```{r cytoscape-edge-export}
 # Edge-extracted subgraph: parse paths -> build edge list -> select matching edges -> subgraph
 
-library(dplyr)
-library(stringr)
-library(igraph)
-library(RCy3)
-
-library(stringr)
-library(purrr)
-library(igraph)
-input<- all.modalities %>% filter(modality %in% c('male.touch','female.touch','DA1','VA1v'))
+input <- all.modalities %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
 
 
-
-
-paths <- input$path %>% as.character() %>% na.omit()
+paths <- input$path %>%
+  as.character() %>%
+  na.omit()
 parts <- strsplit(paths, " *-+> *")
 
 edge_pairs <- map_dfr(parts, function(x) {
   x <- trimws(x)
-  if (length(x) < 2) return(NULL)
+  if (length(x) < 2) {
+    return(NULL)
+  }
   data.frame(from = head(x, -1), to = tail(x, -1), stringsAsFactors = FALSE)
 }) %>%
   unique()
 
 eid <- igraph::get.edge.ids(g.prout.mcns,
-                            as.vector(t(as.matrix(edge_pairs))),
-                            directed = TRUE, error = FALSE)
+  as.vector(t(as.matrix(edge_pairs))),
+  directed = TRUE, error = FALSE
+)
 eid <- unique(eid[eid > 0])
 
 g_sub_edges <- subgraph.edges(g.prout.mcns, eids = eid, delete.vertices = TRUE)
 
 
 # use `input` (already filtered) — switch to `all.modalities` if you want all
-paths   <- input$path %>% as.character() %>% na.omit()
-mods    <- input$modality[match(paths, input$path)]  # align modalities to paths
-parts   <- strsplit(paths, " *-+> *")
+paths <- input$path %>%
+  as.character() %>%
+  na.omit()
+mods <- input$modality[match(paths, input$path)] # align modalities to paths
+parts <- strsplit(paths, " *-+> *")
 
 nodes_by_mod <- map2_dfr(parts, mods, function(nodes, m) {
   data.frame(node = trimws(nodes), modality = m, stringsAsFactors = FALSE)
@@ -1257,15 +1343,15 @@ nodes_by_mod <- map2_dfr(parts, mods, function(nodes, m) {
 modalities_by_node <- nodes_by_mod %>%
   group_by(node) %>%
   summarise(
-    modalities     = paste(sort(unique(modality)), collapse = ", "),
-    n_modalities   = n_distinct(modality),
+    modalities = paste(sort(unique(modality)), collapse = ", "),
+    n_modalities = n_distinct(modality),
     .groups = "drop"
   )
 
 
 # attach to your subgraph vertices
 mt <- match(V(g_sub_edges)$name, modalities_by_node$node)
-V(g_sub_edges)$modalities   <- modalities_by_node$modalities[mt]
+V(g_sub_edges)$modalities <- modalities_by_node$modalities[mt]
 V(g_sub_edges)$n_modalities <- modalities_by_node$n_modalities[mt]
 
 V(g_sub_edges)$is_start <- V(g_sub_edges)$name %in% unique(input$start)
@@ -1273,13 +1359,13 @@ V(g_sub_edges)$is_end <- V(g_sub_edges)$name %in% unique(input$end)
 
 V(g_sub_edges)$consensus_nt <- {
   kb <- dplyr::bind_rows(
-    dplyr::transmute(mba, name = as.character(bodyid),   consensus_nt),
-    dplyr::transmute(mba, name = as.character(type),     consensus_nt),
+    dplyr::transmute(mba, name = as.character(bodyid), consensus_nt),
+    dplyr::transmute(mba, name = as.character(type), consensus_nt),
     dplyr::transmute(mba, name = as.character(instance), consensus_nt)
   ) |>
-  dplyr::filter(!is.na(name) & nzchar(name)) |>
-  dplyr::group_by(name) |>
-  dplyr::summarise(consensus_nt = dplyr::coalesce(consensus_nt[!is.na(consensus_nt)][1], NA_character_), .groups="drop")
+    dplyr::filter(!is.na(name) & nzchar(name)) |>
+    dplyr::group_by(name) |>
+    dplyr::summarise(consensus_nt = dplyr::coalesce(consensus_nt[!is.na(consensus_nt)][1], NA_character_), .groups = "drop")
   kb$consensus_nt[match(V(g_sub_edges)$name, kb$name)]
 }
 
@@ -1287,70 +1373,84 @@ V(g_sub_edges)$consensus_nt <- {
 # 5) send to Cytoscape (all vertex/edge attributes preserved)
 cytoscapePing()
 net.suid <- createNetworkFromIgraph(g_sub_edges,
-                                    title = "mcns subnetwork (edge-extracted)",
-                                    collection = "mcns")
+  title = "mcns subnetwork (edge-extracted)",
+  collection = "mcns"
+)
 layoutNetwork("force-directed")
 fitContent()
-
 ```
+## 6 Identify intermediate mediators
 
-attempts to find mediator
-```{r}
+Screen for frequently traversed intermediate neurons (excluding start/targets) and rank them by their prevalence within excitatory strongest paths.
+
+```{r mediator-search}
 all.modalities %>%
-  filter(modality == "male.touch",
-         dataset == "PPN1",
-         valence == "excitatory") %>%
+  filter(
+    modality == "male.touch",
+    dataset == "PPN1",
+    valence == "excitatory"
+  ) %>%
   unnest_longer(nodes) %>%
-  filter(!nodes %in% c(start.types.ppk25,
-                       start.types.ppk23,
-                       target.vAB3.all,
-                       target.PPN1.all)) %>%
-  count(nodes, sort = TRUE) %>% mutate(n_frac=n/max(n)) ->a
+  filter(!nodes %in% c(
+    start.types.ppk25,
+    start.types.ppk23,
+    target.vAB3.all,
+    target.PPN1.all
+  )) %>%
+  count(nodes, sort = TRUE) %>%
+  mutate(n_frac = n / max(n)) -> a
 
-mba %>% 
-  select(type, superclass, bodyid) %>% 
-  filter(type %in% nodes & !grepl('sensory', superclass)) %>% 
-  left_join(a, by = c('type' = 'nodes')) %>% 
+mba %>%
+  select(type, superclass, bodyid) %>%
+  filter(type %in% nodes & !grepl("sensory", superclass)) %>%
+  left_join(a, by = c("type" = "nodes")) %>%
   filter(!is.na(n_frac)) -> aaa
 
-aaa <- aaa %>% arrange(desc(n_frac)) %>% filter(n_frac >= 0.3)
-
+aaa <- aaa %>%
+  arrange(desc(n_frac)) %>%
+  filter(n_frac >= 0.3)
 ```
 
 
+### 6.1 Example CN receiving input from MBON and LHN
 
+Render candidate mediator neurons in 3D to contextualise their position relative to MBON and LHN inputs.
 
-```{r}
+```{r mediator-visualisation}
 # Example of CN receiving input from MBON and LHN
 
-library(nat.ggplot)
-library(ggplot2)
-library(dplyr)
-
-dir = '/Users/fkampf/Documents/pheromone.paper/strongest.path/morphology compared across modality valence path'
+dir <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/morphology compared across modality valence path"
 random_pastel <- function() {
   rgb(runif(1, 0.5, 1), runif(1, 0.5, 1), runif(1, 0.5, 1))
 }
 
 
-anterior = structure(c(1, 0, 0, 0, 
-                       0, -1, 0.000000000000000122464679914735, 0, 
-                       0, -0.000000000000000122464679914735, -1, 0, 
-                       0, 0, 0, 1), 
-                     dim = c(4L, 4L))
+anterior <- structure(
+  c(
+    1, 0, 0, 0,
+    0, -1, 0.000000000000000122464679914735, 0,
+    0, -0.000000000000000122464679914735, -1, 0,
+    0, 0, 0, 1
+  ),
+  dim = c(4L, 4L)
+)
 
-top = structure(c(1, 0, 0, 0,
-                  0, 0, 1, 0,
-                  0, -1, 0, 0,
-                  0, 0, 0, 1),
-                dim = c(4L, 4L))
+top <- structure(
+  c(
+    1, 0, 0, 0,
+    0, 0, 1, 0,
+    0, -1, 0, 0,
+    0, 0, 0, 1
+  ),
+  dim = c(4L, 4L)
+)
 
-view = top 
+view <- top
 
 # Switch to cns just for plotting (V9 snapshot doesn't work)
 choose_mcns_dataset("cns")
-mc_ids <- c(aaa$bodyid) 
-mcns.meshes=read_mcns_meshes(mc_ids)
+mc_ids <- c(aaa$bodyid)
+mcns.meshes <- read_mcns_meshes(mc_ids)
 names(mcns.meshes) <- aaa$type
 key <- match(names(mcns.meshes), aaa$type)
 alphas <- aaa$n_frac[key]
@@ -1358,507 +1458,521 @@ names(alphas) <- names(mcns.meshes)
 
 
 p1 <- gganat +
-  geom_neuron(malecns.surf, rotation_matrix=view, cols=c("grey95","grey85"), alpha=0.3) +
-  geom_neuron(malecnsvnc.surf, rotation_matrix=view, cols=c("grey95","grey85"), alpha=0.3)
+  geom_neuron(malecns.surf, rotation_matrix = view, cols = c("grey95", "grey85"), alpha = 0.3) +
+  geom_neuron(malecnsvnc.surf, rotation_matrix = view, cols = c("grey95", "grey85"), alpha = 0.3)
 
 p2 <- gganat +
-  geom_neuron(malecns.surf, rotation_matrix=anterior, cols=c("grey95","grey85"), alpha=0.3) +
-  geom_neuron(malecnsvnc.surf, rotation_matrix=anterior, cols=c("grey95","grey85"), alpha=0.3)
+  geom_neuron(malecns.surf, rotation_matrix = anterior, cols = c("grey95", "grey85"), alpha = 0.3) +
+  geom_neuron(malecnsvnc.surf, rotation_matrix = anterior, cols = c("grey95", "grey85"), alpha = 0.3)
 
-for(i in seq_along(mcns.meshes)){
+for (i in seq_along(mcns.meshes)) {
   p1 <- p1 + geom_neuron(mcns.meshes[[i]],
-                       rotation_matrix=view,
-                       cols=c(random_pastel()),
-                       alpha=unname(alphas[i]))
-  
+    rotation_matrix = view,
+    cols = c(random_pastel()),
+    alpha = unname(alphas[i])
+  )
+
   p2 <- p2 + geom_neuron(mcns.meshes[[i]],
-                       rotation_matrix=anterior,
-                       cols=c(random_pastel()),
-                       alpha=unname(alphas[i]))
+    rotation_matrix = anterior,
+    cols = c(random_pastel()),
+    alpha = unname(alphas[i])
+  )
 }
 
 
-path = 'PPN1'
-valence = 'excitatory'
-modality = 'male.touch'
+path <- "PPN1"
+valence <- "excitatory"
+modality <- "male.touch"
 
 
 ggsave(
-  file.path(dir,'dorsal',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path.png")),
+  file.path(
+    dir, "dorsal",
+    paste0(path, "_", valence, "_", modality, "_most common neuron in path.png")
+  ),
   p1,
   width = 7, height = 7, dpi = 600, bg = "white"
 )
 
 ggsave(
-  file.path(dir,'anterior',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path.png")),
+  file.path(
+    dir, "anterior",
+    paste0(path, "_", valence, "_", modality, "_most common neuron in path.png")
+  ),
   p2,
   width = 7, height = 7, dpi = 600, bg = "white"
 )
-```
-```{r}
+## 7 Synapse-level inspection
 
-```
-
-
-synapse
-```{r}
-for (modality in c('female.touch','male.touch')){
-  for (path in c('PPN1','vAB3')){
-    for (valence in c('excitatory','inhibitory')){
-comp1 <-modality
-comp2 <- path
-comp3 <- valence
-all.modalities %>%
-  filter(modality == comp1) %>% 
-  filter(dataset == comp2) %>% 
-  filter(valence == comp3) %>%
-  unnest_longer(nodes) %>%
-  filter(!nodes %in% c(start.types.ppk25,
-                       start.types.ppk23,
-                       target.vAB3.all,
-                       target.PPN1.all)) %>%
-  count(nodes, sort = TRUE) %>% mutate(n_frac=n/max(n)) ->a
-
-mba %>% 
-  select(type, superclass, bodyid) %>% 
-  filter(type %in% nodes & !grepl('sensory', superclass)) %>% 
-  left_join(a, by = c('type' = 'nodes')) %>% 
-  filter(!is.na(n_frac)) -> aaa
-
-aaa <- aaa %>% arrange(desc(n_frac)) %>% filter(n_frac >= 0.3)
-
-
-
-
-syn_list <- lapply(aaa$bodyid, function(x) {
-  neuprint_get_synapses(x) %>%
-    mutate(prepost = as.factor(ifelse(prepost == 1, "input", "output")))
-})
-
-
-
-
-
-
-# assumes: syn_list (list of synapse dfs), aaa$bodyid (vector of bodyids), mba (optional)
-
-library(dplyr)
-library(ggplot2)
-library(patchwork)
-library(grid)
-
-ids <- aaa$bodyid
-stopifnot(length(syn_list) == length(ids))
-
-# bind all synapses with bodyid (+ optional type)
-syn_all <- bind_rows(
-  lapply(seq_along(syn_list), function(i) mutate(syn_list[[i]], bodyid = ids[i]))
-)
-if (exists("mba")) {
-  syn_all <- syn_all %>% left_join(select(mba, bodyid, type), by = "bodyid")
-}
-
-syn_all <- syn_all %>%
-  mutate(
-    prepost = factor(prepost, levels = c("input", "output"))
-  ) %>% 
-  left_join(aaa %>% distinct(type,.keep_all = TRUE)%>% select(type,n_frac),by="type")
-
-base_theme <- theme_minimal() +
-  theme(axis.text.x = element_blank(), axis.text.y = element_blank())
-
-
-
-#scatter plot
-p_xy <- ggplot(syn_all, aes(x = x, y = z, color = prepost, alpha = n_frac)) +
-  geom_point(size = 0.1) +
-  scale_color_manual(values = c(input = "blue", output = "red")) +
-  scale_alpha_continuous(range = c(0.0001, 0.01)) +
-  scale_y_reverse() +
-  coord_fixed() +
-  labs(title = "All synapses (XY)") +
-  base_theme +
-  guides(
-    colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
-    alpha  = guide_legend(title = "n_frac")
-  )
-
-p_xz <- ggplot(syn_all, aes(x = x, y = y, color = prepost, alpha = n_frac)) +
-  geom_point(size = 0.1) +
-  scale_color_manual(values = c(input = "blue", output = "red")) +
-  scale_alpha_continuous(range = c(0.0001, 0.01)) +
-  scale_y_reverse() +
-  coord_fixed() +
-  labs(title = "All synapses (XZ)") +
-  base_theme +
-  guides(
-    colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
-    alpha  = guide_legend(title = "n_frac")
-  )
-
-combined <- p_xy / p_xz + plot_layout(nrow = 2, heights = c(1, 1))
-g <- grid.grabExpr(print(combined))
-
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration','scatter',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  g,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-
-
-
-#heatmap
-
-library(patchwork)
-library(dplyr)
-
-# compute common limits
-common_limits <- range(
-  ggplot_build(
-    ggplot(syn_all, aes(x = x, y = y)) + stat_bin2d(bins = 100)
-  )$data[[1]]$count,
-  na.rm = TRUE
-)
-
-# define base heatmap function
-heat_map_xz <- function(df, title, show_legend = TRUE) {
-  ggplot(df, aes(x = x, y = y)) +
-    stat_bin2d(bins = 100, drop = TRUE) +
-    scale_fill_viridis_c(
-      name = "count",
-      trans = "log10",
-      limits = common_limits
-    ) +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = title, x = "x", y = "z") +
-    theme_bw() +
-    theme(legend.position = if (show_legend) "right" else "none",
-          axis.text = element_blank(),
-          axis.ticks = element_blank())
-}
-
-heat_map_xy <- function(df, title, show_legend = TRUE) {
-  ggplot(df, aes(x = x, y = z)) +
-    stat_bin2d(bins = 150, drop = TRUE) +
-    scale_fill_viridis_c(
-      name = "count",
-      trans = "log10",
-      limits = common_limits
-    ) +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = title, x = "x", y = "y") +
-    theme_bw() +
-    theme(legend.position = if (show_legend) "right" else "none",
-          axis.text = element_blank(),
-          axis.ticks = element_blank())
-}
-
-p_in  <- heat_map_xz(filter(syn_all, prepost == "input"),  "Input",  FALSE)
-p_out <- heat_map_xz(filter(syn_all, prepost == "output"), "Output", FALSE)
-p_all <- heat_map_xz(syn_all,                              "All synapses", TRUE)
-p_in_xy  <- heat_map_xy(filter(syn_all, prepost == "input"),  "Input",  FALSE)
-p_out_xy <- heat_map_xy(filter(syn_all, prepost == "output"), "Output", FALSE)
-p_all_xy <- heat_map_xy(syn_all,                              "All synapses", TRUE)
-
-
-
-library(cowplot)
-
-# one legend only
-legend <- get_legend(p_all + theme(legend.position = "right"))
-p_in  <- p_in  + theme(legend.position = "none")
-p_out <- p_out + theme(legend.position = "none")
-p_all <- p_all + theme(legend.position = "none")
-p_in_xy  <- p_in_xy  + theme(legend.position = "none")
-p_out_xy <- p_out_xy + theme(legend.position = "none")
-p_all_xy <- p_all_xy + theme(legend.position = "none")
-
-r1 <- plot_grid(p_in, p_out, p_all, nrow = 1, rel_widths = c(1,1,1), align = "h", axis = "tb")
-r2 <- plot_grid(p_in_xy, p_out_xy, p_all_xy, nrow = 1, rel_widths = c(1.2,1.2,1.2), align = "h", axis = "tb")
-grid <- plot_grid(r1, r2, ncol = 1, rel_heights = c(1,1))
-
-ggg <- plot_grid(grid, legend, ncol = 2, rel_widths = c(1, 0.12))
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration','heatmap',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  ggg,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-
-#Density
-
-density_xz <- ggplot(syn_all, aes(x = x, y = y)) +
-    stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
-    facet_wrap(~ prepost, ncol = 2) +
-    scale_fill_viridis_c(name = "density level") +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = "Density (XZ)", x = "x", y = "z") +
-    theme_bw()+
-      theme(axis.text = element_blank(),
-          axis.ticks = element_blank())
-
-density_xy <- ggplot(syn_all, aes(x = x, y = z)) +
-    stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
-    facet_wrap(~ prepost, ncol = 2) +
-    scale_fill_viridis_c(name = "density level") +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = "Density (XZ)", x = "x", y = "y") +
-    theme_bw()+
-    theme(axis.text = element_blank(),
-          axis.ticks = element_blank())
-
-combined_density <- density_xy + density_xz
-
-combined_density
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration','density',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  combined_density,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-}}}
 
 ```
+Quantify synapse distributions for frequently traversed mediator candidates, generating scatter, heatmap, and density summaries for each modality/path pairing.
+```{r synapse-inspection}
+for (modality in c("female.touch", "male.touch")) {
+  for (path in c("PPN1", "vAB3")) {
+    for (valence in c("excitatory", "inhibitory")) {
+      comp1 <- modality
+      comp2 <- path
+      comp3 <- valence
+      all.modalities %>%
+        filter(modality == comp1) %>%
+        filter(dataset == comp2) %>%
+        filter(valence == comp3) %>%
+        unnest_longer(nodes) %>%
+        filter(!nodes %in% c(
+          start.types.ppk25,
+          start.types.ppk23,
+          target.vAB3.all,
+          target.PPN1.all
+        )) %>%
+        count(nodes, sort = TRUE) %>%
+        mutate(n_frac = n / max(n)) -> a
+
+      mba %>%
+        select(type, superclass, bodyid) %>%
+        filter(type %in% nodes & !grepl("sensory", superclass)) %>%
+        left_join(a, by = c("type" = "nodes")) %>%
+        filter(!is.na(n_frac)) -> aaa
+
+      aaa <- aaa %>%
+        arrange(desc(n_frac)) %>%
+        filter(n_frac >= 0.3)
+
+
+      syn_list <- lapply(aaa$bodyid, function(x) {
+        neuprint_get_synapses(x) %>%
+          mutate(prepost = as.factor(ifelse(prepost == 1, "input", "output")))
+      })
+
+
+      # assumes: syn_list (list of synapse dfs), aaa$bodyid (vector of bodyids), mba (optional)
+
+
+      ids <- aaa$bodyid
+      stopifnot(length(syn_list) == length(ids))
+
+      # bind all synapses with bodyid (+ optional type)
+      syn_all <- bind_rows(
+        lapply(seq_along(syn_list), function(i) mutate(syn_list[[i]], bodyid = ids[i]))
+      )
+      if (exists("mba")) {
+        syn_all <- syn_all %>% left_join(select(mba, bodyid, type), by = "bodyid")
+      }
+
+      syn_all <- syn_all %>%
+        mutate(
+          prepost = factor(prepost, levels = c("input", "output"))
+        ) %>%
+        left_join(aaa %>% distinct(type, .keep_all = TRUE) %>% select(type, n_frac), by = "type")
+
+      base_theme <- theme_minimal() +
+        theme(axis.text.x = element_blank(), axis.text.y = element_blank())
+
+
+      # scatter plot
+      p_xy <- ggplot(syn_all, aes(x = x, y = z, color = prepost, alpha = n_frac)) +
+        geom_point(size = 0.1) +
+        scale_color_manual(values = c(input = "blue", output = "red")) +
+        scale_alpha_continuous(range = c(0.0001, 0.01)) +
+        scale_y_reverse() +
+        coord_fixed() +
+        labs(title = "All synapses (XY)") +
+        base_theme +
+        guides(
+          colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
+          alpha  = guide_legend(title = "n_frac")
+        )
+
+      p_xz <- ggplot(syn_all, aes(x = x, y = y, color = prepost, alpha = n_frac)) +
+        geom_point(size = 0.1) +
+        scale_color_manual(values = c(input = "blue", output = "red")) +
+        scale_alpha_continuous(range = c(0.0001, 0.01)) +
+        scale_y_reverse() +
+        coord_fixed() +
+        labs(title = "All synapses (XZ)") +
+        base_theme +
+        guides(
+          colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
+          alpha  = guide_legend(title = "n_frac")
+        )
+
+      combined <- p_xy / p_xz + plot_layout(nrow = 2, heights = c(1, 1))
+      g <- grid.grabExpr(print(combined))
+
+
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration", "scatter",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        g,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
+
+
+      # heatmap
+
+
+      # compute common limits
+      common_limits <- range(
+        ggplot_build(
+          ggplot(syn_all, aes(x = x, y = y)) +
+            stat_bin2d(bins = 100)
+        )$data[[1]]$count,
+        na.rm = TRUE
+      )
+
+      # define base heatmap function
+      heat_map_xz <- function(df, title, show_legend = TRUE) {
+        ggplot(df, aes(x = x, y = y)) +
+          stat_bin2d(bins = 100, drop = TRUE) +
+          scale_fill_viridis_c(
+            name = "count",
+            trans = "log10",
+            limits = common_limits
+          ) +
+          coord_fixed() +
+          scale_y_reverse() +
+          labs(title = title, x = "x", y = "z") +
+          theme_bw() +
+          theme(
+            legend.position = if (show_legend) "right" else "none",
+            axis.text = element_blank(),
+            axis.ticks = element_blank()
+          )
+      }
+
+      heat_map_xy <- function(df, title, show_legend = TRUE) {
+        ggplot(df, aes(x = x, y = z)) +
+          stat_bin2d(bins = 150, drop = TRUE) +
+          scale_fill_viridis_c(
+            name = "count",
+            trans = "log10",
+            limits = common_limits
+          ) +
+          coord_fixed() +
+          scale_y_reverse() +
+          labs(title = title, x = "x", y = "y") +
+          theme_bw() +
+          theme(
+            legend.position = if (show_legend) "right" else "none",
+            axis.text = element_blank(),
+            axis.ticks = element_blank()
+          )
+      }
+
+      p_in <- heat_map_xz(filter(syn_all, prepost == "input"), "Input", FALSE)
+      p_out <- heat_map_xz(filter(syn_all, prepost == "output"), "Output", FALSE)
+      p_all <- heat_map_xz(syn_all, "All synapses", TRUE)
+      p_in_xy <- heat_map_xy(filter(syn_all, prepost == "input"), "Input", FALSE)
+      p_out_xy <- heat_map_xy(filter(syn_all, prepost == "output"), "Output", FALSE)
+      p_all_xy <- heat_map_xy(syn_all, "All synapses", TRUE)
 
 
 
-without the corresponding neurons
-```{r}
-for (modality in c('female.touch','male.touch')){
-  for (path in c('PPN1','vAB3')){
-    for (valence in c('excitatory','inhibitory')){
-comp1 <-modality
-comp2 <- path
-comp3 <- valence
-all.modalities %>%
-  filter(modality == comp1) %>% 
-  filter(dataset == comp2) %>% 
-  filter(valence == comp3) %>%
-  unnest_longer(nodes) %>%
-  filter(!nodes %in% c(start.types.ppk25,
-                       start.types.ppk23,
-                       target.vAB3.all,
-                       target.PPN1.all)) %>%
-  filter(!grepl('AN09B017',nodes)) %>%
-  filter(!grepl('AN05B102',nodes)) %>% 
-  count(nodes, sort = TRUE) %>% mutate(n_frac=n/max(n)) ->a
+      # one legend only
+      legend <- get_legend(p_all + theme(legend.position = "right"))
+      p_in <- p_in + theme(legend.position = "none")
+      p_out <- p_out + theme(legend.position = "none")
+      p_all <- p_all + theme(legend.position = "none")
+      p_in_xy <- p_in_xy + theme(legend.position = "none")
+      p_out_xy <- p_out_xy + theme(legend.position = "none")
+      p_all_xy <- p_all_xy + theme(legend.position = "none")
 
-mba %>% 
-  select(type, superclass, bodyid) %>% 
-  filter(type %in% nodes & !grepl('sensory', superclass)) %>% 
-  left_join(a, by = c('type' = 'nodes')) %>% 
-  filter(!is.na(n_frac)) -> aaa
+      r1 <- plot_grid(p_in, p_out, p_all, nrow = 1, rel_widths = c(1, 1, 1), align = "h", axis = "tb")
+      r2 <- plot_grid(p_in_xy, p_out_xy, p_all_xy, nrow = 1, rel_widths = c(1.2, 1.2, 1.2), align = "h", axis = "tb")
+      grid <- plot_grid(r1, r2, ncol = 1, rel_heights = c(1, 1))
 
-aaa <- aaa %>% arrange(desc(n_frac)) %>% filter(n_frac >= 0.3)
+      ggg <- plot_grid(grid, legend, ncol = 2, rel_widths = c(1, 0.12))
 
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration", "heatmap",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        ggg,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
 
+      # Density
 
-
-syn_list <- lapply(aaa$bodyid, function(x) {
-  neuprint_get_synapses(x) %>%
-    mutate(prepost = as.factor(ifelse(prepost == 1, "input", "output")))
-})
-
-
-
-
-
-
-# assumes: syn_list (list of synapse dfs), aaa$bodyid (vector of bodyids), mba (optional)
-
-library(dplyr)
-library(ggplot2)
-library(patchwork)
-library(grid)
-
-ids <- aaa$bodyid
-stopifnot(length(syn_list) == length(ids))
-
-# bind all synapses with bodyid (+ optional type)
-syn_all <- bind_rows(
-  lapply(seq_along(syn_list), function(i) mutate(syn_list[[i]], bodyid = ids[i]))
-)
-if (exists("mba")) {
-  syn_all <- syn_all %>% left_join(select(mba, bodyid, type), by = "bodyid")
-}
-
-syn_all <- syn_all %>%
-  mutate(
-    prepost = factor(prepost, levels = c("input", "output"))
-  ) %>% 
-  left_join(aaa %>% distinct(type,.keep_all = TRUE)%>% select(type,n_frac),by="type")
-
-base_theme <- theme_minimal() +
-  theme(axis.text.x = element_blank(), axis.text.y = element_blank())
-
-
-
-#scatter plot
-p_xy <- ggplot(syn_all, aes(x = x, y = z, color = prepost, alpha = n_frac)) +
-  geom_point(size = 0.1) +
-  scale_color_manual(values = c(input = "blue", output = "red")) +
-  scale_alpha_continuous(range = c(0.0001, 0.01)) +
-  scale_y_reverse() +
-  coord_fixed() +
-  labs(title = "All synapses (XY)") +
-  base_theme +
-  guides(
-    colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
-    alpha  = guide_legend(title = "n_frac")
-  )
-
-p_xz <- ggplot(syn_all, aes(x = x, y = y, color = prepost, alpha = n_frac)) +
-  geom_point(size = 0.1) +
-  scale_color_manual(values = c(input = "blue", output = "red")) +
-  scale_alpha_continuous(range = c(0.0001, 0.01)) +
-  scale_y_reverse() +
-  coord_fixed() +
-  labs(title = "All synapses (XZ)") +
-  base_theme +
-  guides(
-    colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
-    alpha  = guide_legend(title = "n_frac")
-  )
-
-combined <- p_xy / p_xz + plot_layout(nrow = 2, heights = c(1, 1))
-g <- grid.grabExpr(print(combined))
-
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration.wo.vAB3.and.PPN1','scatter',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  g,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-
-
-
-#heatmap
-
-library(patchwork)
-library(dplyr)
-
-# compute common limits
-common_limits <- range(
-  ggplot_build(
-    ggplot(syn_all, aes(x = x, y = y)) + stat_bin2d(bins = 100)
-  )$data[[1]]$count,
-  na.rm = TRUE
-)
-
-# define base heatmap function
-heat_map_xz <- function(df, title, show_legend = TRUE) {
-  ggplot(df, aes(x = x, y = y)) +
-    stat_bin2d(bins = 100, drop = TRUE) +
-    scale_fill_viridis_c(
-      name = "count",
-      trans = "log10",
-      limits = common_limits
-    ) +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = title, x = "x", y = "z") +
-    theme_bw() +
-    theme(legend.position = if (show_legend) "right" else "none",
+      density_xz <- ggplot(syn_all, aes(x = x, y = y)) +
+        stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
+        facet_wrap(~prepost, ncol = 2) +
+        scale_fill_viridis_c(name = "density level") +
+        coord_fixed() +
+        scale_y_reverse() +
+        labs(title = "Density (XZ)", x = "x", y = "z") +
+        theme_bw() +
+        theme(
           axis.text = element_blank(),
-          axis.ticks = element_blank())
-}
+          axis.ticks = element_blank()
+        )
 
-heat_map_xy <- function(df, title, show_legend = TRUE) {
-  ggplot(df, aes(x = x, y = z)) +
-    stat_bin2d(bins = 150, drop = TRUE) +
-    scale_fill_viridis_c(
-      name = "count",
-      trans = "log10",
-      limits = common_limits
-    ) +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = title, x = "x", y = "y") +
-    theme_bw() +
-    theme(legend.position = if (show_legend) "right" else "none",
+      density_xy <- ggplot(syn_all, aes(x = x, y = z)) +
+        stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
+        facet_wrap(~prepost, ncol = 2) +
+        scale_fill_viridis_c(name = "density level") +
+        coord_fixed() +
+        scale_y_reverse() +
+        labs(title = "Density (XZ)", x = "x", y = "y") +
+        theme_bw() +
+        theme(
           axis.text = element_blank(),
-          axis.ticks = element_blank())
+          axis.ticks = element_blank()
+        )
+
+      combined_density <- density_xy + density_xz
+
+      combined_density
+
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration", "density",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        combined_density,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
+    }
+  }
 }
-
-p_in  <- heat_map_xz(filter(syn_all, prepost == "input"),  "Input",  FALSE)
-p_out <- heat_map_xz(filter(syn_all, prepost == "output"), "Output", FALSE)
-p_all <- heat_map_xz(syn_all,                              "All synapses", TRUE)
-p_in_xy  <- heat_map_xy(filter(syn_all, prepost == "input"),  "Input",  FALSE)
-p_out_xy <- heat_map_xy(filter(syn_all, prepost == "output"), "Output", FALSE)
-p_all_xy <- heat_map_xy(syn_all,                              "All synapses", TRUE)
-
-
-
-library(cowplot)
-
-# one legend only
-legend <- get_legend(p_all + theme(legend.position = "right"))
-p_in  <- p_in  + theme(legend.position = "none")
-p_out <- p_out + theme(legend.position = "none")
-p_all <- p_all + theme(legend.position = "none")
-p_in_xy  <- p_in_xy  + theme(legend.position = "none")
-p_out_xy <- p_out_xy + theme(legend.position = "none")
-p_all_xy <- p_all_xy + theme(legend.position = "none")
-
-r1 <- plot_grid(p_in, p_out, p_all, nrow = 1, rel_widths = c(1,1,1), align = "h", axis = "tb")
-r2 <- plot_grid(p_in_xy, p_out_xy, p_all_xy, nrow = 1, rel_widths = c(1.2,1.2,1.2), align = "h", axis = "tb")
-grid <- plot_grid(r1, r2, ncol = 1, rel_heights = c(1,1))
-
-ggg <- plot_grid(grid, legend, ncol = 2, rel_widths = c(1, 0.12))
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration.wo.vAB3.and.PPN1','heatmap',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  ggg,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-
-#Density
-
-density_xz <- ggplot(syn_all, aes(x = x, y = y)) +
-    stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
-    facet_wrap(~ prepost, ncol = 2) +
-    scale_fill_viridis_c(name = "density level") +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = "Density (XZ)", x = "x", y = "z") +
-    theme_bw()+
-      theme(axis.text = element_blank(),
-          axis.ticks = element_blank())
-
-density_xy <- ggplot(syn_all, aes(x = x, y = z)) +
-    stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
-    facet_wrap(~ prepost, ncol = 2) +
-    scale_fill_viridis_c(name = "density level") +
-    coord_fixed() +
-    scale_y_reverse() +
-    labs(title = "Density (XZ)", x = "x", y = "y") +
-    theme_bw()+
-    theme(axis.text = element_blank(),
-          axis.ticks = element_blank())
-
-combined_density <- density_xy + density_xz
-
-combined_density
-
-ggsave(
-  file.path(getwd(),'output.synapses.exploration.wo.vAB3.and.PPN1','density',
-             paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")),
-  combined_density,
-  width = 7, height = 7, dpi = 900, bg = "white"
-)
-}}}
-
 ```
 
+### 7.1 Excluding direct PPN1/vAB3 partners
+
+Re-run the synapse-level summaries after removing strongest-path nodes that directly match PPN1 or vAB3 patterns.
+
+```{r synapse-inspection-excluded}
+for (modality in c("female.touch", "male.touch")) {
+  for (path in c("PPN1", "vAB3")) {
+    for (valence in c("excitatory", "inhibitory")) {
+      comp1 <- modality
+      comp2 <- path
+      comp3 <- valence
+      all.modalities %>%
+        filter(modality == comp1) %>%
+        filter(dataset == comp2) %>%
+        filter(valence == comp3) %>%
+        unnest_longer(nodes) %>%
+        filter(!nodes %in% c(
+          start.types.ppk25,
+          start.types.ppk23,
+          target.vAB3.all,
+          target.PPN1.all
+        )) %>%
+        filter(!grepl("AN09B017", nodes)) %>%
+        filter(!grepl("AN05B102", nodes)) %>%
+        count(nodes, sort = TRUE) %>%
+        mutate(n_frac = n / max(n)) -> a
+
+      mba %>%
+        select(type, superclass, bodyid) %>%
+        filter(type %in% nodes & !grepl("sensory", superclass)) %>%
+        left_join(a, by = c("type" = "nodes")) %>%
+        filter(!is.na(n_frac)) -> aaa
+
+      aaa <- aaa %>%
+        arrange(desc(n_frac)) %>%
+        filter(n_frac >= 0.3)
+
+
+      syn_list <- lapply(aaa$bodyid, function(x) {
+        neuprint_get_synapses(x) %>%
+          mutate(prepost = as.factor(ifelse(prepost == 1, "input", "output")))
+      })
+
+
+      # assumes: syn_list (list of synapse dfs), aaa$bodyid (vector of bodyids), mba (optional)
+
+
+      ids <- aaa$bodyid
+      stopifnot(length(syn_list) == length(ids))
+
+      # bind all synapses with bodyid (+ optional type)
+      syn_all <- bind_rows(
+        lapply(seq_along(syn_list), function(i) mutate(syn_list[[i]], bodyid = ids[i]))
+      )
+      if (exists("mba")) {
+        syn_all <- syn_all %>% left_join(select(mba, bodyid, type), by = "bodyid")
+      }
+
+      syn_all <- syn_all %>%
+        mutate(
+          prepost = factor(prepost, levels = c("input", "output"))
+        ) %>%
+        left_join(aaa %>% distinct(type, .keep_all = TRUE) %>% select(type, n_frac), by = "type")
+
+      base_theme <- theme_minimal() +
+        theme(axis.text.x = element_blank(), axis.text.y = element_blank())
+
+
+      # scatter plot
+      p_xy <- ggplot(syn_all, aes(x = x, y = z, color = prepost, alpha = n_frac)) +
+        geom_point(size = 0.1) +
+        scale_color_manual(values = c(input = "blue", output = "red")) +
+        scale_alpha_continuous(range = c(0.0001, 0.01)) +
+        scale_y_reverse() +
+        coord_fixed() +
+        labs(title = "All synapses (XY)") +
+        base_theme +
+        guides(
+          colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
+          alpha  = guide_legend(title = "n_frac")
+        )
+
+      p_xz <- ggplot(syn_all, aes(x = x, y = y, color = prepost, alpha = n_frac)) +
+        geom_point(size = 0.1) +
+        scale_color_manual(values = c(input = "blue", output = "red")) +
+        scale_alpha_continuous(range = c(0.0001, 0.01)) +
+        scale_y_reverse() +
+        coord_fixed() +
+        labs(title = "All synapses (XZ)") +
+        base_theme +
+        guides(
+          colour = guide_legend(override.aes = list(alpha = 1, size = 2)),
+          alpha  = guide_legend(title = "n_frac")
+        )
+
+      combined <- p_xy / p_xz + plot_layout(nrow = 2, heights = c(1, 1))
+      g <- grid.grabExpr(print(combined))
+
+
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration.wo.vAB3.and.PPN1", "scatter",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        g,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
+
+
+      # heatmap
+
+
+      # compute common limits
+      common_limits <- range(
+        ggplot_build(
+          ggplot(syn_all, aes(x = x, y = y)) +
+            stat_bin2d(bins = 100)
+        )$data[[1]]$count,
+        na.rm = TRUE
+      )
+
+      # define base heatmap function
+      heat_map_xz <- function(df, title, show_legend = TRUE) {
+        ggplot(df, aes(x = x, y = y)) +
+          stat_bin2d(bins = 100, drop = TRUE) +
+          scale_fill_viridis_c(
+            name = "count",
+            trans = "log10",
+            limits = common_limits
+          ) +
+          coord_fixed() +
+          scale_y_reverse() +
+          labs(title = title, x = "x", y = "z") +
+          theme_bw() +
+          theme(
+            legend.position = if (show_legend) "right" else "none",
+            axis.text = element_blank(),
+            axis.ticks = element_blank()
+          )
+      }
+
+      heat_map_xy <- function(df, title, show_legend = TRUE) {
+        ggplot(df, aes(x = x, y = z)) +
+          stat_bin2d(bins = 150, drop = TRUE) +
+          scale_fill_viridis_c(
+            name = "count",
+            trans = "log10",
+            limits = common_limits
+          ) +
+          coord_fixed() +
+          scale_y_reverse() +
+          labs(title = title, x = "x", y = "y") +
+          theme_bw() +
+          theme(
+            legend.position = if (show_legend) "right" else "none",
+            axis.text = element_blank(),
+            axis.ticks = element_blank()
+          )
+      }
+
+      p_in <- heat_map_xz(filter(syn_all, prepost == "input"), "Input", FALSE)
+      p_out <- heat_map_xz(filter(syn_all, prepost == "output"), "Output", FALSE)
+      p_all <- heat_map_xz(syn_all, "All synapses", TRUE)
+      p_in_xy <- heat_map_xy(filter(syn_all, prepost == "input"), "Input", FALSE)
+      p_out_xy <- heat_map_xy(filter(syn_all, prepost == "output"), "Output", FALSE)
+      p_all_xy <- heat_map_xy(syn_all, "All synapses", TRUE)
+
+
+
+      # one legend only
+      legend <- get_legend(p_all + theme(legend.position = "right"))
+      p_in <- p_in + theme(legend.position = "none")
+      p_out <- p_out + theme(legend.position = "none")
+      p_all <- p_all + theme(legend.position = "none")
+      p_in_xy <- p_in_xy + theme(legend.position = "none")
+      p_out_xy <- p_out_xy + theme(legend.position = "none")
+      p_all_xy <- p_all_xy + theme(legend.position = "none")
+
+      r1 <- plot_grid(p_in, p_out, p_all, nrow = 1, rel_widths = c(1, 1, 1), align = "h", axis = "tb")
+      r2 <- plot_grid(p_in_xy, p_out_xy, p_all_xy, nrow = 1, rel_widths = c(1.2, 1.2, 1.2), align = "h", axis = "tb")
+      grid <- plot_grid(r1, r2, ncol = 1, rel_heights = c(1, 1))
+
+      ggg <- plot_grid(grid, legend, ncol = 2, rel_widths = c(1, 0.12))
+
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration.wo.vAB3.and.PPN1", "heatmap",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        ggg,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
+
+      # Density
+
+      density_xz <- ggplot(syn_all, aes(x = x, y = y)) +
+        stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
+        facet_wrap(~prepost, ncol = 2) +
+        scale_fill_viridis_c(name = "density level") +
+        coord_fixed() +
+        scale_y_reverse() +
+        labs(title = "Density (XZ)", x = "x", y = "z") +
+        theme_bw() +
+        theme(
+          axis.text = element_blank(),
+          axis.ticks = element_blank()
+        )
+
+      density_xy <- ggplot(syn_all, aes(x = x, y = z)) +
+        stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", bins = 12, alpha = 0.6) +
+        facet_wrap(~prepost, ncol = 2) +
+        scale_fill_viridis_c(name = "density level") +
+        coord_fixed() +
+        scale_y_reverse() +
+        labs(title = "Density (XZ)", x = "x", y = "y") +
+        theme_bw() +
+        theme(
+          axis.text = element_blank(),
+          axis.ticks = element_blank()
+        )
+
+      combined_density <- density_xy + density_xz
+
+      combined_density
+
+      ggsave(
+        file.path(
+          getwd(), "output.synapses.exploration.wo.vAB3.and.PPN1", "density",
+          paste0(path, "_", valence, "_", modality, "_most common neuron in path synapses.png")
+        ),
+        combined_density,
+        width = 7, height = 7, dpi = 900, bg = "white"
+      )
+    }
+  }
+}
+```

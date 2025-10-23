@@ -157,7 +157,7 @@ calculate_normed_adj_matrix <-function(connectivity,cell.or.type='type',pre.or.p
     rownames(adj.matrix.normed.post) <- rownames(adj.matrix)
     adj.matrix.normed.pre <- rowScale(adj.matrix)
     colnames(adj.matrix.normed.pre) <- colnames(adj.matrix)
-    rownames(adj.matrix.normed.pre) <- rownames(adj.matrix)
+    rownames(adj.matrix.normed.pre) <- rownames(adj.matrix) # nolint # nolint: object_name_linter.
     
     return(avg_mat <- (adj.matrix.normed.post + adj.matrix.normed.post) / 2)
     

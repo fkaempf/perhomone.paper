@@ -64,7 +64,7 @@ df_all.all.ppk25.included <- bind_rows(df.ppk25.PPN1.include, df.ppk25.vAB3.incl
 ```{r}
 load_or_execute <- function(path) {
   if (file.exists(path)) {
-    load(path, envir = .GlobalEnv)
+    file.exists(path)
     FALSE
   } else {
     TRUE
@@ -80,7 +80,7 @@ synapse_threshold <- 5
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')) {
   mba <- mcns_body_annotations()
   mba %>% mutate(type = ifelse(type == "", NA, type))
-  write_feather(adj.matrix, '/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')
+  write_feather(mba, '/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')
 
 } else {
   mba <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')
@@ -230,10 +230,10 @@ conn <- conn %>%
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.feather')) {
   adj.matrix <- calculate_normed_adj_matrix(conn, cell.or.type = "type", pre.or.post = "post")
-  write_feather(adj.matrix, '/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.feather')
+  saveRDS(adj.matrix, '/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.rds')
 
 } else {
-  adj.matrix <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.feather')
+  adj.matrix <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.rds')
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/graph.general.rds')) {
@@ -412,10 +412,10 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3
     filter(weight / sum(weight) >= 0.001) %>%
     filter(!is.na(type.post)) %>%
     pull(type.post)
-  write_feather(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.feather')
+  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.rds')
 
 } else {
-  target.vAB3.all <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.feather')
+  target.vAB3.all <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.rds')
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.feather')) {
@@ -428,10 +428,10 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1
     filter(weight / sum(weight) >= 0.001) %>%
     filter(!is.na(type.post)) %>%
     pull(type.post)
-  write_feather(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.feather')
+  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.rds')
 
 } else {
-  target.PPN1.all <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.feather')
+  target.PPN1.all <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.rds')
 }
 
 
@@ -463,7 +463,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
   res.PPN1.DA1 <- find_k_strongest_paths(graph.general, starts = start.types.DA1, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.DA1$df$dataset <- "PPN1"
   strongest.1000.paths.DA1.2.PPN1 <- res.PPN1.DA1$df
-  write_feather(strongest.1000.paths.DA1.2.PPN1, "strongest.1000.paths.DA1.2.PPN1.feather")
+  write_feather(strongest.1000.paths.DA1.2.PPN1,'/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.PPN1.feather')
 
 } else {
   strongest.1000.paths.DA1.2.PPN1 <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.PPN1.feather')
@@ -676,7 +676,7 @@ ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
   theme_bw() +
-  labs(title = "Path strength (auditory) by valence") +df_all.all.ppk25.excluded
+  labs(title = "Path strength (auditory) by valence") +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
@@ -696,7 +696,7 @@ start.types.vis <- mba %>%
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.vAB3.feather')) {
   res.vAB3.vis <- find_k_strongest_paths(graph.general, starts = start.types.vis, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.vAB3.vis$df$dataset <- "vAB3"
-  strongest.1000.paths.auditory.2.vAB3 <- res.vAB3.vis$df
+  strongest.1000.paths.visual.2.vAB3 <- res.vAB3.vis$df
   write_feather(strongest.1000.paths.visual.2.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.vAB3.feather')
 
 } else {
@@ -706,7 +706,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.PPN1.feather')) {
   res.PPN1.vis <- find_k_strongest_paths(graph.general, starts = start.types.vis, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.vis$df$dataset <- "PPN1"
-  strongest.1000.paths.auditory.2.PPN1 <- res.PPN1.vis$df
+  strongest.1000.paths.visual.2.PPN1 <- res.PPN1.vis$df
   write_feather(strongest.1000.paths.visual.2.PPN1, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.PPN1.feather')
 
 } else {

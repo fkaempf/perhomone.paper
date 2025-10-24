@@ -1,0 +1,511 @@
+---
+title: "rewiring"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 6
+)
+
+# Shared dependencies for strongest-path analyses and visualisations
+library(arrow)
+library(coconatfly)
+library(cowplot)
+library(dplyr)
+library(fafbseg)
+library(ggraph)
+library(ggplot2)
+library(ggpubr)
+library(grid)
+library(igraph)
+library(jsonlite)
+library(malecns)
+library(Matrix)
+library(neuprintr)
+library(nat.ggplot)
+library(patchwork)
+library(plotly)
+library(purrr)
+library(RCy3)
+library(reshape2)
+library(scales)
+library(stringr)
+library(tidygraph)
+library(tidyr)
+```
+
+## Overview
+
+This notebook assembles precomputed strongest-path summaries across male and female pheromone circuits, enriches them with morphological annotations, and visualises modality-specific connectivity patterns. Each section builds on the previous one: we begin by loading cached data, derive adjacency matrices and helper utilities, and then profile path strength statistics for different sensory inputs.
+
+
+### 1 Define function that loads a file or alternatively if it doesnt exist exexutes a script
+```{r}
+load_or_execute <- function(path) {
+  if (file.exists(path)) {
+    file.exists(path)
+    FALSE
+  } else {
+    TRUE
+  }
+}
+```
+
+
+### 1.1 Load male body annotations
+```{r}
+choose_mcns()
+synapse_threshold <- 5
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')) {
+  mba <- mcns_body_annotations()
+  mba %>% mutate(type = ifelse(type == "", NA, type))
+  write_feather(mba, '/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')
+
+} else {
+  mba <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/mba.feather')
+}
+```
+
+
+
+
+
+
+### 1.2 Function to load connectivity
+```{r}
+fetch_connectivity <- function(synapse_threshold = 5) {
+  mba <- mcns_body_annotations() %>%
+    mutate(type = coalesce(type, flywire_type, manc_type, hemibrain_type)) %>%
+    mutate(cachero.type = str_extract(synonyms, "(?<=Cachero 2010:)[^;]+") %>%
+      str_trim())
+  connectivity <- cf_partners(cf_ids(malecns = mba %>% pull(bodyid)),
+    partners = "o",
+    threshold = synapse_threshold
+  )
+  connectivity <- connectivity %>%
+    left_join(
+      mba %>%
+        select("type", "bodyid", "fru_dsx", "consensus_nt", "flywire_type", "synonyms", "receptor_type", "cachero.type", "dimorphism") %>%
+        mutate(bodyid = as.integer(bodyid)) %>%
+        rename(pre_type = type, pre_fru_dsx = fru_dsx, pre_nt = consensus_nt, pre_fw_type = flywire_type, pre_synonyms = synonyms, pre_receptor_type = receptor_type, pre.dimorphism = dimorphism, pre.cachero.type = cachero.type),
+      by = c("pre_id" = "bodyid")
+    ) %>%
+    rename(post_type = type) %>%
+    left_join(
+      mba %>%
+        select("bodyid", "fru_dsx", "consensus_nt", "flywire_type", "synonyms", "receptor_type", "cachero.type", "dimorphism") %>%
+        mutate(bodyid = as.integer(bodyid)) %>%
+        rename(post_fru_dsx = fru_dsx, post_nt = consensus_nt, post_fw_type = flywire_type, post_synonyms = synonyms, post_receptor_type = receptor_type, post.dimorphism = dimorphism, post.cachero.type = cachero.type),
+      by = c("post_id" = "bodyid")
+    )
+  return(connectivity)
+}
+```
+
+
+
+
+### 1.3 Load connectivity
+```{r}
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/connectivity.feather')) {
+  conn <- fetch_connectivity()
+  write_feather(conn, '/Users/fkampf/Documents/pheromone.paper/feather/connectivity.feather')
+
+} else {
+  conn <- read_feather('/Users/fkampf/Documents/pheromone.paper/feather/connectivity.feather')
+}
+
+conn_save <- conn
+
+conn <- conn %>%
+  mutate(
+    pre_type = case_when(
+      grepl("putative_ppk23", pre_receptor_type) ~ "m-cell",
+      grepl("putative_ppk25", pre_receptor_type) ~ "f-cell",
+      TRUE ~ pre_type
+    ),
+    post_type = case_when(
+      grepl("putative_ppk23", post_receptor_type) ~ "m-cell",
+      grepl("putative_ppk25", post_receptor_type) ~ "f-cell",
+      TRUE ~ post_type
+    )
+  )
+```
+
+## 2 Adjacency matrix
+
+With the enriched connectivity, build a column/row-normalised adjacency matrix that becomes the weighted igraph backbone for all path searches.
+
+### 2.1 Function adjacency matrix
+```{r}
+calculate_normed_adj_matrix <- function(connectivity, cell.or.type = "type", pre.or.post = "pre") {
+  colScale <- function(A, na.rm = TRUE) {
+    scalefac <- 1 / Matrix::colSums(A)
+    if (na.rm) scalefac[!is.finite(scalefac)] <- 0
+    B <- A %*% Matrix::Diagonal(x = scalefac)
+    B
+  }
+  rowScale <- function(A, na.rm = TRUE) {
+    scalefac <- 1 / Matrix::rowSums(A)
+    if (na.rm) scalefac[!is.finite(scalefac)] <- 0
+    B <- Matrix::Diagonal(x = scalefac) %*% A
+    B
+  }
+  if (cell.or.type == "cell") {
+    unique.identifier <- union(as.character(connectivity$pre_id), as.character(connectivity$post_id))
+    adj.matrix <- sparseMatrix(
+      i = match(connectivity$pre_id, unique.identifier),
+      j = match(connectivity$post_id, unique.identifier),
+      x = connectivity$weight,
+      dims = c(length(unique.identifier), length(unique.identifier)),
+      dimnames = list(unique.identifier, unique.identifier)
+    )
+  } else {
+    unique.identifier <- union(connectivity$pre_type, connectivity$post_type)
+    adj.matrix <- sparseMatrix(
+      i = match(connectivity$pre_type, unique.identifier),
+      j = match(connectivity$post_type, unique.identifier),
+      x = connectivity$weight,
+      dims = c(length(unique.identifier), length(unique.identifier)),
+      dimnames = list(unique.identifier, unique.identifier)
+    )
+  }
+  if (pre.or.post == "pre") {
+    adj.matrix.normed.pre <- rowScale(adj.matrix)
+    colnames(adj.matrix.normed.pre) <- colnames(adj.matrix)
+    rownames(adj.matrix.normed.pre) <- rownames(adj.matrix)
+    return(adj.matrix.normed.pre)
+  } else if (pre.or.post == "avg") {
+    adj.matrix.normed.post <- colScale(adj.matrix)
+    colnames(adj.matrix.normed.post) <- colnames(adj.matrix)
+    rownames(adj.matrix.normed.post) <- rownames(adj.matrix)
+    adj.matrix.normed.pre <- rowScale(adj.matrix)
+    colnames(adj.matrix.normed.pre) <- colnames(adj.matrix)
+    rownames(adj.matrix.normed.pre) <- rownames(adj.matrix)
+
+    return(avg_mat <- (adj.matrix.normed.post + adj.matrix.normed.post) / 2)
+  } else {
+    adj.matrix.normed.post <- colScale(adj.matrix)
+    colnames(adj.matrix.normed.post) <- colnames(adj.matrix)
+    rownames(adj.matrix.normed.post) <- rownames(adj.matrix)
+    return(adj.matrix.normed.post)
+  }
+}
+```
+
+### 2.2 Create adjacency matrix
+```{r}
+use.clone <- FALSE
+conn <- conn_save
+conn <- conn %>%
+  mutate(pre_type = coalesce(pre_type, pre_fw_type), post_type = coalesce(post_type, post_fw_type)) %>%
+  mutate(
+    pre_type = if_else(is.na(pre_type), as.character(bodyid), pre_type),
+    post_type = if_else(is.na(post_type), as.character(partner), post_type)
+  ) %>%
+  mutate(pre_type = gsub("[()]", "", pre_type)) %>%
+  mutate(post_type = gsub("[()]", "", post_type))
+
+
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.feather')) {
+  adj.matrix <- calculate_normed_adj_matrix(conn, cell.or.type = "type", pre.or.post = "post")
+  saveRDS(adj.matrix, '/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.rds')
+
+} else {
+  adj.matrix <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/adj.matrix.rds')
+}
+
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/graph.general.rds')) {
+  graph.general <- graph_from_adjacency_matrix(
+    adj.matrix,
+    mode = "directed",
+    weighted = TRUE,
+    diag = FALSE
+  )
+  saveRDS(graph.general, '/Users/fkampf/Documents/pheromone.paper/feather/graph.general.rds')
+
+} else {
+  graph.general <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/graph.general.rds')
+}
+
+
+```
+
+
+
+## 2.2 Define kstrongest path function
+```{r}
+add_valence_flag <- function(df, nt_by_type, is_inhib_by_nt) {
+  df %>%
+    rowwise() %>%
+    mutate(
+      # split path and drop endpoint
+      nodes = list(setdiff(strsplit(path, " -> ", fixed = TRUE)[[1]], end)),
+      # lookup NTs
+      nts = list(unname(nt_by_type[unlist(nodes)])),
+      # lookup inhibitory flags
+      inhib = list(unname(is_inhib_by_nt[unlist(nts)])),
+      # count inhibitors
+      n_inhib = sum(unlist(inhib), na.rm = TRUE),
+      # convert to +1 / -1
+      d = ifelse(n_inhib %% 2 == 0, 1, -1)
+    ) %>%
+    ungroup()
+}
+
+
+find_k_strongest_paths <- function(
+  g,
+  starts,
+  targets,
+  mba,
+  n_paths = 3,
+  diversity = c("otheredges", "othernodes", "none"),
+  ignore_pattern = NULL # grepl() pattern; matched node names are excluded (start/target kept),
+) {
+  type2nt <- mba %>%
+    select(type, consensus_nt) %>%
+    group_by(type) %>%
+    distinct() %>%
+    rename(nt = consensus_nt)
+  nt_by_type <- setNames(type2nt$nt, type2nt$type)
+  inhibitory_nts <- c("gaba", "glycine", "histamine")
+  all_nts <- unique(type2nt$nt)
+  is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
+
+  diversity <- match.arg(diversity)
+
+  # optional: drop nodes matching ignore_pattern (but never drop starts/targets)
+  if (!is.null(ignore_pattern)) {
+    drop <- V(g)$name[grepl(ignore_pattern, V(g)$name)]
+    keep <- unique(c(starts, targets))
+    drop <- setdiff(drop, keep)
+    if (length(drop)) g <- igraph::delete_vertices(g, drop)
+  }
+
+  # weights → log-costs; guard zeros/NAs
+  w <- E(g)$weight
+  if (is.null(w)) stop("Edges must have numeric 'weight'.")
+  w[!is.finite(w) | w <= 0] <- .Machine$double.eps
+  log_w <- -log(w)
+
+  results <- list()
+  all_nodes <- character(0)
+
+  for (s in starts) {
+    for (t in targets) {
+      if (!(s %in% V(g)$name) || !(t %in% V(g)$name)) {
+        results[[paste(s, t, sep = "->")]] <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+        next
+      }
+
+      g_tmp <- g
+      E(g_tmp)$log_weight <- log_w
+      pair_paths <- list()
+
+      for (i in seq_len(n_paths)) {
+        sp <- igraph::shortest_paths(
+          g_tmp,
+          from = s, to = t,
+          weights = E(g_tmp)$log_weight,
+          output = "both"
+        )
+        if (length(sp$vpath[[1]]) == 0) break
+
+        vpath <- sp$vpath[[1]]
+        epath <- sp$epath[[1]]
+
+        final_strength <- exp(-sum(E(g_tmp)[epath]$log_weight))
+        hops <- length(epath)
+
+        pair_paths[[paste0("path", i)]] <- list(
+          start = s,
+          end = t,
+          path = paste(V(g)[vpath]$name, collapse = " -> "),
+          strength = final_strength,
+          hops = hops
+        )
+
+        all_nodes <- c(all_nodes, V(g)[vpath]$name)
+
+        if (diversity == "othernodes") {
+          inter <- setdiff(V(g)[vpath]$name, c(s, t))
+          if (length(inter)) g_tmp <- igraph::delete_vertices(g_tmp, inter)
+        } else if (diversity == "otheredges") {
+          g_tmp <- igraph::delete_edges(g_tmp, epath)
+        }
+      }
+
+      if (length(pair_paths) == 0) {
+        pair_paths <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+      }
+
+      results[[paste(s, t, sep = "->")]] <- pair_paths
+    }
+  }
+
+  # flatten
+  results_df <- do.call(rbind, lapply(results, function(pl) {
+    do.call(rbind, lapply(pl, function(r) {
+      data.frame(
+        start = r$start, end = r$end, path = r$path,
+        strength = r$strength, hops = r$hops,
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+
+  results_df_wo_na <- dplyr::filter(results_df, !is.na(strength))
+  all_nodes <- unique(all_nodes)
+
+  results_df_wo_na <- add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt) %>%
+    mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
+
+  list(df = results_df_wo_na, nodes = all_nodes, raw = results)
+}
+```
+## 3 Downstream target selection
+
+Derive frequently targeted downstream neuron types for both vAB3 and PPN1 by summarising partner synapse weights. We drop broad projection categories (AN/IN) and keep targets contributing at least 0.1% of outgoing weight so subsequent plots focus on substantial partners.
+
+```{r downstream-target-selection}
+
+all.PPN1.ids <- mba %>%
+  filter(grepl("PPN1", synonyms)) %>%
+  pull(bodyid)
+all.vAB3.ids <- mba %>%
+  filter(grepl("vAB3", synonyms)) %>%
+  pull(bodyid)
+
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.feather')) {
+  target.vAB3 <- cf_partner_summary(cf_ids(malecns = all.vAB3.ids), partners = "out", normalise = F) %>%
+    group_by(type.post) %>%
+    summarize(weight = sum(weight)) %>%
+    filter(!grepl("AN", type.post)) %>%
+    filter(!grepl("IN", type.post)) %>%
+    arrange(desc(weight)) %>%
+    filter(weight / sum(weight) >= 0.001) %>%
+    filter(!is.na(type.post)) %>%
+    pull(type.post)
+  saveRDS(target.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.rds')
+
+} else {
+  target.vAB3 <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.rds')
+}
+
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.feather')) {
+  target.PPN1 <- cf_partner_summary(cf_ids(malecns = all.PPN1.ids), partners = "out", normalise = F) %>%
+    group_by(type.post) %>%
+    summarize(weight = sum(weight)) %>%
+    filter(!grepl("AN", type.post)) %>%
+    filter(!grepl("IN", type.post)) %>%
+    arrange(desc(weight)) %>%
+    filter(weight / sum(weight) >= 0.001) %>%
+    filter(!is.na(type.post)) %>%
+    pull(type.post)
+  saveRDS(target.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
+
+} else {
+  target.PPN1 <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
+}
+
+
+target.vAB3.all <- c(target.vAB3[1:10], intersect(target.vAB3, target.PPN1)[1:3])
+target.PPN1.all <- c(target.PPN1[1:10], intersect(target.vAB3, target.PPN1)[1:3])
+
+```
+
+
+```{r}
+library(igraph)
+
+rewire_allow_loops_no_multiedges <- function(
+  g,
+  niter = ecount(g) * 50,
+  report_every = 0.0001,
+  seed = NULL
+) {
+  if (!is.null(seed)) set.seed(seed)
+
+
+  el <- as_edgelist(g, names = FALSE)
+  m  <- nrow(el)
+  vnames <- V(g)$name
+
+  # hash table of existing edges
+  present <- new.env(hash = TRUE, parent = emptyenv())
+  for (k in paste(el[,1], el[,2], sep=":")) present[[k]] <- TRUE
+
+  step <- max(1L, as.integer(niter * report_every))
+
+  for (t in seq_len(niter)) {
+    i1 <- sample.int(m, 1L)
+    i2 <- sample.int(m, 1L)
+    if (i1 == i2) next
+
+    a <- el[i1,1]; b <- el[i1,2]
+    c <- el[i2,1]; d <- el[i2,2]
+
+    # proposed new edges (loops allowed)
+    k1_old <- paste(a,b,sep=":")
+    k2_old <- paste(c,d,sep=":")
+    k1_new <- paste(a,d,sep=":")
+    k2_new <- paste(c,b,sep=":")
+
+    # forbid creating duplicate A->B
+    if (!is.null(present[[k1_new]])) next
+    if (!is.null(present[[k2_new]])) next
+
+    # update keys
+    rm(list = c(k1_old, k2_old), envir = present)
+    present[[k1_new]] <- TRUE
+    present[[k2_new]] <- TRUE
+
+    # perform swap
+    el[i1,2] <- d
+    el[i2,2] <- b
+
+    # progress
+    if (t %% step == 0L) {
+      cat(sprintf("\r%.3f%%", 100 * t / niter))
+      flush.console()
+    }
+  }
+  cat("\r100%\n")
+
+  h <- graph_from_edgelist(el, directed = TRUE)
+
+  # restore vertex names
+  if (!is.null(vnames)) V(h)$name <- vnames
+
+  # degree sanity
+
+
+  h
+}
+
+```
+
+
+
+
+## Degree-preserving swap that forbids multiedges but allows loops
+```{r Degree-preserving swap that forbids loops (keeps multi-edges)}
+g_rw <- rewire_allow_loops_no_multiedges(graph.general, niter = ecount(graph.general)*50)
+
+#nulls_swap <- replicate(2, rewire_multigraph_no_loops(graph.general), simplify = FALSE)
+
+```
+
+

@@ -402,7 +402,7 @@ all.vAB3.ids <- mba %>%
   filter(grepl("vAB3", synonyms)) %>%
   pull(bodyid)
 
-if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.feather')) {
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.feather')) {
   target.vAB3.all <- cf_partner_summary(cf_ids(malecns = all.vAB3.ids), partners = "out", normalise = F) %>%
     group_by(type.post) %>%
     summarize(weight = sum(weight)) %>%
@@ -412,13 +412,13 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3
     filter(weight / sum(weight) >= 0.001) %>%
     filter(!is.na(type.post)) %>%
     pull(type.post)
-  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.rds')
+  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.rds')
 
 } else {
-  target.vAB3.all <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.all.rds')
+  target.vAB3 <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.vAB3.rds')
 }
 
-if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.feather')) {
+if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.feather')) {
   target.PPN1.all <- cf_partner_summary(cf_ids(malecns = all.PPN1.ids), partners = "out", normalise = F) %>%
     group_by(type.post) %>%
     summarize(weight = sum(weight)) %>%
@@ -428,15 +428,15 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1
     filter(weight / sum(weight) >= 0.001) %>%
     filter(!is.na(type.post)) %>%
     pull(type.post)
-  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.rds')
+  saveRDS(target.vAB3.all, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
 
 } else {
-  target.PPN1.all <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.all.rds')
+  target.PPN1 <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
 }
 
 
-target.vAB3.all <- c(target.vAB3.all[1:10], intersect(target.vAB3.all, target.PPN1.all)[1:3])
-target.PPN1.all <- c(target.PPN1.all[1:10], intersect(target.vAB3.all, target.PPN1.all)[1:3])
+target.vAB3.all <- c(target.vAB3[1:10], intersect(target.vAB3, target.PPN1)[1:3])
+target.PPN1.all <- c(target.PPN1[1:10], intersect(target.vAB3, target.PPN1)[1:3])
 
 ```
 

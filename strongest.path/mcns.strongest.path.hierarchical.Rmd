@@ -40,27 +40,8 @@ library(tidyr)
 
 This notebook assembles precomputed strongest-path summaries across male and female pheromone circuits, enriches them with morphological annotations, and visualises modality-specific connectivity patterns. Each section builds on the previous one: we begin by loading cached data, derive adjacency matrices and helper utilities, and then profile path strength statistics for different sensory inputs.
 
-## 1 Load data
 
-```{r}
-# read precomputed strongest path lookups
-
-df.ppk23.PPN1.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK23.2.PPN1.feather")
-df.ppk23.vAB3.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK23.2.vAB3.feather")
-df.ppk23.PPN1.include$dataset <- "PPN1"
-df.ppk23.vAB3.include$dataset <- "vAB3"
-
-
-df.ppk25.PPN1.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK25.2.PPN1.feather")
-df.ppk25.vAB3.include <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.PPK25.2.vAB3.feather")
-df.ppk25.PPN1.include$dataset <- "PPN1"
-df.ppk25.vAB3.include$dataset <- "vAB3"
-
-df_all.all.ppk23.included <- bind_rows(df.ppk23.PPN1.include, df.ppk23.vAB3.include)
-df_all.all.ppk25.included <- bind_rows(df.ppk25.PPN1.include, df.ppk25.vAB3.include)
-```
-
-#### 1.0.1 Define function that loads a file or alternatively if it doesnt exist exexutes a script
+### 1 Define function that loads a file or alternatively if it doesnt exist exexutes a script
 ```{r}
 load_or_execute <- function(path) {
   if (file.exists(path)) {

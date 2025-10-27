@@ -1,0 +1,924 @@
+---
+title: "target.set.sensitivity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 6
+)
+
+# Shared dependencies for strongest-path analyses and visualisations
+library(arrow)
+library(coconatfly)
+library(cowplot)
+library(dplyr)
+library(fafbseg)
+library(ggraph)
+library(ggplot2)
+library(ggpubr)
+library(grid)
+library(igraph)
+library(jsonlite)
+library(malecns)
+library(Matrix)
+library(neuprintr)
+library(nat.ggplot)
+library(patchwork)
+library(plotly)
+library(purrr)
+library(RCy3)
+library(reshape2)
+library(scales)
+library(stringr)
+library(tidygraph)
+library(tidyr)
+```
+
+
+
+
+```{r}
+# === Precomputed cache loader (only absolute path: /Users/fkampf/Documents/...) ===
+
+library(arrow)
+library(dplyr)
+library(purrr)
+
+root <- "/Users/fkampf/Documents/pheromone.paper/feather"
+sp   <- file.path(root, "strongest.paths")
+
+must_exist <- function(p) {
+  if (!file.exists(p)) stop(sprintf("Missing: %s", p), call. = FALSE)
+  p
+}
+
+rf  <- function(p) read_feather(must_exist(p))
+rr  <- function(p) readRDS(must_exist(p))
+
+# ---- Core tables / objects ----
+mba            <- rf(file.path(root, "mba.feather"))
+conn           <- rf(file.path(root, "connectivity.feather"))
+
+# Note: your notebook writes adj.matrix as RDS; use that if present
+adj.matrix     <- rr(file.path(root, "adj.matrix.rds"))
+graph.general  <- rr(file.path(root, "graph.general.rds"))
+
+# Targets (RDS)
+target.vAB3    <- rr(file.path(root, "target.vAB3.rds"))
+target.PPN1    <- rr(file.path(root, "target.PPN1.rds"))
+
+# ---- Strongest-path caches (Feather) ----
+# Olfactory
+strongest.1000.paths.DA1.2.vAB3   <- rf(file.path(sp, "strongest.1000.paths.DA1.2.vAB3.feather"))
+strongest.1000.paths.DA1.2.PPN1   <- rf(file.path(sp, "strongest.1000.paths.DA1.2.PPN1.feather"))
+strongest.1000.paths.VA1v.2.vAB3  <- rf(file.path(sp, "strongest.1000.paths.VA1v.2.vAB3.feather"))
+strongest.1000.paths.VA1v.2.PPN1  <- rf(file.path(sp, "strongest.1000.paths.VA1v.2.PPN1.feather"))
+
+# Auditory
+strongest.1000.paths.auditory.2.vAB3 <- rf(file.path(sp, "strongest.1000.paths.auditory.2.vAB3.feather"))
+strongest.1000.paths.auditory.2.PPN1 <- rf(file.path(sp, "strongest.1000.paths.auditory.2.PPN1.feather"))
+
+# Visual
+strongest.1000.paths.visual.2.vAB3 <- rf(file.path(sp, "strongest.1000.paths.visual.2.vAB3.feather"))
+strongest.1000.paths.visual.2.PPN1 <- rf(file.path(sp, "strongest.1000.paths.visual.2.PPN1.feather"))
+
+# PPK23 (included / excluded)
+strongest.1000.paths.ppk23.2.vAB3.excluded <- rf(file.path(sp, "strongest.1000.paths.ppk23.2.vAB3.excluded.feather"))
+strongest.1000.paths.ppk23.2.PPN1.excluded <- rf(file.path(sp, "strongest.1000.paths.ppk23.2.PPN1.excluded.feather"))
+strongest.1000.paths.ppk23.2.vAB3.included <- rf(file.path(sp, "strongest.1000.paths.ppk23.2.vAB3.included.feather"))
+strongest.1000.paths.ppk23.2.PPN1.included <- rf(file.path(sp, "strongest.1000.paths.ppk23.2.PPN1.included.feather"))
+
+# PPK25 (included / excluded)
+strongest.1000.paths.ppk25.2.vAB3.excluded <- rf(file.path(sp, "strongest.1000.paths.ppk25.2.vAB3.excluded.feather"))
+strongest.1000.paths.ppk25.2.PPN1.excluded <- rf(file.path(sp, "strongest.1000.paths.ppk25.2.PPN1.excluded.feather"))
+strongest.1000.paths.ppk25.2.vAB3.included <- rf(file.path(sp, "strongest.1000.paths.ppk25.2.vAB3.included.feather"))
+strongest.1000.paths.ppk25.2.PPN1.included <- rf(file.path(sp, "strongest.1000.paths.ppk25.2.PPN1.included.feather"))
+
+# ---- Optional: assemble the combined data frames used later in the notebook ----
+df_all.all.DA1   <- dplyr::bind_rows(strongest.1000.paths.DA1.2.PPN1, strongest.1000.paths.DA1.2.vAB3)
+df_all.all.VA1v  <- dplyr::bind_rows(strongest.1000.paths.VA1v.2.vAB3, strongest.1000.paths.VA1v.2.PPN1)
+df_all.all.aud   <- dplyr::bind_rows(strongest.1000.paths.auditory.2.PPN1, strongest.1000.paths.auditory.2.vAB3)
+df_all.all.vis   <- dplyr::bind_rows(strongest.1000.paths.visual.2.vAB3, strongest.1000.paths.visual.2.PPN1)
+df_all.all.ppk23.excluded <- dplyr::bind_rows(strongest.1000.paths.ppk23.2.PPN1.excluded, strongest.1000.paths.ppk23.2.vAB3.excluded)
+df_all.all.ppk23.included <- dplyr::bind_rows(strongest.1000.paths.ppk23.2.PPN1.included, strongest.1000.paths.ppk23.2.vAB3.included)
+df_all.all.ppk25.excluded <- dplyr::bind_rows(strongest.1000.paths.ppk25.2.PPN1.excluded, strongest.1000.paths.ppk25.2.vAB3.excluded)
+df_all.all.ppk25.included <- dplyr::bind_rows(strongest.1000.paths.ppk25.2.PPN1.included, strongest.1000.paths.ppk25.2.vAB3.included)
+target.vAB3.all <- c(target.vAB3[1:10], intersect(target.vAB3, target.PPN1)[1:3])
+target.PPN1.all <- c(target.PPN1[1:10], intersect(target.vAB3, target.PPN1)[1:3])
+```
+
+
+
+
+```{r Functions}
+
+pie_data <- function(df, dataset_name, valence_keep = NULL) {
+  df %>%
+    filter(dataset == dataset_name) %>%
+    {
+      if (!is.null(valence_keep)) filter(., valence %in% valence_keep) else .
+    } %>%
+    group_by(end, modality) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop_last") %>%
+    mutate(prop = total_strength / sum(total_strength)) %>%
+    ungroup() %>%
+    filter(is.finite(prop)) # drop ends with all-zero strength
+}
+
+pie_plot <- function(pdat, title_txt) {
+  ggplot(pdat, aes(x = "", y = prop, fill = modality)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    facet_wrap(~end) +
+    theme_void() +
+    labs(title = title_txt) +
+    geom_text(aes(label = percent(prop, accuracy = 1)),
+      position = position_stack(vjust = 0.5), size = 2
+    )
+}
+
+```
+
+
+
+```{r modality-composition-including}
+# add modality labels (as you already do)
+df_all.all.ppk25.included$modality <- "female.touch"
+df_all.all.ppk23.included$modality <- "male.touch"
+df_all.all.aud$modality <- "auditory"
+df_all.all.DA1$modality <- "DA1"
+df_all.all.VA1v$modality <- "VA1v"
+df_all.all.vis$modality <- "visual"
+
+# emphasise touch modalities when including PPN1/vAB3 contributions
+all.modalities.included <- dplyr::bind_rows(
+    df_all.all.ppk25.included,
+    df_all.all.ppk23.included,
+    df_all.all.DA1,
+    df_all.all.VA1v
+)
+
+
+# PPN1
+ppn1_all <- pie_data(all.modalities.included, "PPN1", NULL)
+ppn1_exc <- pie_data(all.modalities.included, "PPN1", c("excitatory", 1)) # handles either text or numeric
+ppn1_inh <- pie_data(all.modalities.included, "PPN1", c("inhibitory", -1))
+
+p_ppn1_all <- pie_plot(ppn1_all, "PPN1: modality contribution per target neuron (all)")
+p_ppn1_exc <- pie_plot(ppn1_exc, "PPN1: modality contribution per target neuron (excitatory only) Including PPN1")
+p_ppn1_inh <- pie_plot(ppn1_inh, "PPN1: modality contribution per target neuron (inhibitory only) Including PPN1")
+
+p_ppn1_all
+p_ppn1_exc
+p_ppn1_inh
+
+ppn1_all$connection.type <- "all"
+ppn1_exc$connection.type <- "excitatory"
+ppn1_inh$connection.type <- "inhibitory"
+
+connected.scatterplot.all.include.ppn1 <- rbind(ppn1_all, ppn1_exc, ppn1_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.include.ppn1$x_pos),
+    labels = unique(connected.scatterplot.all.include.ppn1$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including PPN1) to post PPN1 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
+    angle = 90, hjust = 1,
+    color = ifelse(unique(connected.scatterplot.all.include.ppn1$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
+  ))
+
+temp_df <- connected.scatterplot.all.include.ppn1 %>%
+  group_by(connection.type, modality) %>%
+  summarize(strength = sum(total_strength)) %>%
+  group_by(connection.type) %>%
+  mutate(prop = strength / sum(strength)) %>%
+  ungroup() %>%
+  mutate(
+    x_pos = as.numeric(factor(modality, levels = unique(modality))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(temp_df$x_pos),
+    labels = unique(temp_df$modality)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including PPN1) to post PPN1 (all) by connection type across neurons",
+    x = "Modality",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(hjust = 0.5)) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Neurotransmitter valence of input (including PPN1) to post PPN1 (all) by connection type",
+    x = "Modality",
+    y = "Proportion",
+    fill = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(hjust = 0.5)) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+# vAB3
+vab3_all <- pie_data(all.modalities.included, "vAB3", NULL)
+vab3_exc <- pie_data(all.modalities.included, "vAB3", c("excitatory", 1))
+vab3_inh <- pie_data(all.modalities.included, "vAB3", c("inhibitory", -1))
+
+p_vab3_all <- pie_plot(vab3_all, "vAB3: modality contribution per target neuron (all)")
+p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron (excitatory only) Including vAB3")
+p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only) Including vAB3")
+
+# print any of these:
+p_vab3_all
+p_vab3_exc
+p_vab3_inh
+
+# connected scatter plot
+
+vab3_all$connection.type <- "all"
+vab3_exc$connection.type <- "excitatory"
+vab3_inh$connection.type <- "inhibitory"
+
+connected.scatterplot.all.include.vab3 <- rbind(vab3_all, vab3_exc, vab3_inh) %>%
+  mutate(
+    x_pos = as.numeric(factor(end, levels = unique(end))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(connected.scatterplot.all.include.vab3$x_pos),
+    labels = unique(connected.scatterplot.all.include.vab3$end)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including vAB3) to post vAB3 (all) by connection type",
+    x = "Target neurons",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(
+    angle = 90, hjust = 1,
+    color = ifelse(unique(connected.scatterplot.all.include.vab3$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
+  ))
+
+
+temp_df <- connected.scatterplot.all.include.vab3 %>%
+  group_by(connection.type, modality) %>%
+  summarize(strength = sum(total_strength)) %>%
+  group_by(connection.type) %>%
+  mutate(prop = strength / sum(strength)) %>%
+  ungroup() %>%
+  mutate(
+    x_pos = as.numeric(factor(modality, levels = unique(modality))),
+    x_shift = case_when(
+      connection.type == "inhibitory" ~ -0.2,
+      connection.type == "all" ~ 0,
+      connection.type == "excitatory" ~ 0.2
+    ),
+    x_jittered = x_pos + x_shift
+  )
+
+ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+  geom_line(alpha = 0.6, linewidth = 0.8) +
+  geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
+  scale_x_continuous(
+    breaks = unique(temp_df$x_pos),
+    labels = unique(temp_df$modality)
+  ) +
+  theme_bw() +
+  labs(
+    title = "Fraction of input (including vAB3) to post vAB3 (all) by connection type across neurons",
+    x = "Modality",
+    y = "Proportion",
+    color = "Modality",
+    shape = "Connection type"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Neurotransmitter valence of input (including vAB3) to post vAB3 (all) by connection type",
+    x = "Modality",
+    y = "Proportion",
+    fill = "Connection type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+K vs Strength of paths
+
+
+```{r}
+
+# Accumulate summed strengths across k into a nested list
+# Structure: acc[[dataset]][[modality]][k] = summed strength
+
+K <- 50
+acc <- list()
+acc_frac <- list()
+
+for (k in seq_len(K)) {
+  df_all.all.ppk25.included.k.restricted <- df_all.all.ppk25.included %>%
+    group_by(start, end) %>% slice_max(order_by = strength, n = k, with_ties = FALSE) %>% ungroup()
+
+  df_all.all.ppk23.included.k.restricted <- df_all.all.ppk23.included %>%
+    group_by(start, end) %>% slice_max(order_by = strength, n = k, with_ties = FALSE) %>% ungroup()
+
+  df_all.all.DA1.k.restricted <- df_all.all.DA1 %>%
+    group_by(start, end) %>% slice_max(order_by = strength, n = k, with_ties = FALSE) %>% ungroup()
+
+  df_all.all.VA1v.k.restricted <- df_all.all.VA1v %>%
+    group_by(start, end) %>% slice_max(order_by = strength, n = k, with_ties = FALSE) %>% ungroup()
+
+  all.modalities.included.k.restricted <- dplyr::bind_rows(
+    df_all.all.ppk25.included.k.restricted,
+    df_all.all.ppk23.included.k.restricted,
+    df_all.all.DA1.k.restricted,
+    df_all.all.VA1v.k.restricted
+  )
+
+  # 1) sum per (dataset, modality)
+  # 2) fraction within each dataset
+  sums <- all.modalities.included.k.restricted %>%
+    group_by(dataset, modality) %>%
+    summarise(strength = sum(strength), .groups = "drop") %>%
+    group_by(dataset) %>%
+    mutate(strength_frac = strength / sum(strength)) %>%
+    ungroup()
+
+  for (i in seq_len(nrow(sums))) {
+    ds <- sums$dataset[i]
+    md <- sums$modality[i]
+    val <- sums$strength[i]
+    val_frac <- sums$strength_frac[i]
+
+    if (is.null(acc[[ds]])) acc[[ds]] <- list()
+    if (is.null(acc_frac[[ds]])) acc_frac[[ds]] <- list()
+    if (is.null(acc[[ds]][[md]])) acc[[ds]][[md]] <- numeric(0)
+    if (is.null(acc_frac[[ds]][[md]])) acc_frac[[ds]][[md]] <- numeric(0)
+
+    acc[[ds]][[md]][k] <- val
+    acc_frac[[ds]][[md]][k] <- val_frac
+  }
+}
+
+df_acc <- imap_dfr(acc, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_vec, modality) {
+    tibble(
+      dataset = dataset,
+      modality = modality,
+      k = seq_along(strength_vec),
+      strength = strength_vec
+    )
+  })
+})
+
+df_acc_frac <- imap_dfr(acc_frac, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_frac_vec, modality) {
+    tibble(
+      dataset = dataset,
+      modality = modality,
+      k = seq_along(strength_frac_vec),
+      strength_frac = strength_frac_vec
+    )
+  })
+})
+
+# Remove NAs
+df_acc <- df_acc %>% filter(!is.na(strength))
+df_acc_frac <- df_acc_frac %>% filter(!is.na(strength_frac))
+
+
+ggplot(df_acc, aes(x = k, y = strength, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~ dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Summed strength",
+    title = "Strength vs k per dataset and modality"
+  )
+
+ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~ dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Summed strength",
+    title = "Strength vs k per dataset and modality"
+  )
+
+# Compute stabilization point globally (across all datasets & modalities)
+stabilization_point <- df_acc_frac %>%
+  group_by(k) %>%
+  summarise(strength_frac = mean(strength_frac, na.rm = TRUE)) %>%
+  arrange(k) %>%
+  mutate(diff = abs(strength_frac - dplyr::lag(strength_frac))) %>%
+  mutate(window_mean = zoo::rollmean(strength_frac, 10, fill = NA, align = "right")) %>%
+  filter(!is.na(diff), !is.na(window_mean)) %>%
+  summarise(stab_k = k[which(diff / window_mean < 0.01)[1]]) %>%
+  pull(stab_k)
+
+
+
+ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
+  theme_bw() +
+  labs(x = "k", y = "Fraction of summed strength", title = "Strength vs k per dataset and modality")
+
+```
+K vs Strength of paths excitatory
+```{r}
+K <- 50
+acc <- list()
+acc_frac <- list()
+
+for (k in seq_len(K)) {
+  df_all.all.ppk25.included.k.restricted <- df_all.all.ppk25.included %>%
+    filter(valence == "excitatory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.ppk23.included.k.restricted <- df_all.all.ppk23.included %>%
+    filter(valence == "excitatory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.DA1.k.restricted <- df_all.all.DA1 %>%
+    filter(valence == "excitatory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.VA1v.k.restricted <- df_all.all.VA1v %>%
+    filter(valence == "excitatory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  all.modalities.included.k.restricted <- dplyr::bind_rows(
+    df_all.all.ppk25.included.k.restricted,
+    df_all.all.ppk23.included.k.restricted,
+    df_all.all.DA1.k.restricted,
+    df_all.all.VA1v.k.restricted
+  )
+
+  sums <- all.modalities.included.k.restricted %>%
+    group_by(dataset, modality) %>%
+    summarise(strength = sum(strength), .groups = "drop") %>%
+    group_by(dataset) %>%
+    mutate(strength_frac = strength / sum(strength)) %>%
+    ungroup()
+
+  for (i in seq_len(nrow(sums))) {
+    ds <- sums$dataset[i]
+    md <- sums$modality[i]
+    val <- sums$strength[i]
+    val_frac <- sums$strength_frac[i]
+
+    if (is.null(acc[[ds]])) acc[[ds]] <- list()
+    if (is.null(acc_frac[[ds]])) acc_frac[[ds]] <- list()
+    if (is.null(acc[[ds]][[md]])) acc[[ds]][[md]] <- numeric(0)
+    if (is.null(acc_frac[[ds]][[md]])) acc_frac[[ds]][[md]] <- numeric(0)
+
+    acc[[ds]][[md]][k] <- val
+    acc_frac[[ds]][[md]][k] <- val_frac
+  }
+}
+
+df_acc.excitatory <- imap_dfr(acc, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_vec, modality) {
+    tibble(dataset, modality, k = seq_along(strength_vec), strength = strength_vec)
+  })
+}) %>% filter(!is.na(strength))
+
+df_acc_frac.excitatory <- imap_dfr(acc_frac, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_frac_vec, modality) {
+    tibble(dataset, modality, k = seq_along(strength_frac_vec), strength_frac = strength_frac_vec)
+  })
+}) %>% filter(!is.na(strength_frac))
+
+ggplot(df_acc.excitatory, aes(x = k, y = strength, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(x = "k", y = "Summed strength", title = "Excitatory – absolute strength")
+
+ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(x = "k", y = "Fraction of summed strength", title = "Excitatory – strength fraction")
+
+
+# Compute stabilization point globally (across all datasets & modalities)
+stabilization_point <- df_acc_frac.excitatory %>%
+  group_by(k) %>%
+  summarise(strength_frac = mean(strength_frac, na.rm = TRUE)) %>%
+  arrange(k) %>%
+  mutate(diff = abs(strength_frac - dplyr::lag(strength_frac))) %>%
+  mutate(window_mean = zoo::rollmean(strength_frac, 10, fill = NA, align = "right")) %>%
+  filter(!is.na(diff), !is.na(window_mean)) %>%
+  summarise(stab_k = k[which(diff / window_mean < 0.01)[1]]) %>%
+  pull(stab_k)
+
+
+
+ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
+  theme_bw() +
+  labs(x = "k", y = "Fraction of summed strength", title = "Excitatory – strength fraction")
+
+```
+
+K vs Strength of paths inhibitory
+```{r}
+K <- 50
+acc <- list()
+acc_frac <- list()
+
+for (k in seq_len(K)) {
+  df_all.all.ppk25.included.k.restricted <- df_all.all.ppk25.included %>%
+    filter(valence == "inhibitory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.ppk23.included.k.restricted <- df_all.all.ppk23.included %>%
+    filter(valence == "inhibitory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.DA1.k.restricted <- df_all.all.DA1 %>%
+    filter(valence == "inhibitory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  df_all.all.VA1v.k.restricted <- df_all.all.VA1v %>%
+    filter(valence == "inhibitory") %>%
+    group_by(start, end) %>%
+    slice_max(order_by = strength, n = k, with_ties = FALSE) %>%
+    ungroup()
+
+  all.modalities.included.k.restricted <- dplyr::bind_rows(
+    df_all.all.ppk25.included.k.restricted,
+    df_all.all.ppk23.included.k.restricted,
+    df_all.all.DA1.k.restricted,
+    df_all.all.VA1v.k.restricted
+  )
+
+  sums <- all.modalities.included.k.restricted %>%
+    group_by(dataset, modality) %>%
+    summarise(strength = sum(strength), .groups = "drop") %>%
+    group_by(dataset) %>%
+    mutate(strength_frac = strength / sum(strength)) %>%
+    ungroup()
+
+  for (i in seq_len(nrow(sums))) {
+    ds <- sums$dataset[i]
+    md <- sums$modality[i]
+    val <- sums$strength[i]
+    val_frac <- sums$strength_frac[i]
+
+    if (is.null(acc[[ds]])) acc[[ds]] <- list()
+    if (is.null(acc_frac[[ds]])) acc_frac[[ds]] <- list()
+    if (is.null(acc[[ds]][[md]])) acc[[ds]][[md]] <- numeric(0)
+    if (is.null(acc_frac[[ds]][[md]])) acc_frac[[ds]][[md]] <- numeric(0)
+
+    acc[[ds]][[md]][k] <- val
+    acc_frac[[ds]][[md]][k] <- val_frac
+  }
+}
+
+df_acc.inhibitory <- imap_dfr(acc, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_vec, modality) {
+    tibble(dataset, modality, k = seq_along(strength_vec), strength = strength_vec)
+  })
+}) %>% filter(!is.na(strength))
+
+df_acc_frac.inhibitory <- imap_dfr(acc_frac, function(modality_list, dataset) {
+  imap_dfr(modality_list, function(strength_frac_vec, modality) {
+    tibble(dataset, modality, k = seq_along(strength_frac_vec), strength_frac = strength_frac_vec)
+  })
+}) %>% filter(!is.na(strength_frac))
+
+ggplot(df_acc.inhibitory, aes(x = k, y = strength, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(x = "k", y = "Summed strength", title = "Inhibitory – absolute strength")
+
+ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(x = "k", y = "Fraction of summed strength", title = "Inhibitory – strength fraction")
+
+
+library(dplyr)
+library(ggplot2)
+library(zoo)
+
+# Compute stabilization point globally (across all datasets & modalities)
+stabilization_point <- df_acc_frac.inhibitory %>%
+  group_by(k) %>%
+  summarise(strength_frac = mean(strength_frac, na.rm = TRUE)) %>%
+  arrange(k) %>%
+  mutate(diff = abs(strength_frac - dplyr::lag(strength_frac))) %>%
+  mutate(window_mean = zoo::rollmean(strength_frac, 10, fill = NA, align = "right")) %>%
+  filter(!is.na(diff), !is.na(window_mean)) %>%
+  summarise(stab_k = k[which(diff / window_mean < 0.01)[1]]) %>%
+  pull(stab_k)
+
+
+
+ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
+  theme_bw() +
+  labs(x = "k", y = "Fraction of summed strength", title = "Inhibitory – strength fraction")
+```
+
+delta and effectsize within datasets excitatory/inhibitory
+```{r}
+df_frac.excitatory.vs.inhibitory <- df_acc_frac.inhibitory %>% 
+  mutate(strength_frac.inhibitory = strength_frac) %>% 
+  select(-strength_frac) %>% 
+  left_join(df_acc_frac.excitatory, by = c("k", "dataset", "modality")) %>% 
+  mutate(strength_frac.excitatory = strength_frac) %>% 
+  select(-strength_frac) %>% 
+  left_join(df_acc.excitatory,by = c("k", "dataset", "modality")) %>% 
+  mutate(strength.excitatory = strength) %>% 
+  select(-strength) %>% 
+  left_join(df_acc.inhibitory,by = c("k", "dataset", "modality")) %>% 
+  mutate(strength.inhibitory = strength) %>% 
+  select(-strength) %>% 
+  mutate(strength.delta.total = strength.excitatory - strength.inhibitory, 
+         cohens.d.total = (strength.excitatory - strength.inhibitory)/(strength.excitatory + strength.inhibitory),
+         strength.delta.frac = strength_frac.excitatory - strength_frac.inhibitory, 
+         cohens.d.frac = (strength_frac.excitatory - strength_frac.inhibitory)/(strength_frac.excitatory + strength_frac.inhibitory))
+
+
+# 1. Absolute strength difference (excitatory − inhibitory)
+ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.total, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ total strength (Excitatory − Inhibitory)",
+    title = "Absolute difference in summed synaptic strength across modalities"
+  )
+
+# 2. Cohen’s d (absolute)
+ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.total, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (total strength)",
+    title = "Effect size (Cohen’s d) between excitatory and inhibitory total strengths"
+  )
+
+# 3. Fractional strength difference
+ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ fractional strength (Excitatory − Inhibitory)",
+    title = "Difference in relative (fractional) strength across modalities"
+  )
+
+# 4. Cohen’s d (fractional)
+ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~dataset, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (fractional strength)",
+    title = "Effect size (Cohen’s d) between excitatory and inhibitory fractional strengths"
+  )
+```
+
+
+```{r}
+df_frac.PPN1.vs.vAB3.with.valence <- df_acc_frac.inhibitory %>% 
+  mutate(strength_frac.inhibitory = strength_frac) %>% 
+  select(-strength_frac) %>% 
+  left_join(df_acc_frac.excitatory, by = c("k", "dataset", "modality")) %>% 
+  mutate(strength_frac.excitatory = strength_frac) %>% 
+  select(-strength_frac) %>% 
+  left_join(df_acc.excitatory,by = c("k", "dataset", "modality")) %>% 
+  mutate(strength.excitatory = strength) %>% 
+  select(-strength) %>% 
+  left_join(df_acc.inhibitory,by = c("k", "dataset", "modality")) %>% 
+  mutate(strength.inhibitory = strength) %>% 
+  select(-strength)%>%
+  pivot_wider(
+    names_from = dataset,      
+    values_from = c(strength.excitatory,strength.inhibitory,strength_frac.excitatory,strength_frac.inhibitory),    
+    names_sep = "."           
+  ) %>% 
+  pivot_longer(
+    cols = starts_with("strength"),   # all strength-related columns
+    names_to = c(".value", "valence",'dataset'),
+    names_sep = "\\."                 # split on '.'
+  ) %>% 
+  pivot_wider(
+    names_from = dataset,      
+    values_from = c(strength,strength_frac),    
+    names_sep = "."           
+  ) %>% 
+  mutate(strength.delta.total = strength.PPN1 - strength.vAB3, 
+         cohens.d.total = (strength.PPN1 - strength.vAB3)/(strength.PPN1 + strength.vAB3),
+         strength.delta.frac = strength_frac.PPN1 - strength_frac.vAB3, 
+         cohens.d.frac = (strength_frac.PPN1 - strength_frac.vAB3)/(strength_frac.PPN1 + strength_frac.vAB3))
+
+df_frac.PPN1.vs.vAB3.without.valence <- df_acc_frac %>% 
+  left_join(df_acc, by = c("k", "dataset", "modality")) %>% 
+  pivot_wider(
+    names_from = dataset,      
+    values_from = c(strength,strength_frac),    
+    names_sep = "."           
+  ) %>% 
+  pivot_longer(
+    cols = starts_with("strength"),   # all strength-related columns
+    names_to = c(".value",'dataset'),
+    names_sep = "\\."                 # split on '.'
+  ) %>% 
+  pivot_wider(
+    names_from = dataset,      
+    values_from = c(strength,strength_frac),    
+    names_sep = "."           
+  ) %>% 
+  mutate(strength.delta.total = strength.PPN1 - strength.vAB3, 
+         cohens.d.total = (strength.PPN1 - strength.vAB3)/(strength.PPN1 + strength.vAB3),
+         strength.delta.frac = strength_frac.PPN1 - strength_frac.vAB3, 
+         cohens.d.frac = (strength_frac.PPN1 - strength_frac.vAB3)/(strength_frac.PPN1 + strength_frac.vAB3))
+
+
+
+# 1. Absolute strength difference (PPN1 − vAB3)
+ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.total, color = modality)) +
+  geom_line(size = 0.8) +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ total strength (PPN1 − vAB3)",
+    title = "Absolute difference in summed synaptic strength between datasets"
+  )
+
+# 2. Cohen’s d (absolute)
+ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.total, color = modality)) +
+  geom_line(size = 0.8) +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (total strength)",
+    title = "Effect size (Cohen’s d) for total strength: PPN1 vs vAB3"
+  )
+
+# 3. Fractional strength difference (PPN1 − vAB3)
+ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ fractional strength (PPN1 − vAB3)",
+    title = "Difference in fractional synaptic strength between datasets"
+  )
+
+# 4. Cohen’s d (fractional)
+ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (fractional strength)",
+    title = "Effect size (Cohen’s d) for fractional strength: PPN1 vs vAB3"
+  )
+
+
+# 5. Absolute strength difference (PPN1 − vAB3)
+ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.total, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~valence, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ total strength (PPN1 − vAB3)",
+    title = "Absolute difference in summed synaptic strength between datasets"
+  )
+
+# 6. Cohen’s d (absolute)
+ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.total, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~valence, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (total strength)",
+    title = "Effect size (Cohen’s d) for total strength: PPN1 vs vAB3"
+  )
+
+# 7. Fractional strength difference (PPN1 − vAB3)
+ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~valence, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Δ fractional strength (PPN1 − vAB3)",
+    title = "Difference in fractional synaptic strength between datasets"
+  )
+
+# 8. Cohen’s d (fractional)
+ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
+  geom_line(size = 0.8) +
+  facet_wrap(~valence, ncol = 2, scales = "free_y") +
+  theme_bw() +
+  labs(
+    x = "k (top connections per start–end pair)",
+    y = "Cohen’s d (fractional strength)",
+    title = "Effect size (Cohen’s d) for fractional strength: PPN1 vs vAB3"
+  )
+
+
+
+```
+

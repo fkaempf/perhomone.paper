@@ -409,7 +409,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1
     filter(weight / sum(weight) >= 0.001) %>%
     filter(!is.na(type.post)) %>%
     pull(type.post)
-  saveRDS(target.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
+  saveRDS(target.PPN1, '/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
 
 } else {
   target.PPN1 <- readRDS('/Users/fkampf/Documents/pheromone.paper/feather/target.PPN1.rds')
@@ -1185,6 +1185,7 @@ ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = int
 #### 4.1.1 Quick ridge plot with all data
 
 ```{r}
+library(ggridges)
 # add modality labels (as you already do)
 df_all.all.ppk25.included$modality <- "female.touch"
 df_all.all.ppk23.included$modality <- "male.touch"
@@ -1369,9 +1370,9 @@ df_all.all.vis$modality <- "visual"
 
 # emphasise touch modalities when including PPN1/vAB3 contributions
 all.modalities.included <- dplyr::bind_rows(
-   df_all.all.ppk25.included %>% mutate(across(where(is.character), list)),
-   df_all.all.ppk23.included %>% mutate(across(where(is.character), list))
- )
+    df_all.all.ppk25.included,
+    df_all.all.ppk23.included
+)
 
 
 # PPN1
@@ -1620,7 +1621,7 @@ Extract an induced subgraph of interest and push it into Cytoscape for interacti
 
 ```{r cytoscape-export}
 
-input <- all.modalities %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
+input <- all.modalities.included %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
 # 1) collect unique node names from the path strings
 nodes <- unique(unlist(strsplit(input$path, " *-> *")))
 
@@ -1648,7 +1649,7 @@ Parse the strongest paths into edge lists to build a subgraph that respects actu
 ```{r cytoscape-edge-export}
 # Edge-extracted subgraph: parse paths -> build edge list -> select matching edges -> subgraph
 
-input <- all.modalities %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
+input <- all.modalities.included %>% filter(modality %in% c("male.touch", "female.touch", "DA1", "VA1v"))
 
 
 paths <- input$path %>%
@@ -1731,7 +1732,7 @@ fitContent()
 Screen for frequently traversed intermediate neurons (excluding start/targets) and rank them by their prevalence within excitatory strongest paths.
 
 ```{r mediator-search}
-all.modalities %>%
+all.modalities.included %>%
   filter(
     modality == "male.touch",
     dataset == "PPN1",
@@ -1767,7 +1768,7 @@ Render candidate mediator neurons in 3D to contextualise their position relative
 # Example of CN receiving input from MBON and LHN
 
 dir <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/morphology compared across modality valence path"
-random_pastel <- function() {
+random_pastel <- function() {414
   rgb(runif(1, 0.5, 1), runif(1, 0.5, 1), runif(1, 0.5, 1))
 }
 
@@ -1861,7 +1862,7 @@ for (modality in c("female.touch", "male.touch")) {
       comp1 <- modality
       comp2 <- path
       comp3 <- valence
-      all.modalities %>%
+      all.modalities.included %>%
         filter(modality == comp1) %>%
         filter(dataset == comp2) %>%
         filter(valence == comp3) %>%
@@ -2097,7 +2098,7 @@ for (modality in c("female.touch", "male.touch")) {
       comp1 <- modality
       comp2 <- path
       comp3 <- valence
-      all.modalities %>%
+      all.modalities.included %>%
         filter(modality == comp1) %>%
         filter(dataset == comp2) %>%
         filter(valence == comp3) %>%

@@ -1,0 +1,723 @@
+---
+title: "Figure 6I: aSP-f vs. aSP-g Comparison"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 7
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel I: aSP-f vs. aSP-g Comparison — Directly compares modality input profiles between aSP-f and aSP-g neuron populations. Includes paired bar charts, radar overlays, butterfly divergence plots, entropy boxplots, modality scatter (aSP-f mean vs. aSP-g mean), and valence-split versions of all comparisons."
+panel_legend <- "(I) Comparison of modality input to aSP-f vs. aSP-g populations. Paired bar charts and radar overlays compare mean normalized strength profiles. Scatter plots correlate per-modality mean strengths between the two target sets. Boxplots compare Shannon entropy distributions. All analyses are repeated separately for excitatory and inhibitory inputs."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_I_description", "txt"), "panel_I_description.txt"))
+```
+
+## Overview
+
+Panel I directly compares the modality input profiles of aSP-f neurons
+vs. aSP-g neurons. Both are third-order courtship command neuron
+populations, but they may receive different balances of sensory input.
+We compare their mean profiles, individual neuron distributions, and
+valence-split patterns.
+
+## Step 1: Prepare strength data for both target sets
+
+```{r prepare-data}
+# ---------------------------------------------------------------------------
+# Strength matrices are pre-computed in setup.R:
+#   strength.aspf  - rows = neuron types targeting aSP-f, cols = 7 modalities
+#   strength.aspg  - rows = neuron types targeting aSP-g, cols = 7 modalities
+# ---------------------------------------------------------------------------
+
+# Ensure column order is consistent
+strength.aspf <- strength.aspf[, modality_order, drop = FALSE]
+strength.aspg <- strength.aspg[, modality_order, drop = FALSE]
+
+message(sprintf("aSP-f: %d neurons x %d modalities", nrow(strength.aspf), ncol(strength.aspf)))
+message(sprintf("aSP-g: %d neurons x %d modalities", nrow(strength.aspg), ncol(strength.aspg)))
+
+# ---------------------------------------------------------------------------
+# Compute per-neuron normalized profiles (each neuron sums to 1)
+# ---------------------------------------------------------------------------
+normalize_rows <- function(mat) {
+  rs <- rowSums(mat, na.rm = TRUE)
+  rs[rs == 0] <- 1
+  sweep(mat, 1, rs, "/")
+}
+
+norm.aspf <- normalize_rows(strength.aspf)
+norm.aspg <- normalize_rows(strength.aspg)
+
+# ---------------------------------------------------------------------------
+# Compute mean and SE profiles for each group
+# ---------------------------------------------------------------------------
+mean_aspf <- colMeans(norm.aspf, na.rm = TRUE)
+mean_aspg <- colMeans(norm.aspg, na.rm = TRUE)
+
+se_aspf <- apply(norm.aspf, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+se_aspg <- apply(norm.aspg, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+
+# Build a tidy summary dataframe
+profile_summary <- data.frame(
+  modality = factor(rep(modality_order, 2), levels = modality_order),
+  mean     = c(mean_aspf[modality_order], mean_aspg[modality_order]),
+  se       = c(se_aspf[modality_order], se_aspg[modality_order]),
+  group    = rep(c("aSP-f", "aSP-g"), each = 7),
+  stringsAsFactors = FALSE
+)
+
+profile_summary
+```
+
+## Plot 1: Paired bar chart
+
+Grouped bars comparing mean normalized strength per modality for aSP-f
+vs. aSP-g, with standard error bars.
+
+```{r plot1-paired-bar, fig.width=9, fig.height=5}
+# ---------------------------------------------------------------------------
+# Paired (grouped) bar chart
+# ---------------------------------------------------------------------------
+p1 <- ggplot(profile_summary,
+             aes(x = modality, y = mean, fill = group)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.65,
+           color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = pmax(mean - se, 0), ymax = mean + se),
+    position = position_dodge(width = 0.75),
+    width = 0.2, linewidth = 0.4
+  ) +
+  scale_fill_manual(
+    values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D"),
+    name   = "Target set"
+  ) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = "Modality input profiles: aSP-f vs. aSP-g"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.x      = element_text(angle = 30, hjust = 1),
+    legend.position   = c(0.85, 0.85),
+    legend.background = element_rect(fill = alpha("white", 0.8)),
+    panel.grid.minor  = element_blank()
+  )
+
+p1
+```
+
+```{r save-plot1}
+save_fig6_plot(p1, "panel_I_paired_bar_aspf_vs_aspg", width = 9, height = 5)
+```
+
+## Plot 2: Back-to-back (butterfly/tornado) bar chart
+
+aSP-f bars extend to the right, aSP-g bars to the left. One row per
+modality for direct side-by-side comparison.
+
+```{r plot2-butterfly, fig.width=8, fig.height=5}
+# ---------------------------------------------------------------------------
+# Prepare data with negative values for one group
+# ---------------------------------------------------------------------------
+butterfly_df <- profile_summary %>%
+  mutate(
+    plot_value = ifelse(group == "aSP-g", -mean, mean),
+    plot_se    = se
+  )
+
+# Determine symmetric axis limits
+max_abs <- max(abs(butterfly_df$plot_value) + butterfly_df$plot_se, na.rm = TRUE) * 1.15
+
+p2 <- ggplot(butterfly_df,
+             aes(x = modality, y = plot_value, fill = group)) +
+  geom_col(width = 0.65, color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = plot_value - ifelse(group == "aSP-g", -plot_se, 0),
+        ymax = plot_value + ifelse(group == "aSP-f", plot_se, 0)),
+    width = 0.2, linewidth = 0.4
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    limits = c(-max_abs, max_abs),
+    labels = function(x) abs(x)
+  ) +
+  scale_fill_manual(
+    values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D"),
+    name   = "Target set"
+  ) +
+  geom_hline(yintercept = 0, linewidth = 0.5, color = "grey30") +
+  annotate("text", x = 7.6, y = max_abs * 0.5, label = "aSP-f",
+           fontface = "bold", color = "#4393C3", size = 4) +
+  annotate("text", x = 7.6, y = -max_abs * 0.5, label = "aSP-g",
+           fontface = "bold", color = "#D6604D", size = 4) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = "Back-to-back comparison: aSP-f vs. aSP-g"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    legend.position  = "none",
+    panel.grid.minor = element_blank()
+  )
+
+p2
+```
+
+```{r save-plot2}
+save_fig6_plot(p2, "panel_I_butterfly_aspf_vs_aspg", width = 8, height = 5)
+```
+
+## Plot 3: Radar comparison
+
+Overlay two semi-transparent radar polygons (one for each group) on the
+same polar plot.
+
+```{r plot3-radar, fig.width=7, fig.height=6}
+# ---------------------------------------------------------------------------
+# Radar overlay: aSP-f vs. aSP-g mean profiles
+# ---------------------------------------------------------------------------
+# Normalize both profiles to 0-1 range (relative to the global max)
+global_max <- max(c(mean_aspf, mean_aspg), na.rm = TRUE)
+if (global_max == 0) global_max <- 1
+
+radar_comp <- data.frame(
+  modality = factor(rep(modality_order, 2), levels = modality_order),
+  value    = c(mean_aspf[modality_order] / global_max,
+               mean_aspg[modality_order] / global_max),
+  group    = rep(c("aSP-f", "aSP-g"), each = 7),
+  stringsAsFactors = FALSE
+)
+
+p3 <- ggplot(radar_comp,
+             aes(x = modality, y = value, group = group,
+                 fill = group, color = group)) +
+  geom_polygon(alpha = 0.25, linewidth = 1) +
+  geom_point(size = 3) +
+  scale_fill_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+  scale_color_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+  coord_polar(start = 0) +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  labs(
+    title = "Radar comparison: aSP-f vs. aSP-g mean modality profiles"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.title        = element_blank(),
+    axis.text.y       = element_blank(),
+    axis.text.x       = element_text(size = 10, face = "bold"),
+    panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+    plot.title         = element_text(hjust = 0.5, face = "bold"),
+    legend.position    = "bottom",
+    legend.title       = element_blank()
+  )
+
+p3
+```
+
+```{r save-plot3}
+save_fig6_plot(p3, "panel_I_radar_comparison_aspf_vs_aspg", width = 7, height = 6)
+```
+
+## Plot 4: Heatmap comparison
+
+Stack the two strength matrices vertically (aSP-f on top, aSP-g on
+bottom). Cluster within each group using pheatmap with row annotations.
+
+```{r plot4-heatmap, fig.width=9, fig.height=10}
+# ---------------------------------------------------------------------------
+# Combine matrices and add group annotation
+# ---------------------------------------------------------------------------
+# Column-normalize for visualization (scale each modality to 0-1)
+col_normalize <- function(mat) {
+  cmax <- apply(mat, 2, max, na.rm = TRUE)
+  cmax[cmax == 0] <- 1
+  sweep(mat, 2, cmax, "/")
+}
+
+# Use unnormalized strength but column-scale for heatmap
+combined_mat <- rbind(strength.aspf, strength.aspg)
+combined_mat <- combined_mat[, modality_order, drop = FALSE]
+
+# Build row annotation
+row_annot <- data.frame(
+  target_set = c(rep("aSP-f", nrow(strength.aspf)),
+                 rep("aSP-g", nrow(strength.aspg))),
+  row.names = rownames(combined_mat)
+)
+
+annot_colors <- list(
+  target_set = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")
+)
+
+# Column-normalize for visual comparison
+combined_mat_norm <- col_normalize(combined_mat)
+
+# Define gaps between the two groups
+gap_row <- nrow(strength.aspf)
+
+# Draw heatmap
+p4 <- pheatmap(
+  combined_mat_norm,
+  annotation_row    = row_annot,
+  annotation_colors = annot_colors,
+  cluster_cols      = FALSE,
+  cluster_rows      = TRUE,
+  clustering_method = "ward.D2",
+  gaps_row          = gap_row,
+  color             = colorRampPalette(c("white", "#FEE08B", "#D73027"))(100),
+  border_color      = NA,
+  fontsize_row      = 7,
+  fontsize_col      = 10,
+  main              = "Modality strength: aSP-f (top) vs. aSP-g (bottom)",
+  angle_col         = 45,
+  silent            = TRUE
+)
+
+# pheatmap returns a gtable, display it
+grid::grid.newpage()
+grid::grid.draw(p4$gtable)
+```
+
+```{r save-plot4}
+# Save pheatmap output
+png(file.path(panel_plot_dir("panel_I_heatmap_comparison", "png"), "panel_I_heatmap_comparison.png"),
+    width = 9, height = 10, units = "in", res = 300)
+grid::grid.draw(p4$gtable)
+dev.off()
+
+pdf(file.path(panel_plot_dir("panel_I_heatmap_comparison", "pdf"), "panel_I_heatmap_comparison.pdf"),
+    width = 9, height = 10)
+grid::grid.draw(p4$gtable)
+dev.off()
+```
+
+## Plot 5: Entropy comparison (boxplot)
+
+Are aSP-g target neurons more or less multimodal than aSP-f target
+neurons? Compare Shannon entropy distributions.
+
+```{r plot5-entropy, fig.width=6, fig.height=5}
+# ---------------------------------------------------------------------------
+# Compute entropy for each neuron in each group
+# ---------------------------------------------------------------------------
+entropy_aspf <- data.frame(
+  neuron  = rownames(strength.aspf),
+  entropy = apply(strength.aspf, 1, shannon_entropy),
+  group   = "aSP-f",
+  stringsAsFactors = FALSE
+)
+
+entropy_aspg <- data.frame(
+  neuron  = rownames(strength.aspg),
+  entropy = apply(strength.aspg, 1, shannon_entropy),
+  group   = "aSP-g",
+  stringsAsFactors = FALSE
+)
+
+entropy_both <- bind_rows(entropy_aspf, entropy_aspg)
+
+# Wilcoxon rank-sum test
+wtest <- wilcox.test(entropy ~ group, data = entropy_both)
+p_label <- sprintf("Wilcoxon p = %.3g", wtest$p.value)
+
+p5 <- ggplot(entropy_both, aes(x = group, y = entropy, fill = group)) +
+  geom_boxplot(width = 0.5, outlier.shape = 21, outlier.size = 2, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1, stroke = 0, color = "grey30") +
+  scale_fill_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+  annotate("text", x = 1.5, y = max(entropy_both$entropy, na.rm = TRUE) * 1.08,
+           label = p_label, size = 3.5, fontface = "italic") +
+  labs(
+    x     = "Target set",
+    y     = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm")
+  )
+
+p5
+```
+
+```{r save-plot5}
+save_fig6_plot(p5, "panel_I_entropy_boxplot_aspf_vs_aspg", width = 6, height = 5)
+```
+
+## Plot 6: Modality scatter (aSP-f mean vs. aSP-g mean)
+
+For each modality, plot aSP-f mean strength (x) vs. aSP-g mean strength
+(y). Points are modalities, with an identity line.
+
+```{r plot6-scatter, fig.width=6, fig.height=6}
+# ---------------------------------------------------------------------------
+# Use the raw (unnormalized) mean strengths for this scatter
+# ---------------------------------------------------------------------------
+raw_mean_aspf <- colMeans(strength.aspf, na.rm = TRUE)
+raw_mean_aspg <- colMeans(strength.aspg, na.rm = TRUE)
+
+scatter_df <- data.frame(
+  modality  = modality_order,
+  aspf_mean = raw_mean_aspf[modality_order],
+  aspg_mean = raw_mean_aspg[modality_order],
+  mod_group = modality_group[modality_order],
+  stringsAsFactors = FALSE
+)
+
+# Axis limit
+axis_max <- max(c(scatter_df$aspf_mean, scatter_df$aspg_mean), na.rm = TRUE) * 1.15
+
+p6 <- ggplot(scatter_df,
+             aes(x = aspf_mean, y = aspg_mean, color = modality, label = modality)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey80", linewidth = 0.3) +
+  geom_point(size = 3) +
+  geom_text(nudge_x = axis_max * 0.04, nudge_y = axis_max * 0.03,
+            size = 3, fontface = "plain", show.legend = FALSE) +
+  scale_color_manual(values = modality_colors, name = "Modality") +
+  coord_fixed() +
+  xlim(0, axis_max) + ylim(0, axis_max) +
+  labs(
+    x     = "Mean strength (aSP-f targets)",
+    y     = "Mean strength (aSP-g targets)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm")
+  )
+
+p6
+```
+
+```{r save-plot6}
+save_fig6_plot(p6, "panel_I_modality_scatter_aspf_vs_aspg", width = 6, height = 5)
+```
+
+## Step 2: Valence-split comparison
+
+Repeat the key comparisons separately for excitatory and inhibitory
+inputs. This may reveal that e.g. excitatory profiles are similar
+but inhibitory profiles differ between the two target sets.
+
+```{r valence-split-data}
+# ---------------------------------------------------------------------------
+# Compute valence-specific strength matrices for each target set
+# ---------------------------------------------------------------------------
+strength.aspf.exc <- compute_valence_strength(paths.aspf, "excitatory")
+strength.aspf.inh <- compute_valence_strength(paths.aspf, "inhibitory")
+strength.aspg.exc <- compute_valence_strength(paths.aspg, "excitatory")
+strength.aspg.inh <- compute_valence_strength(paths.aspg, "inhibitory")
+
+# Ensure column order
+for (nm in c("strength.aspf.exc", "strength.aspf.inh",
+             "strength.aspg.exc", "strength.aspg.inh")) {
+  mat <- get(nm)
+  present_cols <- intersect(modality_order, colnames(mat))
+  missing_cols <- setdiff(modality_order, colnames(mat))
+  if (length(missing_cols) > 0) {
+    for (mc in missing_cols) mat <- cbind(mat, setNames(data.frame(rep(0, nrow(mat))), mc))
+  }
+  assign(nm, mat[, modality_order, drop = FALSE])
+}
+
+# Compute mean profiles per group and valence
+build_valence_profile <- function(mat, group_label, valence_label) {
+  means <- colMeans(mat, na.rm = TRUE)
+  ses   <- apply(mat, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+  data.frame(
+    modality = factor(modality_order, levels = modality_order),
+    mean     = means[modality_order],
+    se       = ses[modality_order],
+    group    = group_label,
+    valence  = valence_label,
+    stringsAsFactors = FALSE
+  )
+}
+
+valence_profiles <- bind_rows(
+  build_valence_profile(normalize_rows(strength.aspf.exc), "aSP-f", "excitatory"),
+  build_valence_profile(normalize_rows(strength.aspf.inh), "aSP-f", "inhibitory"),
+  build_valence_profile(normalize_rows(strength.aspg.exc), "aSP-g", "excitatory"),
+  build_valence_profile(normalize_rows(strength.aspg.inh), "aSP-g", "inhibitory")
+)
+```
+
+### Valence-split paired bar chart
+
+```{r valence-paired-bar, fig.width=12, fig.height=5}
+p7 <- ggplot(valence_profiles,
+             aes(x = modality, y = mean, fill = group)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.65,
+           color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = pmax(mean - se, 0), ymax = mean + se),
+    position = position_dodge(width = 0.75),
+    width = 0.2, linewidth = 0.4
+  ) +
+  facet_wrap(~ valence, scales = "free_y") +
+  scale_fill_manual(
+    values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D"),
+    name   = "Target set"
+  ) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    strip.text = element_text(face = "plain", size = 10, color = "grey30"),
+    legend.position = "bottom",
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm")
+  )
+
+p7
+```
+
+```{r save-plot7}
+save_fig6_plot(p7, "panel_I_valence_paired_bar_aspf_vs_aspg", width = 12, height = 5)
+```
+
+### Valence-split radar comparison
+
+```{r valence-radar, fig.width=12, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# One radar per valence, with aSP-f and aSP-g overlaid
+# ---------------------------------------------------------------------------
+make_valence_comparison_radar <- function(valence_label, profiles_df) {
+  sub_df <- profiles_df %>% filter(valence == valence_label)
+
+  # Normalize to 0-1 within this valence
+  vmax <- max(sub_df$mean, na.rm = TRUE)
+  if (vmax == 0) vmax <- 1
+  sub_df <- sub_df %>% mutate(value = mean / vmax)
+
+  ggplot(sub_df, aes(x = modality, y = value, group = group,
+                      fill = group, color = group)) +
+    geom_polygon(alpha = 0.2, linewidth = 1) +
+    geom_point(size = 2.5) +
+    scale_fill_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+    scale_color_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+    coord_polar(start = 0) +
+    scale_y_continuous(limits = c(0, 1.1)) +
+    labs(title = paste0(str_to_title(valence_label), " inputs")) +
+    theme_minimal(base_size = 11) +
+    theme(
+      axis.title        = element_blank(),
+      axis.text.y       = element_blank(),
+      axis.text.x       = element_text(size = 9, face = "bold"),
+      panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+      plot.title         = element_text(hjust = 0.5, face = "bold"),
+      legend.position    = "bottom",
+      legend.title       = element_blank()
+    )
+}
+
+p8_exc <- make_valence_comparison_radar("excitatory", valence_profiles)
+p8_inh <- make_valence_comparison_radar("inhibitory", valence_profiles)
+
+p8 <- plot_grid(p8_exc, p8_inh, nrow = 1, labels = c("Exc", "Inh"),
+                label_size = 12)
+p8
+```
+
+```{r save-plot8}
+save_fig6_plot(p8, "panel_I_valence_radar_aspf_vs_aspg", width = 12, height = 5.5)
+```
+
+### Valence-split entropy comparison
+
+```{r valence-entropy, fig.width=8, fig.height=5}
+# ---------------------------------------------------------------------------
+# Entropy computed on excitatory and inhibitory matrices separately
+# ---------------------------------------------------------------------------
+ent_valence <- bind_rows(
+  data.frame(
+    neuron  = rownames(strength.aspf.exc),
+    entropy = apply(strength.aspf.exc, 1, shannon_entropy),
+    group   = "aSP-f", valence = "excitatory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.aspf.inh),
+    entropy = apply(strength.aspf.inh, 1, shannon_entropy),
+    group   = "aSP-f", valence = "inhibitory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.aspg.exc),
+    entropy = apply(strength.aspg.exc, 1, shannon_entropy),
+    group   = "aSP-g", valence = "excitatory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.aspg.inh),
+    entropy = apply(strength.aspg.inh, 1, shannon_entropy),
+    group   = "aSP-g", valence = "inhibitory", stringsAsFactors = FALSE
+  )
+)
+
+p9 <- ggplot(ent_valence, aes(x = group, y = entropy, fill = group)) +
+  geom_boxplot(width = 0.5, outlier.shape = 21, outlier.size = 2, alpha = 0.7) +
+  geom_jitter(width = 0.12, alpha = 0.4, size = 1, stroke = 0, color = "grey30") +
+  facet_wrap(~ valence) +
+  scale_fill_manual(values = c("aSP-f" = "#4393C3", "aSP-g" = "#D6604D")) +
+  labs(
+    x     = "Target set",
+    y     = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+# Add p-values per facet
+for (v in c("excitatory", "inhibitory")) {
+  sub <- ent_valence %>% filter(valence == v)
+  if (length(unique(sub$group)) == 2 && all(table(sub$group) >= 2)) {
+    wt <- wilcox.test(entropy ~ group, data = sub)
+    message(sprintf("  %s: Wilcoxon p = %.3g", v, wt$p.value))
+  }
+}
+
+p9
+```
+
+```{r save-plot9}
+save_fig6_plot(p9, "panel_I_valence_entropy_aspf_vs_aspg", width = 8, height = 5)
+```
+
+### Valence-split modality scatter
+
+```{r valence-scatter, fig.width=12, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# Scatter: aSP-f mean vs. aSP-g mean, per modality, split by valence
+# ---------------------------------------------------------------------------
+scatter_valence <- bind_rows(
+  data.frame(
+    modality  = modality_order,
+    aspf_mean = colMeans(strength.aspf.exc, na.rm = TRUE)[modality_order],
+    aspg_mean = colMeans(strength.aspg.exc, na.rm = TRUE)[modality_order],
+    valence   = "excitatory",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality  = modality_order,
+    aspf_mean = colMeans(strength.aspf.inh, na.rm = TRUE)[modality_order],
+    aspg_mean = colMeans(strength.aspg.inh, na.rm = TRUE)[modality_order],
+    valence   = "inhibitory",
+    stringsAsFactors = FALSE
+  )
+)
+
+axis_max_v <- max(c(scatter_valence$aspf_mean, scatter_valence$aspg_mean),
+                   na.rm = TRUE) * 1.15
+
+p10 <- ggplot(scatter_valence,
+              aes(x = aspf_mean, y = aspg_mean, color = modality, label = modality)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey80", linewidth = 0.3) +
+  geom_point(size = 2.8) +
+  geom_text(nudge_x = axis_max_v * 0.035, nudge_y = axis_max_v * 0.025,
+            size = 2.5, fontface = "plain", show.legend = FALSE) +
+  facet_wrap(~ valence) +
+  scale_color_manual(values = modality_colors, name = "Modality") +
+  coord_fixed() +
+  labs(
+    x     = "Mean strength (aSP-f targets)",
+    y     = "Mean strength (aSP-g targets)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "plain", size = 10, color = "grey30"),
+    legend.position = "right",
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm")
+  )
+
+p10
+```
+
+```{r save-plot10}
+save_fig6_plot(p10, "panel_I_valence_scatter_aspf_vs_aspg", width = 9, height = 4.5)
+```
+
+## Summary figure assembly
+
+Combine the key plots into a single composite panel.
+
+```{r composite, fig.width=14, fig.height=16}
+# ---------------------------------------------------------------------------
+# Assemble composite: 3 rows
+#   Row 1: paired bar + radar side-by-side
+#   Row 2: butterfly + entropy + scatter
+#   Row 3: valence-split bar + valence radar
+# ---------------------------------------------------------------------------
+row1 <- plot_grid(p1, p3, nrow = 1, rel_widths = c(1.2, 1),
+                  labels = c("A", "B"), label_size = 14)
+
+row2 <- plot_grid(p2, p5, p6, nrow = 1, rel_widths = c(1, 0.8, 1),
+                  labels = c("C", "D", "E"), label_size = 14)
+
+row3 <- plot_grid(p7, p8, nrow = 1, rel_widths = c(1.2, 1),
+                  labels = c("F", "G"), label_size = 14)
+
+panel_I <- plot_grid(row1, row2, row3, ncol = 1,
+                     rel_heights = c(1, 1, 1))
+panel_I
+```
+
+```{r save-composite}
+save_fig6_plot(panel_I, "panel_I_composite_aspf_vs_aspg", width = 14, height = 16)
+```

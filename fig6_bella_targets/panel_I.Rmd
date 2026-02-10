@@ -1,0 +1,863 @@
+---
+title: "Figure 6I (Bella's targets): M vs. F vs. IR Downstream Comparison"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 7
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel I: Target Group Comparison (Bella's targets) — Compares modality input profiles between M-downstream, F-downstream, and IR-downstream neuron populations. Includes paired bar charts, radar overlays, entropy boxplots, and valence-split analyses."
+panel_legend <- "(I) Comparison of modality input profiles across M-downstream, F-downstream, and IR-downstream target groups. Paired bar charts, radar overlays, entropy boxplots, and valence-split analyses reveal differences in sensory integration between target populations."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_I_description", "txt"), "panel_I_description.txt"))
+```
+
+## Overview
+
+Panel I directly compares the modality input profiles of the three
+Bella target populations: M cell downstream, F cell downstream, and
+IR cell downstream neurons. These are distinct target sets receiving
+input from M cells, F cells, and IR-expressing cells respectively.
+We compare their mean profiles, individual neuron distributions, and
+valence-split patterns in a 3-way analysis.
+
+## Step 1: Prepare strength data for all three target sets
+
+```{r prepare-data}
+# ---------------------------------------------------------------------------
+# Strength matrices are pre-computed in setup.R:
+#   strength.M  - rows = neuron types targeting M cells, cols = 7 modalities
+#   strength.F  - rows = neuron types targeting F cells, cols = 7 modalities
+#   strength.IR - rows = neuron types targeting IR cells, cols = 7 modalities
+# ---------------------------------------------------------------------------
+
+# Ensure column order is consistent
+strength.M  <- strength.M[, modality_order, drop = FALSE]
+strength.F  <- strength.F[, modality_order, drop = FALSE]
+strength.IR <- strength.IR[, modality_order, drop = FALSE]
+
+message(sprintf("M downstream:  %d neurons x %d modalities", nrow(strength.M), ncol(strength.M)))
+message(sprintf("F downstream:  %d neurons x %d modalities", nrow(strength.F), ncol(strength.F)))
+message(sprintf("IR downstream: %d neurons x %d modalities", nrow(strength.IR), ncol(strength.IR)))
+
+# ---------------------------------------------------------------------------
+# Compute per-neuron normalized profiles (each neuron sums to 1)
+# ---------------------------------------------------------------------------
+normalize_rows <- function(mat) {
+  rs <- rowSums(mat, na.rm = TRUE)
+  rs[rs == 0] <- 1
+  sweep(mat, 1, rs, "/")
+}
+
+norm.M  <- normalize_rows(strength.M)
+norm.F  <- normalize_rows(strength.F)
+norm.IR <- normalize_rows(strength.IR)
+
+# ---------------------------------------------------------------------------
+# Compute mean and SE profiles for each group
+# ---------------------------------------------------------------------------
+compute_mean_se <- function(norm_mat) {
+  means <- colMeans(norm_mat, na.rm = TRUE)
+  ses   <- apply(norm_mat, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+  list(mean = means, se = ses)
+}
+
+stats_M  <- compute_mean_se(norm.M)
+stats_F  <- compute_mean_se(norm.F)
+stats_IR <- compute_mean_se(norm.IR)
+
+# Build a tidy summary dataframe
+profile_summary <- data.frame(
+  modality = factor(rep(modality_order, 3), levels = modality_order),
+  mean     = c(stats_M$mean[modality_order],
+               stats_F$mean[modality_order],
+               stats_IR$mean[modality_order]),
+  se       = c(stats_M$se[modality_order],
+               stats_F$se[modality_order],
+               stats_IR$se[modality_order]),
+  group    = rep(c("M_downstream", "F_downstream", "IR_downstream"), each = 7),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(group_label = target_set_labels[group])
+
+profile_summary
+```
+
+## Plot 1: Grouped bar chart (3-way)
+
+Grouped bars comparing mean normalized strength per modality across
+M, F, and IR downstream neurons, with standard error bars.
+
+```{r plot1-grouped-bar, fig.width=10, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# Grouped (dodge) bar chart: 3 groups
+# ---------------------------------------------------------------------------
+p1 <- ggplot(profile_summary,
+             aes(x = modality, y = mean, fill = group)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = pmax(mean - se, 0), ymax = mean + se),
+    position = position_dodge(width = 0.8),
+    width = 0.2, linewidth = 0.4
+  ) +
+  scale_fill_manual(
+    values = target_set_colors,
+    labels = target_set_labels,
+    name   = "Target set"
+  ) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = "Modality input profiles: M vs. F vs. IR downstream"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.x      = element_text(angle = 30, hjust = 1),
+    legend.position   = c(0.85, 0.85),
+    legend.background = element_rect(fill = alpha("white", 0.8)),
+    panel.grid.minor  = element_blank()
+  )
+
+p1
+```
+
+```{r save-plot1}
+save_fig6_plot(p1, "panel_I_bella_grouped_bar", width = 10, height = 5.5)
+```
+
+## Plot 2: Faceted tornado chart (3-way)
+
+Instead of a two-sided butterfly chart, we use a faceted horizontal
+bar chart with one facet per target group for direct comparison.
+
+```{r plot2-tornado, fig.width=10, fig.height=7}
+# ---------------------------------------------------------------------------
+# Faceted horizontal bar chart: one panel per group
+# ---------------------------------------------------------------------------
+tornado_df <- profile_summary %>%
+  mutate(group_label = factor(group_label,
+                               levels = c("M cells", "F cells", "IR cells")))
+
+p2 <- ggplot(tornado_df,
+             aes(x = modality, y = mean, fill = group)) +
+  geom_col(width = 0.65, color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = pmax(mean - se, 0), ymax = mean + se),
+    width = 0.2, linewidth = 0.4
+  ) +
+  coord_flip() +
+  facet_wrap(~ group_label, nrow = 1) +
+  scale_fill_manual(
+    values = target_set_colors,
+    labels = target_set_labels,
+    guide  = "none"
+  ) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = "Faceted comparison: M vs. F vs. IR downstream"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.text        = element_text(face = "bold", size = 12),
+    panel.grid.minor  = element_blank()
+  )
+
+p2
+```
+
+```{r save-plot2}
+save_fig6_plot(p2, "panel_I_bella_tornado_faceted", width = 10, height = 7)
+```
+
+## Plot 3: Radar comparison (3 overlaid polygons)
+
+Overlay three semi-transparent radar polygons (M=red, F=blue, IR=green)
+on the same polar plot.
+
+```{r plot3-radar, fig.width=7, fig.height=6}
+# ---------------------------------------------------------------------------
+# Radar overlay: M vs. F vs. IR mean profiles
+# ---------------------------------------------------------------------------
+# Normalize all profiles to 0-1 range (relative to the global max)
+global_max <- max(c(stats_M$mean, stats_F$mean, stats_IR$mean), na.rm = TRUE)
+if (global_max == 0) global_max <- 1
+
+radar_comp <- data.frame(
+  modality = factor(rep(modality_order, 3), levels = modality_order),
+  value    = c(stats_M$mean[modality_order] / global_max,
+               stats_F$mean[modality_order] / global_max,
+               stats_IR$mean[modality_order] / global_max),
+  group    = rep(c("M_downstream", "F_downstream", "IR_downstream"), each = 7),
+  stringsAsFactors = FALSE
+)
+
+p3 <- ggplot(radar_comp,
+             aes(x = modality, y = value, group = group,
+                 fill = group, color = group)) +
+  geom_polygon(alpha = 0.2, linewidth = 1) +
+  geom_point(size = 3) +
+  scale_fill_manual(values = target_set_colors, labels = target_set_labels) +
+  scale_color_manual(values = target_set_colors, labels = target_set_labels) +
+  coord_polar(start = 0) +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  labs(
+    title = "Radar comparison: M vs. F vs. IR mean modality profiles"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.title        = element_blank(),
+    axis.text.y       = element_blank(),
+    axis.text.x       = element_text(size = 10, face = "bold"),
+    panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+    plot.title         = element_text(hjust = 0.5, face = "bold"),
+    legend.position    = "bottom",
+    legend.title       = element_blank()
+  )
+
+p3
+```
+
+```{r save-plot3}
+save_fig6_plot(p3, "panel_I_bella_radar_comparison", width = 7, height = 6)
+```
+
+## Plot 4: Heatmap comparison (3 groups)
+
+Stack the three strength matrices vertically (M on top, F in middle,
+IR on bottom). Cluster within each group using pheatmap with row
+annotations and gaps between groups.
+
+```{r plot4-heatmap, fig.width=9, fig.height=12}
+# ---------------------------------------------------------------------------
+# Combine matrices and add group annotation
+# ---------------------------------------------------------------------------
+# Column-normalize for visualization (scale each modality to 0-1)
+col_normalize <- function(mat) {
+  cmax <- apply(mat, 2, max, na.rm = TRUE)
+  cmax[cmax == 0] <- 1
+  sweep(mat, 2, cmax, "/")
+}
+
+# Use unnormalized strength but column-scale for heatmap
+combined_mat <- rbind(strength.M, strength.F, strength.IR)
+combined_mat <- combined_mat[, modality_order, drop = FALSE]
+
+# Build row annotation
+row_annot <- data.frame(
+  target_set = c(rep("M_downstream", nrow(strength.M)),
+                 rep("F_downstream", nrow(strength.F)),
+                 rep("IR_downstream", nrow(strength.IR))),
+  row.names = rownames(combined_mat)
+)
+
+annot_colors <- list(
+  target_set = target_set_colors
+)
+
+# Column-normalize for visual comparison
+combined_mat_norm <- col_normalize(combined_mat)
+
+# Define gaps between the three groups
+gap_rows <- c(nrow(strength.M),
+              nrow(strength.M) + nrow(strength.F))
+
+# Draw heatmap
+p4 <- pheatmap(
+  combined_mat_norm,
+  annotation_row    = row_annot,
+  annotation_colors = annot_colors,
+  cluster_cols      = FALSE,
+  cluster_rows      = TRUE,
+  clustering_method = "ward.D2",
+  gaps_row          = gap_rows,
+  color             = colorRampPalette(c("white", "#FEE08B", "#D73027"))(100),
+  border_color      = NA,
+  fontsize_row      = 6,
+  fontsize_col      = 10,
+  main              = "Modality strength: M (top) vs. F (middle) vs. IR (bottom)",
+  angle_col         = 45,
+  silent            = TRUE
+)
+
+# pheatmap returns a gtable, display it
+grid::grid.newpage()
+grid::grid.draw(p4$gtable)
+```
+
+```{r save-plot4}
+# Save pheatmap output
+png(file.path(panel_plot_dir("panel_I_bella_heatmap_comparison", "png"), "panel_I_bella_heatmap_comparison.png"),
+    width = 9, height = 12, units = "in", res = 300)
+grid::grid.draw(p4$gtable)
+dev.off()
+
+pdf(file.path(panel_plot_dir("panel_I_bella_heatmap_comparison", "pdf"), "panel_I_bella_heatmap_comparison.pdf"),
+    width = 9, height = 12)
+grid::grid.draw(p4$gtable)
+dev.off()
+```
+
+## Plot 5: Entropy comparison (boxplot with pairwise tests)
+
+Are M, F, or IR downstream neurons more or less multimodal?
+Compare Shannon entropy distributions with pairwise Wilcoxon tests.
+
+```{r plot5-entropy, fig.width=7, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# Compute entropy for each neuron in each group
+# ---------------------------------------------------------------------------
+entropy_M <- data.frame(
+  neuron  = rownames(strength.M),
+  entropy = apply(strength.M, 1, shannon_entropy),
+  group   = "M_downstream",
+  stringsAsFactors = FALSE
+)
+
+entropy_F <- data.frame(
+  neuron  = rownames(strength.F),
+  entropy = apply(strength.F, 1, shannon_entropy),
+  group   = "F_downstream",
+  stringsAsFactors = FALSE
+)
+
+entropy_IR <- data.frame(
+  neuron  = rownames(strength.IR),
+  entropy = apply(strength.IR, 1, shannon_entropy),
+  group   = "IR_downstream",
+  stringsAsFactors = FALSE
+)
+
+entropy_all <- bind_rows(entropy_M, entropy_F, entropy_IR) %>%
+  mutate(group_label = target_set_labels[group],
+         group_label = factor(group_label, levels = c("M cells", "F cells", "IR cells")))
+
+# Pairwise Wilcoxon rank-sum tests
+pairs <- list(c("M_downstream", "F_downstream"),
+              c("M_downstream", "IR_downstream"),
+              c("F_downstream", "IR_downstream"))
+
+pair_labels <- list(c("M cells", "F cells"),
+                    c("M cells", "IR cells"),
+                    c("F cells", "IR cells"))
+
+pvals <- sapply(pairs, function(pair) {
+  sub <- entropy_all %>% filter(group %in% pair)
+  if (all(table(sub$group) >= 2)) {
+    wt <- wilcox.test(entropy ~ group, data = sub)
+    wt$p.value
+  } else {
+    NA_real_
+  }
+})
+
+for (i in seq_along(pairs)) {
+  message(sprintf("  %s vs %s: Wilcoxon p = %.3g",
+                  pair_labels[[i]][1], pair_labels[[i]][2], pvals[i]))
+}
+
+# Build significance bracket y-positions
+y_max <- max(entropy_all$entropy, na.rm = TRUE) * 1.05
+y_step <- max(entropy_all$entropy, na.rm = TRUE) * 0.08
+
+p5 <- ggplot(entropy_all, aes(x = group_label, y = entropy, fill = group)) +
+  geom_boxplot(width = 0.5, outlier.shape = 21, outlier.size = 2, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0, color = "grey30") +
+  scale_fill_manual(values = target_set_colors, guide = "none") +
+  # Add pairwise p-value annotations
+  annotate("segment",
+           x = 1, xend = 2,
+           y = y_max, yend = y_max, linewidth = 0.4) +
+  annotate("text", x = 1.5, y = y_max + y_step * 0.3,
+           label = sprintf("p = %.3g", pvals[1]),
+           size = 3, fontface = "italic") +
+  annotate("segment",
+           x = 1, xend = 3,
+           y = y_max + y_step, yend = y_max + y_step, linewidth = 0.4) +
+  annotate("text", x = 2, y = y_max + y_step + y_step * 0.3,
+           label = sprintf("p = %.3g", pvals[2]),
+           size = 3, fontface = "italic") +
+  annotate("segment",
+           x = 2, xend = 3,
+           y = y_max + y_step * 2, yend = y_max + y_step * 2, linewidth = 0.4) +
+  annotate("text", x = 2.5, y = y_max + y_step * 2 + y_step * 0.3,
+           label = sprintf("p = %.3g", pvals[3]),
+           size = 3, fontface = "italic") +
+  labs(
+    x     = "Target set",
+    y     = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+p5
+```
+
+```{r save-plot5}
+save_fig6_plot(p5, "panel_I_bella_entropy_boxplot", width = 6, height = 5)
+```
+
+## Plot 6: Modality scatter (pairwise comparisons in facets)
+
+For each modality, plot pairwise mean strength comparisons
+(M vs F, M vs IR, F vs IR) in separate facets.
+
+```{r plot6-scatter, fig.width=14, fig.height=5}
+# ---------------------------------------------------------------------------
+# Use the raw (unnormalized) mean strengths for the scatter
+# ---------------------------------------------------------------------------
+raw_mean_M  <- colMeans(strength.M, na.rm = TRUE)
+raw_mean_F  <- colMeans(strength.F, na.rm = TRUE)
+raw_mean_IR <- colMeans(strength.IR, na.rm = TRUE)
+
+scatter_df <- bind_rows(
+  data.frame(
+    modality = modality_order,
+    x_mean   = raw_mean_M[modality_order],
+    y_mean   = raw_mean_F[modality_order],
+    comparison = "M vs F",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality = modality_order,
+    x_mean   = raw_mean_M[modality_order],
+    y_mean   = raw_mean_IR[modality_order],
+    comparison = "M vs IR",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality = modality_order,
+    x_mean   = raw_mean_F[modality_order],
+    y_mean   = raw_mean_IR[modality_order],
+    comparison = "F vs IR",
+    stringsAsFactors = FALSE
+  )
+) %>%
+  mutate(comparison = factor(comparison, levels = c("M vs F", "M vs IR", "F vs IR")))
+
+# Axis labels per facet
+x_labels <- c("M vs F" = "Mean strength (M downstream)",
+              "M vs IR" = "Mean strength (M downstream)",
+              "F vs IR" = "Mean strength (F downstream)")
+y_labels <- c("M vs F" = "Mean strength (F downstream)",
+              "M vs IR" = "Mean strength (IR downstream)",
+              "F vs IR" = "Mean strength (IR downstream)")
+
+axis_max <- max(c(scatter_df$x_mean, scatter_df$y_mean), na.rm = TRUE) * 1.15
+
+p6 <- ggplot(scatter_df,
+             aes(x = x_mean, y = y_mean, color = modality, label = modality)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey75", linewidth = 0.3) +
+  geom_point(alpha = 0.65, size = 2, shape = 16) +
+  geom_text(nudge_x = axis_max * 0.04, nudge_y = axis_max * 0.03,
+            size = 2.5, fontface = "bold", show.legend = FALSE) +
+  facet_wrap(~ comparison, nrow = 1, scales = "free") +
+  scale_color_manual(values = modality_colors, name = "Modality") +
+  coord_fixed() +
+  labs(
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    strip.text = element_text(face = "plain", size = 10, color = "grey30"),
+    legend.position = "right"
+  )
+
+p6
+```
+
+```{r save-plot6}
+save_fig6_plot(p6, "panel_I_bella_modality_scatter", width = 10, height = 4.5)
+```
+
+## Step 2: Valence-split comparison
+
+Repeat the key comparisons separately for excitatory and inhibitory
+inputs. This may reveal that excitatory profiles are similar but
+inhibitory profiles differ between the three target sets.
+
+```{r valence-split-data}
+# ---------------------------------------------------------------------------
+# Compute valence-specific strength matrices for each target set
+# ---------------------------------------------------------------------------
+strength.M.exc  <- compute_valence_strength(paths.M, "excitatory")
+strength.M.inh  <- compute_valence_strength(paths.M, "inhibitory")
+strength.F.exc  <- compute_valence_strength(paths.F, "excitatory")
+strength.F.inh  <- compute_valence_strength(paths.F, "inhibitory")
+strength.IR.exc <- compute_valence_strength(paths.IR, "excitatory")
+strength.IR.inh <- compute_valence_strength(paths.IR, "inhibitory")
+
+# Ensure column order for all valence matrices
+for (nm in c("strength.M.exc", "strength.M.inh",
+             "strength.F.exc", "strength.F.inh",
+             "strength.IR.exc", "strength.IR.inh")) {
+  mat <- get(nm)
+  present_cols <- intersect(modality_order, colnames(mat))
+  missing_cols <- setdiff(modality_order, colnames(mat))
+  if (length(missing_cols) > 0) {
+    for (mc in missing_cols) mat <- cbind(mat, setNames(data.frame(rep(0, nrow(mat))), mc))
+  }
+  assign(nm, as.matrix(mat[, modality_order, drop = FALSE]))
+}
+
+# Compute mean profiles per group and valence
+build_valence_profile <- function(mat, group_label, valence_label) {
+  norm_mat <- normalize_rows(mat)
+  means <- colMeans(norm_mat, na.rm = TRUE)
+  ses   <- apply(norm_mat, 2, function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x))))
+  data.frame(
+    modality = factor(modality_order, levels = modality_order),
+    mean     = means[modality_order],
+    se       = ses[modality_order],
+    group    = group_label,
+    valence  = valence_label,
+    stringsAsFactors = FALSE
+  )
+}
+
+valence_profiles <- bind_rows(
+  build_valence_profile(strength.M.exc,  "M_downstream",  "excitatory"),
+  build_valence_profile(strength.M.inh,  "M_downstream",  "inhibitory"),
+  build_valence_profile(strength.F.exc,  "F_downstream",  "excitatory"),
+  build_valence_profile(strength.F.inh,  "F_downstream",  "inhibitory"),
+  build_valence_profile(strength.IR.exc, "IR_downstream", "excitatory"),
+  build_valence_profile(strength.IR.inh, "IR_downstream", "inhibitory")
+)
+```
+
+### Valence-split grouped bar chart
+
+```{r valence-grouped-bar, fig.width=14, fig.height=5.5}
+p7 <- ggplot(valence_profiles,
+             aes(x = modality, y = mean, fill = group)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           color = "white", linewidth = 0.3) +
+  geom_errorbar(
+    aes(ymin = pmax(mean - se, 0), ymax = mean + se),
+    position = position_dodge(width = 0.8),
+    width = 0.2, linewidth = 0.4
+  ) +
+  facet_wrap(~ valence, scales = "free_y") +
+  scale_fill_manual(
+    values = target_set_colors,
+    labels = target_set_labels,
+    name   = "Target set"
+  ) +
+  labs(
+    x     = "Modality",
+    y     = "Mean normalized strength",
+    title = "Valence-split modality profiles: M vs. F vs. IR downstream"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.x      = element_text(angle = 30, hjust = 1),
+    strip.text        = element_text(face = "bold", size = 12),
+    legend.position   = "bottom",
+    panel.grid.minor  = element_blank()
+  )
+
+p7
+```
+
+```{r save-plot7}
+save_fig6_plot(p7, "panel_I_bella_valence_grouped_bar", width = 14, height = 5.5)
+```
+
+### Valence-split radar comparison
+
+```{r valence-radar, fig.width=14, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# One radar per valence, with M, F, IR overlaid
+# ---------------------------------------------------------------------------
+make_valence_comparison_radar <- function(valence_label, profiles_df) {
+  sub_df <- profiles_df %>% filter(valence == valence_label)
+
+  # Normalize to 0-1 within this valence
+  vmax <- max(sub_df$mean, na.rm = TRUE)
+  if (vmax == 0) vmax <- 1
+  sub_df <- sub_df %>% mutate(value = mean / vmax)
+
+  ggplot(sub_df, aes(x = modality, y = value, group = group,
+                      fill = group, color = group)) +
+    geom_polygon(alpha = 0.2, linewidth = 1) +
+    geom_point(size = 2.5) +
+    scale_fill_manual(values = target_set_colors, labels = target_set_labels) +
+    scale_color_manual(values = target_set_colors, labels = target_set_labels) +
+    coord_polar(start = 0) +
+    scale_y_continuous(limits = c(0, 1.1)) +
+    labs(title = paste0(str_to_title(valence_label), " inputs")) +
+    theme_minimal(base_size = 11) +
+    theme(
+      axis.title        = element_blank(),
+      axis.text.y       = element_blank(),
+      axis.text.x       = element_text(size = 9, face = "bold"),
+      panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+      plot.title         = element_text(hjust = 0.5, face = "bold"),
+      legend.position    = "bottom",
+      legend.title       = element_blank()
+    )
+}
+
+p8_exc <- make_valence_comparison_radar("excitatory", valence_profiles)
+p8_inh <- make_valence_comparison_radar("inhibitory", valence_profiles)
+
+p8 <- plot_grid(p8_exc, p8_inh, nrow = 1, labels = c("Exc", "Inh"),
+                label_size = 12)
+p8
+```
+
+```{r save-plot8}
+save_fig6_plot(p8, "panel_I_bella_valence_radar", width = 14, height = 5.5)
+```
+
+### Valence-split entropy comparison
+
+```{r valence-entropy, fig.width=10, fig.height=5.5}
+# ---------------------------------------------------------------------------
+# Entropy computed on excitatory and inhibitory matrices separately
+# ---------------------------------------------------------------------------
+ent_valence <- bind_rows(
+  data.frame(
+    neuron  = rownames(strength.M.exc),
+    entropy = apply(strength.M.exc, 1, shannon_entropy),
+    group   = "M_downstream", valence = "excitatory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.M.inh),
+    entropy = apply(strength.M.inh, 1, shannon_entropy),
+    group   = "M_downstream", valence = "inhibitory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.F.exc),
+    entropy = apply(strength.F.exc, 1, shannon_entropy),
+    group   = "F_downstream", valence = "excitatory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.F.inh),
+    entropy = apply(strength.F.inh, 1, shannon_entropy),
+    group   = "F_downstream", valence = "inhibitory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.IR.exc),
+    entropy = apply(strength.IR.exc, 1, shannon_entropy),
+    group   = "IR_downstream", valence = "excitatory", stringsAsFactors = FALSE
+  ),
+  data.frame(
+    neuron  = rownames(strength.IR.inh),
+    entropy = apply(strength.IR.inh, 1, shannon_entropy),
+    group   = "IR_downstream", valence = "inhibitory", stringsAsFactors = FALSE
+  )
+) %>%
+  mutate(group_label = factor(target_set_labels[group],
+                               levels = c("M cells", "F cells", "IR cells")))
+
+p9 <- ggplot(ent_valence, aes(x = group_label, y = entropy, fill = group)) +
+  geom_boxplot(width = 0.5, outlier.shape = 21, outlier.size = 2, alpha = 0.7) +
+  geom_jitter(width = 0.12, alpha = 0.4, size = 1.2, stroke = 0, color = "grey30") +
+  facet_wrap(~ valence) +
+  scale_fill_manual(values = target_set_colors, guide = "none") +
+  labs(
+    x     = "Target set",
+    y     = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+# Pairwise tests per facet
+for (v in c("excitatory", "inhibitory")) {
+  message(sprintf("--- %s ---", v))
+  for (pair in pairs) {
+    sub <- ent_valence %>% filter(valence == v, group %in% pair)
+    if (all(table(sub$group) >= 2)) {
+      wt <- wilcox.test(entropy ~ group, data = sub)
+      message(sprintf("  %s vs %s: Wilcoxon p = %.3g",
+                      target_set_labels[pair[1]],
+                      target_set_labels[pair[2]], wt$p.value))
+    }
+  }
+}
+
+p9
+```
+
+```{r save-plot9}
+save_fig6_plot(p9, "panel_I_bella_valence_entropy", width = 10, height = 5.5)
+```
+
+### Valence-split modality scatter (pairwise)
+
+```{r valence-scatter, fig.width=14, fig.height=9}
+# ---------------------------------------------------------------------------
+# Scatter: pairwise mean per modality, split by valence
+# ---------------------------------------------------------------------------
+scatter_valence <- bind_rows(
+  # Excitatory
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.M.exc, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.F.exc, na.rm = TRUE)[modality_order],
+    comparison = "M vs F",
+    valence    = "excitatory",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.M.exc, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.IR.exc, na.rm = TRUE)[modality_order],
+    comparison = "M vs IR",
+    valence    = "excitatory",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.F.exc, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.IR.exc, na.rm = TRUE)[modality_order],
+    comparison = "F vs IR",
+    valence    = "excitatory",
+    stringsAsFactors = FALSE
+  ),
+  # Inhibitory
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.M.inh, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.F.inh, na.rm = TRUE)[modality_order],
+    comparison = "M vs F",
+    valence    = "inhibitory",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.M.inh, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.IR.inh, na.rm = TRUE)[modality_order],
+    comparison = "M vs IR",
+    valence    = "inhibitory",
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    modality   = modality_order,
+    x_mean     = colMeans(strength.F.inh, na.rm = TRUE)[modality_order],
+    y_mean     = colMeans(strength.IR.inh, na.rm = TRUE)[modality_order],
+    comparison = "F vs IR",
+    valence    = "inhibitory",
+    stringsAsFactors = FALSE
+  )
+) %>%
+  mutate(
+    comparison = factor(comparison, levels = c("M vs F", "M vs IR", "F vs IR")),
+    valence    = factor(valence, levels = c("excitatory", "inhibitory"))
+  )
+
+p10 <- ggplot(scatter_valence,
+              aes(x = x_mean, y = y_mean, color = modality, label = modality)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey75", linewidth = 0.3) +
+  geom_point(alpha = 0.65, size = 2, shape = 16) +
+  geom_text(nudge_x = 0.02, nudge_y = 0.02,
+            size = 2, fontface = "bold", show.legend = FALSE) +
+  facet_grid(valence ~ comparison, scales = "free") +
+  scale_color_manual(values = modality_colors, name = "Modality") +
+  coord_fixed() +
+  labs(
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    strip.text = element_text(face = "plain", size = 10, color = "grey30"),
+    legend.position = "right"
+  )
+
+p10
+```
+
+```{r save-plot10}
+save_fig6_plot(p10, "panel_I_bella_valence_scatter", width = 14, height = 9)
+```
+
+## Summary figure assembly
+
+Combine the key plots into a single composite panel.
+
+```{r composite, fig.width=16, fig.height=20}
+# ---------------------------------------------------------------------------
+# Assemble composite: 4 rows
+#   Row 1: grouped bar + radar side-by-side
+#   Row 2: tornado + entropy + scatter (1 pair shown)
+#   Row 3: valence-split bar + valence radar
+#   Row 4: valence entropy + valence scatter
+# ---------------------------------------------------------------------------
+row1 <- plot_grid(p1, p3, nrow = 1, rel_widths = c(1.2, 1),
+                  labels = c("A", "B"), label_size = 14)
+
+row2 <- plot_grid(p2, p5, nrow = 1, rel_widths = c(1.2, 1),
+                  labels = c("C", "D"), label_size = 14)
+
+row3 <- plot_grid(p7, p8, nrow = 1, rel_widths = c(1.2, 1),
+                  labels = c("E", "F"), label_size = 14)
+
+row4 <- plot_grid(p9, p10, nrow = 1, rel_widths = c(0.8, 1.2),
+                  labels = c("G", "H"), label_size = 14)
+
+panel_I <- plot_grid(row1, row2, row3, row4, ncol = 1,
+                     rel_heights = c(1, 1.2, 1, 1.2))
+panel_I
+```
+
+```{r save-composite}
+save_fig6_plot(panel_I, "panel_I_bella_composite", width = 16, height = 20)
+```

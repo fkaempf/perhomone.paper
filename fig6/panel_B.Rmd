@@ -1,0 +1,278 @@
+---
+title: "Figure 6B: Modality Composition Heatmap"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 12
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel B: Modality Composition Heatmap — Clustered heatmap of column-normalized modality input strength to 3rd-order courtship neurons. Rows are target neuron types (aSP-f, aSP-g); columns are the 7 sensory modalities. Row annotations mark target set membership; column annotations mark modality group (olfactory, auditory, visual, contact)."
+panel_legend <- "(B) Column-normalized heatmap of modality input strength to third-order target neurons. Each column (modality) is scaled to its maximum, enabling comparison of relative target distributions across modalities. Rows are clustered by Ward's method; annotations indicate target set (aSP-f vs. aSP-g) and modality group."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_B_description", "txt"), "panel_B_description.txt"))
+```
+
+## Overview
+
+Panel B is a clustered heatmap of modality input strength to third-order
+courtship neurons. Columns are the 7 sensory modalities; rows are target
+neuron types. The matrix is column-normalized so that each modality's maximum
+is 1, making the relative distribution across targets comparable between
+modalities of different absolute strengths.
+
+Row annotations indicate the target set (aSP-f vs aSP-g).
+Column annotations indicate the modality group (olfactory / auditory / visual / contact).
+
+## 1. Prepare strength matrix (aSP-f + aSP-g targets)
+
+```{r strength-matrix-aspf-aspg}
+# ---------------------------------------------------------------------------
+# Column-normalize the pre-computed strength matrix
+# Each column (modality) is scaled so its maximum value = 1
+# ---------------------------------------------------------------------------
+mat <- strength.aspf_aspg
+
+# Column-normalize: divide each column by its max
+col_maxes <- apply(mat, 2, max, na.rm = TRUE)
+col_maxes[col_maxes == 0] <- 1
+mat_norm <- sweep(mat, 2, col_maxes, "/")
+
+cat(sprintf("Matrix dimensions: %d target neurons x %d modalities\n",
+            nrow(mat_norm), ncol(mat_norm)))
+```
+
+## 2. Build row annotation (target set membership)
+
+Each target neuron may appear in aSP-f paths, aSP-g paths, or both. We assign
+primary membership based on which target set contributes greater total strength.
+
+```{r row-annotation}
+# ---------------------------------------------------------------------------
+# Determine target_set membership for each target neuron
+# ---------------------------------------------------------------------------
+# Separate binary bands per target set; pheatmap annotation widths will be
+# adjusted after creation so the total annotation width stays fixed.
+all_ends <- rownames(mat_norm)
+aspf_ends <- unique(paths.aspf$end)
+aspg_ends <- unique(paths.aspg$end)
+
+row_annot <- data.frame(
+  `aSP-f` = ifelse(all_ends %in% aspf_ends, "yes", "no"),
+  `aSP-g` = ifelse(all_ends %in% aspg_ends, "yes", "no"),
+  row.names = all_ends,
+  check.names = FALSE
+)
+```
+
+## 3. Build column annotation (modality group)
+
+```{r col-annotation}
+col_annot <- data.frame(
+  modality_group = modality_group[colnames(mat_norm)],
+  row.names      = colnames(mat_norm)
+)
+```
+
+## 4. Define annotation colours and helper
+
+```{r annotation-colors}
+ann_colors <- list(
+  `aSP-f`        = c("yes" = "#E41A1C", "no" = "white"),
+  `aSP-g`        = c("yes" = "#377EB8", "no" = "white"),
+  modality_group = modality_group_colors
+)
+# draw_heatmap_fixed_annot() and save_heatmap_fixed_annot() are in setup.R
+```
+
+## 5. Draw heatmap (aSP-f + aSP-g targets)
+
+```{r heatmap-aspf-aspg, fig.width=8, fig.height=10}
+# ---------------------------------------------------------------------------
+# Primary heatmap: modality strength to aSP-f / aSP-g targets
+# ---------------------------------------------------------------------------
+hm <- draw_heatmap_fixed_annot(
+  mat_norm, row_annot, col_annot, ann_colors,
+  total_annot_cm           = 1.5,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength to 3rd-order courtship neurons",
+  angle_col                = 45
+)
+```
+
+## 6. Save primary heatmap
+
+```{r save-primary}
+save_heatmap_both_orientations(
+  mat        = mat_norm,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  name       = "panel_B_heatmap_aspf_aspg",
+  width      = 8,
+  height     = 10,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength to 3rd-order courtship neurons",
+  angle_col                = 45
+)
+```
+
+## 7. Extended version: include vAB3 and PPN1 downstream targets
+
+Recompute the strength matrix using `paths.all` to include targets reached
+via vAB3 and PPN1 paths, providing a broader view of multimodal convergence.
+
+```{r strength-matrix-all}
+# ---------------------------------------------------------------------------
+# Strength matrix from all paths (aspf + aspg + vAB3 + PPN1)
+# ---------------------------------------------------------------------------
+mat_all <- compute_strength_matrix(paths.all, normalize = FALSE)
+
+# Column-normalize
+col_maxes_all <- apply(mat_all, 2, max, na.rm = TRUE)
+col_maxes_all[col_maxes_all == 0] <- 1
+mat_all_norm <- sweep(mat_all, 2, col_maxes_all, "/")
+
+cat(sprintf("Extended matrix: %d target neurons x %d modalities\n",
+            nrow(mat_all_norm), ncol(mat_all_norm)))
+```
+
+## 8. Row annotation for extended matrix
+
+```{r row-annotation-all}
+# ---------------------------------------------------------------------------
+# Target set membership for all targets
+# ---------------------------------------------------------------------------
+# 4 binary bands (one per target set), fixed total width via helper
+all_ends_ext <- rownames(mat_all_norm)
+
+row_annot_all <- data.frame(
+  `aSP-f` = ifelse(all_ends_ext %in% unique(paths.aspf$end), "yes", "no"),
+  `aSP-g` = ifelse(all_ends_ext %in% unique(paths.aspg$end), "yes", "no"),
+  `vAB3`  = ifelse(all_ends_ext %in% unique(paths.vab3$end), "yes", "no"),
+  `PPN1`  = ifelse(all_ends_ext %in% unique(paths.ppn1$end), "yes", "no"),
+  row.names = all_ends_ext,
+  check.names = FALSE
+)
+
+col_annot_all <- data.frame(
+  modality_group = modality_group[colnames(mat_all_norm)],
+  row.names      = colnames(mat_all_norm)
+)
+
+ann_colors_all <- list(
+  `aSP-f`        = c("yes" = "#E41A1C", "no" = "white"),
+  `aSP-g`        = c("yes" = "#377EB8", "no" = "white"),
+  `vAB3`         = c("yes" = "#4DAF4A", "no" = "white"),
+  `PPN1`         = c("yes" = "#FF7F00", "no" = "white"),
+  modality_group = modality_group_colors
+)
+```
+
+## 9. Draw extended heatmap
+
+```{r heatmap-all, fig.width=8, fig.height=14}
+# ---------------------------------------------------------------------------
+# Extended heatmap: all target sets
+# ---------------------------------------------------------------------------
+# 4 bands share 1.5 cm total = 0.375 cm each
+hm_all <- draw_heatmap_fixed_annot(
+  mat_all_norm, row_annot_all, col_annot_all, ann_colors_all,
+  total_annot_cm           = 1.5,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 5,
+  fontsize_col             = 10,
+  main                     = "Modality input strength (all target sets)",
+  angle_col                = 45
+)
+```
+
+## 10. Save extended heatmap
+
+```{r save-extended}
+save_heatmap_both_orientations(
+  mat        = mat_all_norm,
+  row_annot  = row_annot_all,
+  col_annot  = col_annot_all,
+  ann_colors = ann_colors_all,
+  name       = "panel_B_heatmap_all_targets",
+  width      = 8,
+  height     = 14,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 5,
+  fontsize_col             = 10,
+  main                     = "Modality input strength (all target sets)",
+  angle_col                = 45
+)
+```
+
+## 11. Export row clustering order for use in Panel C
+
+Save the dendrogram row order so Panel C can use the same neuron ordering
+for consistent visual comparison.
+
+```{r export-row-order}
+# ---------------------------------------------------------------------------
+# Extract row order from the primary heatmap's dendrogram
+# ---------------------------------------------------------------------------
+row_order_aspf_aspg <- rownames(mat_norm)[hm$tree_row$order]
+
+# Save to an RDS file for Panel C to load
+saveRDS(
+  row_order_aspf_aspg,
+  file = file.path(fig6_dir, "panel_B_row_order.rds")
+)
+
+cat("Row order saved. First 10 neurons:\n")
+head(row_order_aspf_aspg, 10)
+
+# ---------------------------------------------------------------------------
+# Also save the all-targets row order for Panel C extended sections
+# ---------------------------------------------------------------------------
+row_order_all <- rownames(mat_all_norm)[hm_all$tree_row$order]
+
+saveRDS(
+  row_order_all,
+  file = file.path(fig6_dir, "panel_B_all_row_order.rds")
+)
+
+cat(sprintf("\nAll-targets row order saved: %d neurons\n", length(row_order_all)))
+```

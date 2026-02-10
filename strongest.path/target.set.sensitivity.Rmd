@@ -1,5 +1,5 @@
----
 title: "target.set.sensitivity"
+---
 output: html_document
 ---
 
@@ -41,7 +41,11 @@ library(tidygraph)
 library(tidyr)
 ```
 
-
+### 0 Define save path 
+```{r}
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/target.set.sensitivity/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/target.set.sensitivity/pdf/"
+```
 
 
 ```{r}
@@ -374,7 +378,7 @@ K vs Strength of paths
 # Accumulate summed strengths across k into a nested list
 # Structure: acc[[dataset]][[modality]][k] = summed strength
 
-K <- 50
+K <- 1000
 acc <- list()
 acc_frac <- list()
 
@@ -450,7 +454,7 @@ df_acc <- df_acc %>% filter(!is.na(strength))
 df_acc_frac <- df_acc_frac %>% filter(!is.na(strength_frac))
 
 
-ggplot(df_acc, aes(x = k, y = strength, color = modality)) +
+p1<-ggplot(df_acc, aes(x = k, y = strength, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~ dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -460,7 +464,7 @@ ggplot(df_acc, aes(x = k, y = strength, color = modality)) +
     title = "Strength vs k per dataset and modality"
   )
 
-ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
+p2<-ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~ dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -483,17 +487,24 @@ stabilization_point <- df_acc_frac %>%
 
 
 
-ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
+p3<-ggplot(df_acc_frac, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
   theme_bw() +
   labs(x = "k", y = "Fraction of summed strength", title = "Strength vs k per dataset and modality")
 
+
+ggsave(file.path(plot.path.png,'absolute.path.strength.vs.k.facetted.by.pathway.png'),p1)
+ggsave(file.path(plot.path.png,'fractional.path.strength.vs.k.facetted.by.pathway.png'),p2)
+ggsave(file.path(plot.path.png,'fractional.path.strength.vs.k.facetted.by.pathway.with.stabilization.line.png'),p3)
+p1
+p2
+p3
 ```
 K vs Strength of paths excitatory
 ```{r}
-K <- 50
+K <- 1000
 acc <- list()
 acc_frac <- list()
 
@@ -564,13 +575,13 @@ df_acc_frac.excitatory <- imap_dfr(acc_frac, function(modality_list, dataset) {
   })
 }) %>% filter(!is.na(strength_frac))
 
-ggplot(df_acc.excitatory, aes(x = k, y = strength, color = modality)) +
+p1<-ggplot(df_acc.excitatory, aes(x = k, y = strength, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
   labs(x = "k", y = "Summed strength", title = "Excitatory – absolute strength")
 
-ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
+p2<-ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -590,18 +601,26 @@ stabilization_point <- df_acc_frac.excitatory %>%
 
 
 
-ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
+p3<-ggplot(df_acc_frac.excitatory, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
   theme_bw() +
   labs(x = "k", y = "Fraction of summed strength", title = "Excitatory – strength fraction")
 
+ggsave(file.path(plot.path.png,'absolute.path.strength.excitatory.vs.k.facetted.by.pathway.png'),p1)
+ggsave(file.path(plot.path.png,'fractional.path.strength.excitatory.vs.k.facetted.by.pathway.png'),p2)
+ggsave(file.path(plot.path.png,'fractional.path.strength.excitatory.vs.k.facetted.by.pathway.with.stabilization.line.png'),p3)
+p1
+p2
+p3
+
+
 ```
 
 K vs Strength of paths inhibitory
 ```{r}
-K <- 50
+K <- 100
 acc <- list()
 acc_frac <- list()
 
@@ -672,13 +691,13 @@ df_acc_frac.inhibitory <- imap_dfr(acc_frac, function(modality_list, dataset) {
   })
 }) %>% filter(!is.na(strength_frac))
 
-ggplot(df_acc.inhibitory, aes(x = k, y = strength, color = modality)) +
+p1<-ggplot(df_acc.inhibitory, aes(x = k, y = strength, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
   labs(x = "k", y = "Summed strength", title = "Inhibitory – absolute strength")
 
-ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
+p2<-ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -702,12 +721,19 @@ stabilization_point <- df_acc_frac.inhibitory %>%
 
 
 
-ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
+p3<-ggplot(df_acc_frac.inhibitory, aes(x = k, y = strength_frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   geom_vline(xintercept = stabilization_point, linetype = "dashed", color = "red", size = 0.6) +
   theme_bw() +
   labs(x = "k", y = "Fraction of summed strength", title = "Inhibitory – strength fraction")
+
+ggsave(file.path(plot.path.png,'absolute.path.strength.inhibitory.vs.k.facetted.by.pathway.png'),p1)
+ggsave(file.path(plot.path.png,'fractional.path.strength.inhibitory.vs.k.facetted.by.pathway.png'),p2)
+ggsave(file.path(plot.path.png,'fractional.path.strength.inhibitory.vs.k.facetted.by.pathway.with.stabilization.line.png'),p3)
+p1
+p2
+p3
 ```
 
 delta and effectsize within datasets excitatory/inhibitory
@@ -731,7 +757,7 @@ df_frac.excitatory.vs.inhibitory <- df_acc_frac.inhibitory %>%
 
 
 # 1. Absolute strength difference (excitatory − inhibitory)
-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.total, color = modality)) +
+p1<-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.total, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -742,7 +768,7 @@ ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.total, co
   )
 
 # 2. Cohen’s d (absolute)
-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.total, color = modality)) +
+p2<-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.total, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -753,7 +779,7 @@ ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.total, color = 
   )
 
 # 3. Fractional strength difference
-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.frac, color = modality)) +
+p3<-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -764,7 +790,7 @@ ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = strength.delta.frac, col
   )
 
 # 4. Cohen’s d (fractional)
-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.frac, color = modality)) +
+p4<-ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~dataset, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -773,6 +799,15 @@ ggplot(df_frac.excitatory.vs.inhibitory, aes(x = k, y = cohens.d.frac, color = m
     y = "Cohen’s d (fractional strength)",
     title = "Effect size (Cohen’s d) between excitatory and inhibitory fractional strengths"
   )
+
+ggsave(file.path(plot.path.png,'absolute.difference.between.valence.strength.vs.k.facetted.by.pathway.png'),p1)
+ggsave(file.path(plot.path.png,'cohens.d.effect.size.between.valence.strength.vs.k.facetted.by.pathway.png'),p2)
+ggsave(file.path(plot.path.png,'fractional.absolute.difference.between.valence.strength.vs.k.facetted.by.pathway.png'),p3)
+ggsave(file.path(plot.path.png,'fractional.cohens.d.effect.size.between.valence.strength.vs.k.facetted.by.pathway.png'),p4)
+p1
+p2
+p3
+p4
 ```
 
 
@@ -834,7 +869,7 @@ df_frac.PPN1.vs.vAB3.without.valence <- df_acc_frac %>%
 
 
 # 1. Absolute strength difference (PPN1 − vAB3)
-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.total, color = modality)) +
+p1<-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.total, color = modality)) +
   geom_line(size = 0.8) +
   theme_bw() +
   labs(
@@ -844,7 +879,7 @@ ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.total
   )
 
 # 2. Cohen’s d (absolute)
-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.total, color = modality)) +
+p2<-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.total, color = modality)) +
   geom_line(size = 0.8) +
   theme_bw() +
   labs(
@@ -854,7 +889,7 @@ ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.total, colo
   )
 
 # 3. Fractional strength difference (PPN1 − vAB3)
-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
+p3<-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
   geom_line(size = 0.8) +
   theme_bw() +
   labs(
@@ -864,7 +899,7 @@ ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = strength.delta.frac,
   )
 
 # 4. Cohen’s d (fractional)
-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
+p4<-ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
   geom_line(size = 0.8) +
   theme_bw() +
   labs(
@@ -875,7 +910,7 @@ ggplot(df_frac.PPN1.vs.vAB3.without.valence, aes(x = k, y = cohens.d.frac, color
 
 
 # 5. Absolute strength difference (PPN1 − vAB3)
-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.total, color = modality)) +
+p5<-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.total, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~valence, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -886,7 +921,7 @@ ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.total, c
   )
 
 # 6. Cohen’s d (absolute)
-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.total, color = modality)) +
+p6<-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.total, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~valence, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -897,7 +932,7 @@ ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.total, color =
   )
 
 # 7. Fractional strength difference (PPN1 − vAB3)
-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
+p7<-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~valence, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -908,7 +943,7 @@ ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = strength.delta.frac, co
   )
 
 # 8. Cohen’s d (fractional)
-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
+p8<-ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.frac, color = modality)) +
   geom_line(size = 0.8) +
   facet_wrap(~valence, ncol = 2, scales = "free_y") +
   theme_bw() +
@@ -918,7 +953,22 @@ ggplot(df_frac.PPN1.vs.vAB3.with.valence, aes(x = k, y = cohens.d.frac, color = 
     title = "Effect size (Cohen’s d) for fractional strength: PPN1 vs vAB3"
   )
 
-
+ggsave(file.path(plot.path.png,'absolute.difference.between.pathway.strength.vs.k.png'),p1)
+ggsave(file.path(plot.path.png,'cohens.d.effect.size.between.payhway.strength.vs.k.png'),p2)
+ggsave(file.path(plot.path.png,'fractional.absolute.difference.between.pathway.strength.vs.k.png'),p3)
+ggsave(file.path(plot.path.png,'fractional.cohens.d.effect.size.between.payhway.strength.vs.k.png'),p4)
+ggsave(file.path(plot.path.png,'absolute.difference.between.pathway.strength.vs.k.facetted.by.valence.png'),p5)
+ggsave(file.path(plot.path.png,'cohens.d.effect.size.between.payhway.strength.vs.k.facetted.by.valence.png'),p6)
+ggsave(file.path(plot.path.png,'fractional.absolute.difference.between.pathway.strength.vs.k.facetted.by.valence.png'),p7)
+ggsave(file.path(plot.path.png,'fractional.cohens.d.effect.size.between.payhway.strength.vs.k.facetted.by.valence.png'),p8)
+p1
+p2
+p3
+p4
+p5
+p6
+p7
+p8
 
 ```
 

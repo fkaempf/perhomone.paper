@@ -1,0 +1,5 @@
+data/
+plots/
+plots_sustained/
+__pycache__/
+*.pyc

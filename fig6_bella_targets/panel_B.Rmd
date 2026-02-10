@@ -1,0 +1,182 @@
+---
+title: "Figure 6B (Bella's targets): Modality Composition Heatmap"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 12
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel B: Modality Composition Heatmap (Bella's targets) — Clustered heatmap of column-normalized modality input strength to Bella's target neurons. Rows are target neuron types; columns are the 7 sensory modalities. Row annotations mark target group (M, F, IR downstream)."
+panel_legend <- "(B) Column-normalized heatmap of modality input strength to Bella's target neurons. Rows are clustered by Ward's method; annotations indicate target group membership (M-downstream, F-downstream, IR-downstream)."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_B_description", "txt"), "panel_B_description.txt"))
+```
+
+## Overview
+
+Panel B is a clustered heatmap of modality input strength to Bella's third-order
+courtship target neurons. Columns are the 7 sensory modalities; rows are target
+neuron types. The matrix is column-normalized so that each modality's maximum
+is 1, making the relative distribution across targets comparable between
+modalities of different absolute strengths.
+
+Row annotations indicate the target group (M_downstream, F_downstream,
+IR_downstream). Column annotations indicate the modality group
+(olfactory / auditory / visual / contact).
+
+## 1. Prepare strength matrix
+
+```{r strength-matrix}
+# ---------------------------------------------------------------------------
+# Column-normalize the pre-computed strength matrix
+# Each column (modality) is scaled so its maximum value = 1
+# ---------------------------------------------------------------------------
+mat <- strength.bella
+
+# Column-normalize: divide each column by its max
+col_maxes <- apply(mat, 2, max, na.rm = TRUE)
+col_maxes[col_maxes == 0] <- 1
+mat_norm <- sweep(mat, 2, col_maxes, "/")
+
+cat(sprintf("Matrix dimensions: %d target neurons x %d modalities\n",
+            nrow(mat_norm), ncol(mat_norm)))
+```
+
+## 2. Build row annotation (target group membership)
+
+Each target neuron belongs to one of Bella's three target groups:
+M_downstream, F_downstream, or IR_downstream. We use `bella_groups_df`
+to assign primary group membership.
+
+```{r row-annotation}
+# ---------------------------------------------------------------------------
+# Determine target_group membership for each target neuron
+# ---------------------------------------------------------------------------
+# Multiple color bands: one column per target group (yes/no)
+# Neurons belonging to multiple groups show all their memberships
+all_ends <- rownames(mat_norm)
+
+M_ends  <- unique(paths.M$end)
+F_ends  <- unique(paths.F$end)
+IR_ends <- unique(paths.IR$end)
+
+row_annot <- data.frame(
+  `M cells`  = ifelse(all_ends %in% M_ends,  "yes", "no"),
+  `F cells`  = ifelse(all_ends %in% F_ends,  "yes", "no"),
+  `IR cells` = ifelse(all_ends %in% IR_ends, "yes", "no"),
+  row.names  = all_ends,
+  check.names = FALSE
+)
+```
+
+## 3. Build column annotation (modality group)
+
+```{r col-annotation}
+# ---------------------------------------------------------------------------
+# Map each modality column to its sensory group
+# ---------------------------------------------------------------------------
+col_annot <- data.frame(
+  modality_group = modality_group[colnames(mat_norm)],
+  row.names      = colnames(mat_norm)
+)
+```
+
+## 4. Define annotation colours
+
+```{r annotation-colors}
+# ---------------------------------------------------------------------------
+# Annotation colour maps for pheatmap
+# ---------------------------------------------------------------------------
+ann_colors <- list(
+  `M cells`      = c("yes" = "#E41A1C", "no" = "white"),
+  `F cells`      = c("yes" = "#377EB8", "no" = "white"),
+  `IR cells`     = c("yes" = "#4DAF4A", "no" = "white"),
+  modality_group = modality_group_colors
+)
+```
+
+## 5. Draw heatmap
+
+```{r heatmap-bella, fig.width=8, fig.height=10}
+# ---------------------------------------------------------------------------
+# Primary heatmap: modality strength to Bella's target groups
+# ---------------------------------------------------------------------------
+hm <- pheatmap(
+  mat_norm,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,       # keep modality order fixed
+  cluster_rows             = TRUE,
+  annotation_row           = row_annot,
+  annotation_col           = col_annot,
+  annotation_colors        = ann_colors,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength to 3rd-order courtship neurons (Bella's targets)",
+  angle_col                = 45,
+  silent                   = TRUE
+)
+
+# Draw the heatmap
+hm
+```
+
+## 6. Save heatmap
+
+```{r save-heatmap}
+save_heatmap_both_orientations(
+  mat        = mat_norm,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  name       = "panel_B_heatmap_bella",
+  width      = 8,
+  height     = 10,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength to 3rd-order courtship neurons (Bella's targets)",
+  angle_col                = 45
+)
+```
+
+## 7. Export row clustering order for use in Panel C
+
+Save the dendrogram row order so Panel C can use the same neuron ordering
+for consistent visual comparison.
+
+```{r export-row-order}
+# ---------------------------------------------------------------------------
+# Extract row order from the heatmap's dendrogram
+# ---------------------------------------------------------------------------
+row_order_bella <- rownames(mat_norm)[hm$tree_row$order]
+
+# Save to an RDS file for Panel C to load
+saveRDS(
+  row_order_bella,
+  file = file.path(fig6_dir, "panel_B_row_order.rds")
+)
+
+cat("Row order saved. First 10 neurons:\n")
+head(row_order_bella, 10)
+```

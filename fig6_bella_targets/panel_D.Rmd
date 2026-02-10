@@ -1,0 +1,481 @@
+---
+title: "Figure 6D (Bella's targets): Entropy / Multimodality Score"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 8
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel D: Multimodality / Entropy (Bella's targets) — Shannon entropy over the 7-modality strength distribution quantifies how multimodal each target neuron is. Scatter plots, boxplots, and valence-split analyses for M, F, and IR downstream target groups."
+panel_legend <- "(D) Shannon entropy over the 7-modality strength distribution quantifies multimodality for each of Bella's target neurons. Scatter plots, boxplots, and valence-split analyses are shown for M-downstream, F-downstream, and IR-downstream groups."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_D_description", "txt"), "panel_D_description.txt"))
+```
+
+## Overview
+
+This panel quantifies how multimodal each target neuron is using Shannon entropy
+over the distribution of incoming path strengths across the 7 sensory modalities.
+A neuron receiving perfectly balanced input from all modalities has maximum entropy
+(log2(7) ~ 2.807); a neuron driven by a single modality has entropy 0.
+
+We compute entropy, dominant modality, modality breadth (number of non-zero inputs),
+and dominance (fraction of total strength from the dominant modality) for every
+target neuron in the combined Bella target path set (M cells, F cells, IR cells).
+
+## 1. Compute multimodality metrics
+
+```{r compute-entropy-metrics}
+# Maximum possible entropy for 7 modalities
+max_entropy <- log2(length(modality_order))  # log2(7) ~ 2.807
+
+# Build a tidy summary table from the raw strength matrix
+# Each row = one target neuron; columns = per-modality strengths
+entropy_df <- as.data.frame(strength.bella) %>%
+
+tibble::rownames_to_column("neuron") %>%
+  rowwise() %>%
+  mutate(
+    # Shannon entropy across the 7 modality columns
+    entropy = shannon_entropy(c_across(all_of(modality_order))),
+
+    # Dominant modality: which column carries the most strength
+    dominant_modality = modality_order[which.max(c_across(all_of(modality_order)))],
+
+    # Breadth: how many modalities have non-zero input
+    breadth = sum(c_across(all_of(modality_order)) > 0),
+
+    # Total strength across all modalities
+    total_strength = sum(c_across(all_of(modality_order))),
+
+    # Dominance: fraction of total from the dominant modality
+    dominance = max(c_across(all_of(modality_order))) / total_strength
+  ) %>%
+  ungroup() %>%
+  # Normalised entropy (0-1 scale)
+  mutate(
+    entropy_norm = entropy / max_entropy,
+    dominance = ifelse(is.finite(dominance), dominance, NA_real_)
+  )
+
+# Assign target_set from paths.bella
+M_neurons  <- unique(paths.M$end)
+F_neurons  <- unique(paths.F$end)
+IR_neurons <- unique(paths.IR$end)
+
+entropy_df <- entropy_df %>%
+  mutate(
+    target_set = case_when(
+      neuron %in% M_neurons  ~ "M_downstream",
+      neuron %in% F_neurons  ~ "F_downstream",
+      neuron %in% IR_neurons ~ "IR_downstream",
+      TRUE ~ "other"
+    )
+  )
+
+# Quick summary
+message(sprintf("Total target neurons: %d", nrow(entropy_df)))
+message(sprintf("Mean entropy: %.3f  (max possible: %.3f)", mean(entropy_df$entropy), max_entropy))
+message(sprintf("Median breadth: %d modalities", median(entropy_df$breadth)))
+```
+
+```{r entropy-summary-table}
+# Show the top 20 most multimodal neurons
+entropy_df %>%
+  arrange(desc(entropy)) %>%
+  select(neuron, entropy, entropy_norm, dominant_modality, breadth, dominance, target_set) %>%
+  head(20) %>%
+  knitr::kable(digits = 3, caption = "Top 20 most multimodal target neurons (by entropy)")
+```
+
+## 2. Bar chart: neurons ranked by entropy
+
+```{r bar-entropy-ranked, fig.width=14, fig.height=6}
+# Order neurons by descending entropy
+entropy_ranked <- entropy_df %>%
+  arrange(desc(entropy)) %>%
+  mutate(rank = row_number(),
+         neuron_label = factor(neuron, levels = neuron))
+
+p_bar <- ggplot(entropy_ranked, aes(x = neuron_label, y = entropy, fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  annotate("text", x = nrow(entropy_ranked) * 0.95, y = max_entropy + 0.05,
+           label = sprintf("max = log2(7) = %.2f", max_entropy),
+           hjust = 1, size = 3, color = "grey40") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Shannon entropy (bits)",
+    title = "Multimodality score across Bella's target neurons"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+
+print(p_bar)
+save_fig6_plot(p_bar, "panel_D_entropy_bar_bella", width = 14, height = 6)
+```
+
+## 3. Bar chart faceted by target set
+
+```{r bar-entropy-faceted, fig.width=14, fig.height=10}
+# Separate ranking within each target set (3 groups: M, F, IR)
+entropy_faceted <- entropy_df %>%
+  filter(target_set %in% names(target_set_labels)) %>%
+  group_by(target_set) %>%
+  arrange(desc(entropy), .by_group = TRUE) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  mutate(target_set_label = target_set_labels[target_set])
+
+p_bar_faceted <- ggplot(entropy_faceted, aes(x = reorder(neuron, -entropy), y = entropy,
+                                              fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  facet_wrap(~ target_set_label, scales = "free_x") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Shannon entropy (bits)",
+    title = "Multimodality by target set (M cells vs F cells vs IR cells)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 12)
+  )
+
+print(p_bar_faceted)
+save_fig6_plot(p_bar_faceted, "panel_D_entropy_bar_faceted_bella", width = 14, height = 10)
+```
+
+```{r entropy-distribution-comparison, fig.width=8, fig.height=5}
+# Statistical comparison of entropy between target sets
+entropy_plot_df <- entropy_df %>%
+  filter(target_set %in% names(target_set_labels)) %>%
+  mutate(target_set_label = target_set_labels[target_set])
+
+p_box <- ggplot(entropy_plot_df, aes(x = target_set_label, y = entropy, fill = target_set)) +
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = target_set_colors) +
+  labs(
+    x = "Target set",
+    y = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+print(p_box)
+save_fig6_plot(p_box, "panel_D_entropy_boxplot_targetset_bella", width = 8, height = 5)
+```
+
+## 4. Scatter plot: total strength vs entropy
+
+```{r scatter-strength-entropy, fig.width=10, fig.height=8}
+# Identify neurons to label: those with extreme or interesting values
+top_n_label <- 15
+label_neurons <- entropy_df %>%
+  arrange(desc(entropy)) %>%
+  slice_head(n = top_n_label) %>%
+  pull(neuron)
+
+entropy_df <- entropy_df %>%
+  mutate(show_label = neuron %in% label_neurons)
+
+p_scatter <- ggplot(entropy_df %>% filter(target_set %in% names(target_set_colors)),
+                    aes(x = total_strength, y = entropy,
+                        fill = dominant_modality, color = target_set)) +
+  geom_point(size = 2.2, shape = 21, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    data = filter(entropy_df, show_label & target_set %in% names(target_set_colors)),
+    aes(label = neuron),
+    color = "grey35",
+    size = 2, max.overlaps = 20, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = modality_colors, name = "Modality") +
+  scale_color_manual(values = target_set_colors, labels = target_set_labels, name = "Target set") +
+  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.5)),
+         color = guide_legend(override.aes = list(fill = "white", size = 3))) +
+  labs(
+    x = "Total path strength",
+    y = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_scatter)
+save_fig6_plot(p_scatter, "panel_D_strength_vs_entropy_bella", width = 7, height = 5.5)
+```
+
+## 5. Valence-split analysis (excitatory vs inhibitory)
+
+```{r compute-entropy-by-valence}
+# Helper to compute entropy metrics from a strength matrix
+compute_entropy_from_matrix <- function(mat, label) {
+  df <- as.data.frame(mat) %>%
+    tibble::rownames_to_column("neuron") %>%
+    rowwise() %>%
+    mutate(
+      entropy = shannon_entropy(c_across(all_of(intersect(modality_order, colnames(mat))))),
+      dominant_modality = {
+        vals <- c_across(all_of(intersect(modality_order, colnames(mat))))
+        mod_names <- intersect(modality_order, colnames(mat))
+        if (all(vals == 0)) NA_character_ else mod_names[which.max(vals)]
+      },
+      breadth = sum(c_across(all_of(intersect(modality_order, colnames(mat)))) > 0),
+      total_strength = sum(c_across(all_of(intersect(modality_order, colnames(mat))))),
+      dominance = {
+        vals <- c_across(all_of(intersect(modality_order, colnames(mat))))
+        tot <- sum(vals)
+        if (tot > 0) max(vals) / tot else NA_real_
+      }
+    ) %>%
+    ungroup() %>%
+    mutate(
+      entropy_norm = entropy / max_entropy,
+      valence = label
+    )
+
+  df
+}
+
+entropy_exc <- compute_entropy_from_matrix(strength.bella.exc, "excitatory")
+entropy_inh <- compute_entropy_from_matrix(strength.bella.inh, "inhibitory")
+entropy_combined <- compute_entropy_from_matrix(strength.bella, "combined")
+
+entropy_valence <- bind_rows(entropy_exc, entropy_inh, entropy_combined)
+```
+
+```{r bar-entropy-by-valence, fig.width=14, fig.height=10}
+# Ranked bar charts per valence
+p_valence_bars <- entropy_valence %>%
+  group_by(valence) %>%
+  arrange(desc(entropy), .by_group = TRUE) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
+  ggplot(aes(x = rank, y = entropy, fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  facet_wrap(~ valence, ncol = 1, scales = "free_x") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality", na.value = "grey80") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Shannon entropy (bits)",
+    title = "Multimodality score split by path valence (Bella's targets)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 12)
+  )
+
+print(p_valence_bars)
+save_fig6_plot(p_valence_bars, "panel_D_entropy_bar_valence_bella", width = 14, height = 10)
+```
+
+```{r boxplot-entropy-by-valence, fig.width=8, fig.height=5}
+# Compare entropy distributions across valence types
+p_valence_box <- ggplot(entropy_valence, aes(x = valence, y = entropy, fill = valence)) +
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(
+    values = c("combined" = "#B3B3B3", "excitatory" = "#4DAF4A", "inhibitory" = "#E41A1C")
+  ) +
+  labs(
+    x = "Path valence",
+    y = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+print(p_valence_box)
+save_fig6_plot(p_valence_box, "panel_D_entropy_boxplot_valence_bella", width = 8, height = 5)
+```
+
+```{r scatter-dominance-entropy-valence, fig.width=14, fig.height=6}
+# Dominance vs entropy, faceted by valence
+p_scatter_valence <- entropy_valence %>%
+  filter(is.finite(dominance)) %>%
+  mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
+  ggplot(aes(x = dominance, y = entropy, color = dominant_modality)) +
+  geom_point(alpha = 0.65, size = 2, shape = 16) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  facet_wrap(~ valence) +
+  scale_color_manual(values = modality_colors, name = "Modality", na.value = "grey80") +
+  labs(
+    x = "Dominance (top modality fraction)",
+    y = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+print(p_scatter_valence)
+save_fig6_plot(p_scatter_valence, "panel_D_dominance_vs_entropy_valence_bella", width = 10, height = 4.5)
+```
+
+## 6. Dominance vs entropy relationship
+
+```{r dominance-vs-entropy, fig.width=8, fig.height=6}
+# Dominance (fraction from top modality) vs entropy
+# Expect strong negative correlation: high entropy = low dominance
+p_dominance <- ggplot(entropy_df %>% filter(is.finite(dominance)),
+                      aes(x = dominance, y = entropy,
+                          fill = dominant_modality, color = target_set)) +
+  geom_point(size = 2.2, shape = 21, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  scale_fill_manual(values = modality_colors, name = "Modality") +
+  scale_color_manual(values = target_set_colors, labels = target_set_labels, name = "Target set") +
+  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.5)),
+         color = guide_legend(override.aes = list(fill = "white", size = 3))) +
+  labs(
+    x = "Dominance (top modality fraction)",
+    y = "Shannon entropy (bits)",
+    title = ""
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_dominance)
+save_fig6_plot(p_dominance, "panel_D_dominance_vs_entropy_bella", width = 7, height = 5)
+```
+
+## 7. Summary statistics
+
+```{r summary-stats}
+# Overall summary
+cat("=== Entropy Summary (Bella's targets) ===\n")
+cat(sprintf("Number of target neurons: %d\n", nrow(entropy_df)))
+cat(sprintf("Max possible entropy: %.3f bits (log2(7))\n", max_entropy))
+cat(sprintf("Mean entropy: %.3f bits\n", mean(entropy_df$entropy)))
+cat(sprintf("Median entropy: %.3f bits\n", median(entropy_df$entropy)))
+cat(sprintf("SD entropy: %.3f bits\n", sd(entropy_df$entropy)))
+cat(sprintf("Mean breadth: %.1f modalities\n", mean(entropy_df$breadth)))
+cat(sprintf("Neurons with all 7 modalities: %d (%.1f%%)\n",
+            sum(entropy_df$breadth == 7),
+            100 * mean(entropy_df$breadth == 7)))
+cat(sprintf("Neurons with only 1 modality: %d (%.1f%%)\n",
+            sum(entropy_df$breadth == 1),
+            100 * mean(entropy_df$breadth == 1)))
+
+# Per target set
+cat("\n=== By Target Set ===\n")
+entropy_df %>%
+  filter(target_set %in% names(target_set_labels)) %>%
+  mutate(target_set_label = target_set_labels[target_set]) %>%
+  group_by(target_set_label) %>%
+  summarise(
+    n = n(),
+    mean_entropy = mean(entropy),
+    median_entropy = median(entropy),
+    mean_breadth = mean(breadth),
+    mean_dominance = mean(dominance, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  knitr::kable(digits = 3)
+```
+
+```{r session-info}
+sessionInfo()
+```

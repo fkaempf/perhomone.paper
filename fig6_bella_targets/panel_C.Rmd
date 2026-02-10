@@ -1,0 +1,496 @@
+---
+title: "Figure 6C (Bella's targets): Excitatory/Inhibitory Diverging Heatmap"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 12
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel C: Excitatory/Inhibitory Valence Heatmap (Bella's targets) — Excitatory vs. inhibitory balance of modality input to Bella's targets. Side-by-side heatmaps and a diverging net-valence heatmap on a red-white-blue scale."
+panel_legend <- "(C) Excitatory and inhibitory input balance to Bella's targets. Side-by-side heatmaps for each valence and a diverging net-valence heatmap (red = excitatory dominance, blue = inhibitory dominance)."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_C_description", "txt"), "panel_C_description.txt"))
+```
+
+## Overview
+
+Panel C visualises the excitatory vs. inhibitory balance of modality input to
+Bella's third-order courtship target neurons. Two complementary approaches are
+implemented:
+
+- **Approach 1 (side-by-side):** Separate heatmaps for excitatory and
+  inhibitory path strengths, enabling direct comparison of the two valences.
+- **Approach 2 (diverging):** A single heatmap of net valence (excitatory
+  minus inhibitory), with a red-white-blue diverging colour scale.
+
+Both use the same row and column annotations as Panel B, with target group
+annotation (M_downstream, F_downstream, IR_downstream).
+
+## 1. Load row order from Panel B
+
+If Panel B has been run, use its dendrogram ordering for row consistency.
+Otherwise, cluster independently.
+
+```{r load-row-order}
+# ---------------------------------------------------------------------------
+# Attempt to load the row order saved by Panel B
+# ---------------------------------------------------------------------------
+row_order_file <- file.path(fig6_dir, "panel_B_row_order.rds")
+use_panel_b_order <- file.exists(row_order_file)
+
+if (use_panel_b_order) {
+  row_order_b <- readRDS(row_order_file)
+  cat("Loaded Panel B row order:", length(row_order_b), "neurons\n")
+} else {
+  cat("Panel B row order not found -- will cluster independently.\n")
+}
+```
+
+## 2. Prepare annotations (same as Panel B)
+
+```{r annotations}
+# ---------------------------------------------------------------------------
+# Row annotation: target group membership
+# ---------------------------------------------------------------------------
+# Multiple color bands: one column per target group (yes/no)
+M_ends_c  <- unique(paths.M$end)
+F_ends_c  <- unique(paths.F$end)
+IR_ends_c <- unique(paths.IR$end)
+
+make_row_annot <- function(mat) {
+  ends <- rownames(mat)
+  ra <- data.frame(
+    `M cells`  = ifelse(ends %in% M_ends_c,  "yes", "no"),
+    `F cells`  = ifelse(ends %in% F_ends_c,  "yes", "no"),
+    `IR cells` = ifelse(ends %in% IR_ends_c, "yes", "no"),
+    row.names  = ends,
+    check.names = FALSE
+  )
+  ra
+}
+
+# ---------------------------------------------------------------------------
+# Column annotation: modality group
+# ---------------------------------------------------------------------------
+make_col_annot <- function(mat) {
+  data.frame(
+    modality_group = modality_group[colnames(mat)],
+    row.names      = colnames(mat)
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Annotation colours
+# ---------------------------------------------------------------------------
+ann_colors <- list(
+  `M cells`      = c("yes" = "#E41A1C", "no" = "white"),
+  `F cells`      = c("yes" = "#377EB8", "no" = "white"),
+  `IR cells`     = c("yes" = "#4DAF4A", "no" = "white"),
+  modality_group = modality_group_colors
+)
+```
+
+## 3. Prepare excitatory and inhibitory matrices
+
+```{r prepare-matrices}
+# ---------------------------------------------------------------------------
+# Pre-computed matrices from setup.R
+# ---------------------------------------------------------------------------
+mat_exc <- strength.bella.exc
+mat_inh <- strength.bella.inh
+
+# Ensure both matrices have the same rows and columns
+all_rows <- union(rownames(mat_exc), rownames(mat_inh))
+all_cols <- modality_order
+
+# Expand matrices to full dimensions, filling missing entries with 0
+expand_matrix <- function(mat, rows, cols) {
+  out <- matrix(0, nrow = length(rows), ncol = length(cols),
+                dimnames = list(rows, cols))
+  common_r <- intersect(rownames(mat), rows)
+  common_c <- intersect(colnames(mat), cols)
+  out[common_r, common_c] <- mat[common_r, common_c]
+  out
+}
+
+mat_exc_full <- expand_matrix(mat_exc, all_rows, all_cols)
+mat_inh_full <- expand_matrix(mat_inh, all_rows, all_cols)
+
+cat(sprintf("Excitatory matrix: %d x %d\n", nrow(mat_exc_full), ncol(mat_exc_full)))
+cat(sprintf("Inhibitory matrix: %d x %d\n", nrow(mat_inh_full), ncol(mat_inh_full)))
+```
+
+## 4. Column-normalize each matrix
+
+```{r normalize}
+# ---------------------------------------------------------------------------
+# Column-normalize: each modality's max = 1
+# ---------------------------------------------------------------------------
+col_normalize <- function(mat) {
+  cm <- apply(mat, 2, max, na.rm = TRUE)
+  cm[cm == 0] <- 1
+  sweep(mat, 2, cm, "/")
+}
+
+# ---------------------------------------------------------------------------
+# Row-normalize: each target neuron's max absolute value = 1 -> [-1, 1]
+# ---------------------------------------------------------------------------
+row_normalize <- function(mat) {
+  row_max <- apply(abs(mat), 1, max, na.rm = TRUE)
+  row_max[row_max == 0] <- 1
+  sweep(mat, 1, row_max, "/")
+}
+
+# ---------------------------------------------------------------------------
+# Column-normalize (diverging): each modality's max |value| = 1 -> [-1, 1]
+# ---------------------------------------------------------------------------
+col_normalize_diverging <- function(mat) {
+  cm <- apply(abs(mat), 2, max, na.rm = TRUE)
+  cm[cm == 0] <- 1
+  sweep(mat, 2, cm, "/")
+}
+
+mat_exc_norm <- col_normalize(mat_exc_full)
+mat_inh_norm <- col_normalize(mat_inh_full)
+```
+
+## 5. Optionally apply Panel B row ordering
+
+```{r apply-row-order}
+# ---------------------------------------------------------------------------
+# If Panel B order is available, restrict and reorder rows to match
+# ---------------------------------------------------------------------------
+if (use_panel_b_order) {
+  shared_rows <- intersect(row_order_b, all_rows)
+  extra_rows  <- setdiff(all_rows, row_order_b)
+  ordered_rows <- c(shared_rows, extra_rows)  # panel B order first, then extras
+
+  mat_exc_norm <- mat_exc_norm[ordered_rows, ]
+  mat_inh_norm <- mat_inh_norm[ordered_rows, ]
+  mat_exc_full <- mat_exc_full[ordered_rows, ]
+  mat_inh_full <- mat_inh_full[ordered_rows, ]
+}
+```
+
+---
+
+# Approach 1: Side-by-side excitatory and inhibitory heatmaps
+
+## 6. Draw excitatory heatmap
+
+```{r heatmap-excitatory, fig.width=8, fig.height=10}
+# ---------------------------------------------------------------------------
+# Use Panel B row order if available (cluster_rows = FALSE), else cluster
+# ---------------------------------------------------------------------------
+cluster_rows_flag <- !use_panel_b_order
+
+row_annot_exc <- make_row_annot(mat_exc_norm)
+col_annot_exc <- make_col_annot(mat_exc_norm)
+
+hm_exc <- pheatmap(
+  mat_exc_norm,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  annotation_row           = row_annot_exc,
+  annotation_col           = col_annot_exc,
+  annotation_colors        = ann_colors,
+  color                    = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Excitatory path strength (Bella's targets)",
+  angle_col                = 45,
+  silent                   = TRUE
+)
+
+hm_exc
+```
+
+## 7. Draw inhibitory heatmap
+
+```{r heatmap-inhibitory, fig.width=8, fig.height=10}
+row_annot_inh <- make_row_annot(mat_inh_norm)
+col_annot_inh <- make_col_annot(mat_inh_norm)
+
+hm_inh <- pheatmap(
+  mat_inh_norm,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  annotation_row           = row_annot_inh,
+  annotation_col           = col_annot_inh,
+  annotation_colors        = ann_colors,
+  color                    = colorRampPalette(c("white", "#DEEBF7", "#9ECAE1", "#3182BD"))(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Inhibitory path strength (Bella's targets)",
+  angle_col                = 45,
+  silent                   = TRUE
+)
+
+hm_inh
+```
+
+## 8. Save side-by-side heatmaps
+
+```{r save-side-by-side}
+# ---------------------------------------------------------------------------
+# Save excitatory heatmap
+# ---------------------------------------------------------------------------
+save_heatmap_both_orientations(
+  mat        = mat_exc_norm,
+  row_annot  = make_row_annot(mat_exc_norm),
+  col_annot  = make_col_annot(mat_exc_norm),
+  ann_colors = ann_colors,
+  name       = "panel_C_excitatory_bella",
+  width      = 8,
+  height     = 10,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  color                    = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Excitatory path strength (Bella's targets)",
+  angle_col                = 45
+)
+
+# ---------------------------------------------------------------------------
+# Save inhibitory heatmap
+# ---------------------------------------------------------------------------
+save_heatmap_both_orientations(
+  mat        = mat_inh_norm,
+  row_annot  = make_row_annot(mat_inh_norm),
+  col_annot  = make_col_annot(mat_inh_norm),
+  ann_colors = ann_colors,
+  name       = "panel_C_inhibitory_bella",
+  width      = 8,
+  height     = 10,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  color                    = colorRampPalette(c("white", "#DEEBF7", "#9ECAE1", "#3182BD"))(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Inhibitory path strength (Bella's targets)",
+  angle_col                = 45
+)
+```
+
+---
+
+# Approach 2: Diverging net-valence heatmap
+
+## 9. Compute net valence matrix
+
+Net valence = excitatory strength - inhibitory strength. Positive values
+indicate excitatory dominance; negative values indicate inhibitory dominance.
+
+```{r net-valence}
+# ---------------------------------------------------------------------------
+# Net valence: raw (unnormalized) excitatory - inhibitory
+# ---------------------------------------------------------------------------
+mat_net <- mat_exc_full - mat_inh_full
+
+cat(sprintf("Net valence matrix: %d x %d\n", nrow(mat_net), ncol(mat_net)))
+cat(sprintf("Range: [%.3f, %.3f]\n", min(mat_net), max(mat_net)))
+```
+
+## 10. Row-normalize for diverging colour map
+
+Apply row normalization so each target neuron's most extreme value becomes
++/-1, highlighting within-neuron excitatory/inhibitory balance across modalities.
+
+```{r scale-net-valence}
+# ---------------------------------------------------------------------------
+# Row-normalize: each neuron's max |value| = 1 -> values in [-1, 1]
+# ---------------------------------------------------------------------------
+mat_net_scaled <- row_normalize(mat_net)
+
+cat(sprintf("Row-normalized range: [%.3f, %.3f]\n", min(mat_net_scaled), max(mat_net_scaled)))
+```
+
+## 11. Draw diverging heatmap
+
+```{r heatmap-diverging, fig.width=8, fig.height=10}
+# ---------------------------------------------------------------------------
+# Diverging colour palette: blue (inhibitory) - white (balanced) - red (excitatory)
+# ---------------------------------------------------------------------------
+diverging_palette <- colorRampPalette(
+  c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+    "#F7F7F7",
+    "#FDDBC7", "#F4A582", "#D6604D", "#B2182B")
+)(100)
+
+# Fixed breaks for row-normalized data: [-1, 1]
+breaks <- seq(-1, 1, length.out = 101)
+
+row_annot_net <- make_row_annot(mat_net_scaled)
+col_annot_net <- make_col_annot(mat_net_scaled)
+
+hm_div <- pheatmap(
+  mat_net_scaled,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  annotation_row           = row_annot_net,
+  annotation_col           = col_annot_net,
+  annotation_colors        = ann_colors,
+  color                    = diverging_palette,
+  breaks                   = breaks,
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Net valence, row-normalized (Bella's targets)",
+  angle_col                = 45,
+  silent                   = TRUE
+)
+
+hm_div
+```
+
+## 12. Save diverging heatmap
+
+```{r save-diverging}
+save_heatmap_both_orientations(
+  mat        = mat_net_scaled,
+  row_annot  = make_row_annot(mat_net_scaled),
+  col_annot  = make_col_annot(mat_net_scaled),
+  ann_colors = ann_colors,
+  name       = "panel_C_diverging_valence_bella",
+  width      = 8,
+  height     = 10,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  color                    = diverging_palette,
+  breaks                   = breaks,
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Net valence, row-normalized (Bella's targets)",
+  angle_col                = 45
+)
+```
+
+## 12b. Column-normalized diverging heatmap
+
+Column normalization: each modality's most extreme net value becomes +/-1,
+highlighting which modalities carry the strongest excitatory or inhibitory
+signal relative to their own range.
+
+```{r col-norm-net-valence}
+# ---------------------------------------------------------------------------
+# Column-normalize: each modality's max |value| = 1 -> values in [-1, 1]
+# ---------------------------------------------------------------------------
+mat_net_col_scaled <- col_normalize_diverging(mat_net)
+
+cat(sprintf("Column-normalized range: [%.3f, %.3f]\n", min(mat_net_col_scaled), max(mat_net_col_scaled)))
+```
+
+```{r heatmap-diverging-colnorm, fig.width=8, fig.height=10}
+hm_div_col <- pheatmap(
+  mat_net_col_scaled,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  annotation_row           = make_row_annot(mat_net_col_scaled),
+  annotation_col           = make_col_annot(mat_net_col_scaled),
+  annotation_colors        = ann_colors,
+  color                    = diverging_palette,
+  breaks                   = breaks,
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Net valence, column-normalized (Bella's targets)",
+  angle_col                = 45,
+  silent                   = TRUE
+)
+
+hm_div_col
+```
+
+```{r save-diverging-colnorm}
+save_heatmap_both_orientations(
+  mat        = mat_net_col_scaled,
+  row_annot  = make_row_annot(mat_net_col_scaled),
+  col_annot  = make_col_annot(mat_net_col_scaled),
+  ann_colors = ann_colors,
+  name       = "panel_C_diverging_valence_colnorm_bella",
+  width      = 8,
+  height     = 10,
+  cluster_rows             = cluster_rows_flag,
+  cluster_cols             = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method        = "ward.D2",
+  color                    = diverging_palette,
+  breaks                   = breaks,
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Net valence, column-normalized (Bella's targets)",
+  angle_col                = 45
+)
+```
+
+---
+
+## 13. Summary statistics
+
+Quick summary of the excitatory/inhibitory balance across modalities.
+
+```{r summary-stats}
+# ---------------------------------------------------------------------------
+# Per-modality summary of net valence
+# ---------------------------------------------------------------------------
+net_summary <- data.frame(
+  modality       = colnames(mat_net),
+  mean_net       = colMeans(mat_net),
+  median_net     = apply(mat_net, 2, median),
+  n_exc_dominant = colSums(mat_net > 0),
+  n_inh_dominant = colSums(mat_net < 0),
+  n_balanced     = colSums(mat_net == 0)
+)
+
+cat("Per-modality net valence summary:\n")
+print(net_summary, row.names = FALSE)
+
+# ---------------------------------------------------------------------------
+# Per-neuron: number of modalities with excitatory vs inhibitory dominance
+# ---------------------------------------------------------------------------
+neuron_summary <- data.frame(
+  neuron           = rownames(mat_net),
+  n_exc_modalities = rowSums(mat_net > 0),
+  n_inh_modalities = rowSums(mat_net < 0),
+  net_total        = rowSums(mat_net)
+)
+
+cat(sprintf("\nNeurons with purely excitatory input: %d\n",
+            sum(neuron_summary$n_inh_modalities == 0)))
+cat(sprintf("Neurons with purely inhibitory input: %d\n",
+            sum(neuron_summary$n_exc_modalities == 0)))
+cat(sprintf("Neurons with mixed valence input: %d\n",
+            sum(neuron_summary$n_exc_modalities > 0 & neuron_summary$n_inh_modalities > 0)))
+```

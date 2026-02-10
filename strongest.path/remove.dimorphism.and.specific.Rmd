@@ -45,6 +45,11 @@ library(tidyr)
 
 This notebook assembles precomputed strongest-path summaries across male and female pheromone circuits, enriches them with morphological annotations, and visualises modality-specific connectivity patterns. Each section builds on the previous one: we begin by loading cached data, derive adjacency matrices and helper utilities, and then profile path strength statistics for different sensory inputs.
 
+### 0 Define save path 
+```{r}
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/remove.dimorphism.and.specific/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/remove.dimorphism.and.specific/pdf/"
+```
 
 ### 1 Define function that loads a file or alternatively if it doesnt exist exexutes a script
 ```{r}
@@ -386,6 +391,113 @@ find_k_strongest_paths <- function(
 
   list(df = results_df_wo_na, nodes = all_nodes, raw = results)
 }
+
+find_k_strongest_paths_yen <- function(
+  g,
+  starts,
+  targets,
+  mba,
+  n_paths = 3,
+  diversity = c("otheredges", "othernodes", "none"),
+  ignore_pattern = NULL # grepl() pattern; matched node names are excluded (start/target kept),
+) {
+  for (ip in ignore_pattern){
+  g <- delete_vertices(g, V(g)[grepl(ip, name)])
+  }
+  type2nt <- mba %>%
+    select(type, consensus_nt) %>%
+    group_by(type) %>%
+    distinct() %>%
+    rename(nt = consensus_nt)
+  nt_by_type <- setNames(type2nt$nt, type2nt$type)
+  inhibitory_nts <- c("gaba", "glycine", "histamine")
+  all_nts <- unique(type2nt$nt)
+  is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
+
+
+  # weights → log-costs; guard zeros/NAs
+  w <- E(g)$weight
+  if (is.null(w)) stop("Edges must have numeric 'weight'.")
+  w[!is.finite(w) | w <= 0] <- .Machine$double.eps
+  log_w <- -log(w)
+
+  results <- list()
+  all_nodes <- character(0)
+
+  for (s in starts) {
+    for (t in targets) {
+      pair_paths <- list()
+      temp.k.shortest.paths = k_shortest_paths(g,from = s, to = t,weights = E(g)$log_weight,k=n_paths)
+
+
+      # cache once
+      vnames <- V(g)$name
+      w      <- E(g)$weight
+      logw   <- E(g)$log_weight
+      
+      paths_e <- temp.k.shortest.paths$epaths
+      paths_v <- temp.k.shortest.paths$vpaths
+      n_k     <- length(paths_e)
+      
+      if (n_k == 0L) {
+        pair_paths <- list(list(start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_))
+      } else {
+        # strengths: prefer log-weights if present (faster + stable)
+        if (!is.null(logw)) {
+          strengths <- exp(-vapply(paths_e, function(idx) sum(logw[idx]), numeric(1)))
+        } else {
+          strengths <- vapply(paths_e, function(idx) prod(w[idx]), numeric(1))
+        }
+      
+        hops      <- lengths(paths_e)
+        path_str  <- vapply(paths_v, function(idx) paste(vnames[idx], collapse = " -> "), character(1))
+      
+        # build list-of-lists without a for-loop
+        pair_paths <- lapply(seq_len(n_k), function(i) {
+          list(
+            start    = s,
+            end      = t,
+            path     = path_str[i],
+            strength = strengths[i],
+            hops     = hops[i]
+          )
+        })
+        names(pair_paths) <- paste0("path", seq_len(n_k))
+      }
+      
+      # collect nodes once, not in the loop
+      all_nodes <- c(all_nodes, vnames[unique(unlist(paths_v, use.names = FALSE))])
+
+      if (length(pair_paths) == 0) {
+        pair_paths <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+      }
+
+      results[[paste(s, t, sep = "->")]] <- pair_paths
+    }
+  }
+
+  # flatten
+  results_df <- do.call(rbind, lapply(results, function(pl) {
+    do.call(rbind, lapply(pl, function(r) {
+      data.frame(
+        start = r$start, end = r$end, path = r$path,
+        strength = r$strength, hops = r$hops,
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+
+  results_df_wo_na <- dplyr::filter(results_df, !is.na(strength))
+  all_nodes <- unique(all_nodes)
+
+  results_df_wo_na <- add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt) %>%
+    mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
+
+  list(df = results_df_wo_na, nodes = all_nodes, raw = results)
+}
+
 ```
 ## 3 Downstream target selection
 
@@ -448,7 +560,7 @@ start.types.DA1 <- c("ORN_DA1")
 start.types.VA1v <- c("ORN_VA1v")
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.vAB3.feather')) {
-  res.vAB3.DA1 <- find_k_strongest_paths(graph.general, starts = start.types.DA1, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.vAB3.DA1 <- find_k_strongest_paths_yen(graph.general, starts = start.types.DA1, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.vAB3.DA1$df$dataset <- "vAB3"
   strongest.1000.paths.DA1.2.vAB3 <- res.vAB3.DA1$df
   write_feather(strongest.1000.paths.DA1.2.vAB3, "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.vAB3.feather")
@@ -458,7 +570,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.PPN1.feather')) {
-  res.PPN1.DA1 <- find_k_strongest_paths(graph.general, starts = start.types.DA1, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.PPN1.DA1 <- find_k_strongest_paths_yen(graph.general, starts = start.types.DA1, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.DA1$df$dataset <- "PPN1"
   strongest.1000.paths.DA1.2.PPN1 <- res.PPN1.DA1$df
   write_feather(strongest.1000.paths.DA1.2.PPN1,'/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.DA1.2.PPN1.feather')
@@ -468,7 +580,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.VA1v.2.vAB3.feather')) {
-  res.vAB3.VA1v <- find_k_strongest_paths(graph.general, starts = start.types.VA1v, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.vAB3.VA1v <- find_k_strongest_paths_yen(graph.general, starts = start.types.VA1v, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.vAB3.VA1v$df$dataset <- "vAB3"
   strongest.1000.paths.VA1v.2.vAB3 <- res.vAB3.VA1v$df
   write_feather(strongest.1000.paths.VA1v.2.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.VA1v.2.vAB3.feather')
@@ -478,7 +590,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.VA1v.2.PPN1.feather')) {
-  res.PPN1.VA1v <- find_k_strongest_paths(graph.general, starts = start.types.VA1v, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.PPN1.VA1v <- find_k_strongest_paths_yen(graph.general, starts = start.types.VA1v, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.VA1v$df$dataset <- "PPN1"
   strongest.1000.paths.VA1v.2.PPN1 <- res.PPN1.VA1v$df
   write_feather(strongest.1000.paths.VA1v.2.PPN1, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.VA1v.2.PPN1.feather')
@@ -493,12 +605,12 @@ df_all.all.VA1v <- bind_rows(strongest.1000.paths.VA1v.2.vAB3, strongest.1000.pa
 
 df_all.all.VA1v <- df_all.all.VA1v %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 df_all.all.DA1 <- df_all.all.DA1 %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 
@@ -521,7 +633,7 @@ ann.VA1v <- data.frame(
   y.position  = max(df_all.all.VA1v$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -534,7 +646,12 @@ ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   ) +
   scale_y_log10()
 
-ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
+ggsave(file.path(plot.path.png, "boxplot.DA1.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.DA1.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+
+
+
+p<-ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -547,20 +664,31 @@ ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   ) +
   scale_y_log10()
 
+ggsave(file.path(plot.path.png, "boxplot.VA1v.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.VA1v.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
-ggplot(df_all.all.DA1, aes(x = dataset, y = hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+
+p <- ggplot(df_all.all.DA1, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path DA1") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths DA1") +
   theme(plot.title = element_text(hjust = 0.5))
 
-ggplot(df_all.all.VA1v, aes(x = dataset, y = hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+ggsave(file.path(plot.path.png, "hops.in.path.DA1.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.DA1.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+
+p <- ggplot(df_all.all.VA1v, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path VA1v") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths VA1v") +
   theme(plot.title = element_text(hjust = 0.5))
+
+ggsave(file.path(plot.path.png, "hops.in.path.VA1v.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.VA1v.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 ann_strength.DA1 <- df_all.all.DA1 %>%
@@ -583,8 +711,8 @@ ann_strength.VA1v <- df_all.all.VA1v %>%
     .groups = "drop"
   )
 
-# strength boxplots, split by valence
-ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
+#p<- strength boxplots, split by valence
+p<-ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -594,7 +722,10 @@ ggplot(df_all.all.DA1, aes(x = dataset, y = strength)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength.DA1, label = "p", tip.length = 0)
 
-ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
+ggsave(file.path(plot.path.png, "boxplot.DA1.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.DA1.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+
+p<-ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -603,6 +734,10 @@ ggplot(df_all.all.VA1v, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength.VA1v, label = "p", tip.length = 0)
+
+
+ggsave(file.path(plot.path.png, "boxplot.VA1v.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.VA1v.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 
 ### 3.2 Auditory strongest paths
@@ -617,7 +752,7 @@ start.types.aud <- mba %>%
   unique()
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.auditory.2.vAB3.feather')) {
-  res.vAB3.aud <- find_k_strongest_paths(graph.general, starts = start.types.aud, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.vAB3.aud <- find_k_strongest_paths_yen(graph.general, starts = start.types.aud, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.vAB3.aud$df$dataset <- "vAB3"
   strongest.1000.paths.auditory.2.vAB3 <- res.vAB3.aud$df
   write_feather(strongest.1000.paths.auditory.2.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.auditory.2.vAB3.feather')
@@ -627,7 +762,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.auditory.2.PPN1.feather')) {
-  res.PPN1.aud <- find_k_strongest_paths(graph.general, starts = start.types.aud, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.PPN1.aud <- find_k_strongest_paths_yen(graph.general, starts = start.types.aud, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.aud$df$dataset <- "PPN1"
   strongest.1000.paths.auditory.2.PPN1 <- res.PPN1.aud$df
   write_feather(strongest.1000.paths.auditory.2.PPN1, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.auditory.2.PPN1.feather')
@@ -640,7 +775,7 @@ df_all.all.aud <- bind_rows(strongest.1000.paths.auditory.2.PPN1, strongest.1000
 
 df_all.all.aud <- df_all.all.aud %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 t_res <- t.test(log(strength) ~ dataset, data = df_all.all.aud)
@@ -652,7 +787,7 @@ ann <- data.frame(
   y.position  = max(df_all.all.aud$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
+g<-ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -664,14 +799,22 @@ ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
     tip.length = 0
   ) +
   scale_y_log10()
+g
+ggsave(file.path(plot.path.png, "boxplot.auditory.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.auditory.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
-ggplot(df_all.all.aud, aes(x = dataset, y = hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+
+p <- ggplot(df_all.all.aud, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path auditory") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths Auditory") +
   theme(plot.title = element_text(hjust = 0.5))
+p
+ggsave(file.path(plot.path.png, "hops.in.path.auditory.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.auditory.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 ann_strength <- df_all.all.aud %>%
@@ -685,7 +828,7 @@ ann_strength <- df_all.all.aud %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -694,6 +837,9 @@ ggplot(df_all.all.aud, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+p
+ggsave(file.path(plot.path.png, "boxplot.auditory.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.auditory.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 
 ### 3.3 Visual strongest paths
@@ -708,7 +854,7 @@ start.types.vis <- mba %>%
 
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.vAB3.feather')) {
-  res.vAB3.vis <- find_k_strongest_paths(graph.general, starts = start.types.vis, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.vAB3.vis <- find_k_strongest_paths_yen(graph.general, starts = start.types.vis, targets = target.vAB3.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.vAB3.vis$df$dataset <- "vAB3"
   strongest.1000.paths.visual.2.vAB3 <- res.vAB3.vis$df
   write_feather(strongest.1000.paths.visual.2.vAB3, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.vAB3.feather')
@@ -718,7 +864,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.PPN1.feather')) {
-  res.PPN1.vis <- find_k_strongest_paths(graph.general, starts = start.types.vis, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
+  res.PPN1.vis <- find_k_strongest_paths_yen(graph.general, starts = start.types.vis, targets = target.PPN1.all, n_paths = 1000, diversity = "otheredges", mba = mba)
   res.PPN1.vis$df$dataset <- "PPN1"
   strongest.1000.paths.visual.2.PPN1 <- res.PPN1.vis$df
   write_feather(strongest.1000.paths.visual.2.PPN1, '/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.visual.2.PPN1.feather')
@@ -732,7 +878,7 @@ df_all.all.vis <-bind_rows(strongest.1000.paths.visual.2.vAB3 ,
 
 df_all.all.vis <- df_all.all.vis %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 #df_all.all.vis <- bind_rows(strongest.1000.paths.visual.2.vAB3 %>% 
@@ -754,7 +900,7 @@ ann <- data.frame(
   y.position  = max(df_all.all.vis$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -767,13 +913,21 @@ ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   ) +
   scale_y_log10()
 
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
-ggplot(df_all.all.vis, aes(x = dataset, y = hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+
+p <- ggplot(df_all.all.vis, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path Visual") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths Visual") +
   theme(plot.title = element_text(hjust = 0.5))
+
+ggsave(file.path(plot.path.png, "hops.in.path.visual.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.visual.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 ann_strength <- df_all.all.vis %>%
@@ -787,7 +941,7 @@ ann_strength <- df_all.all.vis %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -796,6 +950,9 @@ ggplot(df_all.all.vis, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 
 ### 3.4 PPK23 strongest paths
@@ -811,7 +968,7 @@ start.types.ppk23 <- mba %>%
   unique()
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk23.2.vAB3.excluded.feather')) {
-  res.vAB3.ppk23 <- find_k_strongest_paths(graph.general,
+  res.vAB3.ppk23 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk23,
     targets = target.vAB3.all,
     n_paths = 1000,
@@ -828,7 +985,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk23.2.PPN1.excluded.feather')) {
-  res.PPN1.ppk23 <- find_k_strongest_paths(graph.general,
+  res.PPN1.ppk23 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk23,
     targets = target.PPN1.all,
     n_paths = 1000,
@@ -845,7 +1002,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 #included
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk23.2.vAB3.included.feather')) {
-  res.vAB3.ppk23 <- find_k_strongest_paths(graph.general,
+  res.vAB3.ppk23 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk23,
     targets = target.vAB3.all,
     n_paths = 1000,
@@ -861,7 +1018,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk23.2.PPN1.included.feather')) {
-  res.PPN1.ppk23 <- find_k_strongest_paths(graph.general,
+  res.PPN1.ppk23 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk23,
     targets = target.PPN1.all,
     n_paths = 1000,
@@ -884,12 +1041,12 @@ df_all.all.ppk23.included <- bind_rows(strongest.1000.paths.ppk23.2.PPN1.include
 
 df_all.all.ppk23.included <- df_all.all.ppk23.included %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 df_all.all.ppk23.excluded <- df_all.all.ppk23.excluded %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 t_res <- t.test(log(strength) ~ dataset, data = df_all.all.ppk23.included)
@@ -901,7 +1058,7 @@ ann <- data.frame(
   y.position  = max(df_all.all.ppk23.included$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -914,13 +1071,21 @@ ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
   ) +
   scale_y_log10()
 
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.ppk23.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.ppk23.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
-ggplot(df_all.all.ppk23.included, aes(x = dataset, y = hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+
+p <- ggplot(df_all.all.ppk23.included, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path PPK23") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths PPK23") +
   theme(plot.title = element_text(hjust = 0.5))
+
+ggsave(file.path(plot.path.png, "hops.in.path.ppk23.included.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.ppk23.included.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 ann_strength <- df_all.all.ppk23.included %>%
@@ -934,7 +1099,7 @@ ann_strength <- df_all.all.ppk23.included %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -943,6 +1108,10 @@ ggplot(df_all.all.ppk23.included, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.ppk23.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.ppk23.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 ### 3.5 PPK25 strongest paths
 
@@ -956,7 +1125,7 @@ start.types.ppk25 <- mba %>%
   unique()
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk25.2.vAB3.excluded.feather')) {
-  res.vAB3.ppk25 <- find_k_strongest_paths(graph.general,
+  res.vAB3.ppk25 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk25,
     targets = target.vAB3.all,
     n_paths = 1000,
@@ -973,7 +1142,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk25.2.PPN1.excluded.feather')) {
-  res.PPN1.ppk25 <- find_k_strongest_paths(graph.general,
+  res.PPN1.ppk25 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk25,
     targets = target.PPN1.all,
     n_paths = 1000,
@@ -990,7 +1159,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 #included
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk25.2.vAB3.included.feather')) {
-  res.vAB3.ppk25 <- find_k_strongest_paths(graph.general,
+  res.vAB3.ppk25 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk25,
     targets = target.vAB3.all,
     n_paths = 1000,
@@ -1006,7 +1175,7 @@ if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.p
 }
 
 if (load_or_execute('/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.1000.paths.ppk25.2.PPN1.included.feather')) {
-  res.PPN1.ppk25 <- find_k_strongest_paths(graph.general,
+  res.PPN1.ppk25 <- find_k_strongest_paths_yen(graph.general,
     starts = start.types.ppk25,
     targets = target.PPN1.all,
     n_paths = 1000,
@@ -1029,12 +1198,12 @@ df_all.all.ppk25.included <- bind_rows(strongest.1000.paths.ppk25.2.PPN1.include
 
 df_all.all.ppk25.included <- df_all.all.ppk25.included %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 df_all.all.ppk25.excluded <- df_all.all.ppk25.excluded %>%
   rowwise() %>%
-  filter(lists_overlap(nodes, male.specific.types)) %>%
+  filter(lists_overlap(nodes, dimporthic.and.specific.types)) %>%
   ungroup()
 
 t_res <- t.test(log(strength) ~ dataset, data = df_all.all.ppk25.included)
@@ -1046,7 +1215,7 @@ ann <- data.frame(
   y.position  = max(df_all.all.ppk25.included$strength, na.rm = TRUE) * 1.12
 )
 
-ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   theme_bw() +
@@ -1059,13 +1228,21 @@ ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
   ) +
   scale_y_log10()
 
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.ppk25.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.ppk25.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
-ggplot(df_all.all.ppk25.included, aes(x = dataset, y =   hops)) +
-  geom_jitter(width = 0.2, height = 0, alpha = 0.6) +
-  scale_y_log10() +
+
+p <- ggplot(df_all.all.ppk25.included, aes(x = dataset, y = factor(hops))) +
+  geom_count() +
+  scale_size_area(max_size = 6) +
   theme_bw() +
-  labs(title = "Hops in strongest path ppk25") +
+  labs(y = "hops (discrete)") +
+  labs(title = "Hops in strongest paths PPK25") +
   theme(plot.title = element_text(hjust = 0.5))
+
+ggsave(file.path(plot.path.png, "hops.in.path.ppk25.included.PPN1.vAB3.comparison.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "hops.in.path.ppk25.included.PPN1.vAB3.comparison.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 ann_strength <- df_all.all.ppk25.included %>%
@@ -1079,7 +1256,7 @@ ann_strength <- df_all.all.ppk25.included %>%
   )
 
 # strength boxplots, split by valence
-ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
+p<-ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
   geom_boxplot(outlier.shape = NA, fill = "lightgray") +
   geom_jitter(width = 0.2, height = 0, alpha = 0.4, color = "blue") +
   scale_y_log10() +
@@ -1088,6 +1265,10 @@ ggplot(df_all.all.ppk25.included, aes(x = dataset, y = strength)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~valence, nrow = 1) +
   stat_pvalue_manual(ann_strength, label = "p", tip.length = 0)
+
+p
+ggsave(file.path(plot.path.png, "boxplot.visual.ppk25.PPN1.vAB3.comparison.facetted.by.valence.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "boxplot.visual.ppk25.PPN1.vAB3.comparison.facetted.by.valence.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 ## 4 Modality composition analyses
 
@@ -1152,6 +1333,15 @@ p_ppn1_all
 p_ppn1_exc
 p_ppn1_inh
 
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.excluded.all.paths.png"), plot = p_ppn1_all, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.excluded.all.paths.pdf"), plot = p_ppn1_all, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.excluded.excitatory.paths.png"), plot = p_ppn1_exc, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.excluded.excitatory.paths.pdf"), plot = p_ppn1_exc, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.excluded.inhibitory.paths.png"), plot = p_ppn1_inh, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.excluded.inhibitory.paths.png"), plot = p_ppn1_inh, width = 18, height = 12, units = "cm", dpi = 300)
+
 ppn1_all$connection.type <- "all"
 ppn1_exc$connection.type <- "excitatory"
 ppn1_inh$connection.type <- "inhibitory"
@@ -1167,7 +1357,7 @@ connected.scatterplot.all.ppn1 <- rbind(ppn1_all, ppn1_exc, ppn1_inh) %>%
     x_jittered = x_pos + x_shift
   )
 
-ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+p<-ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1188,6 +1378,9 @@ ggplot(connected.scatterplot.all.ppn1, aes(x = x_jittered, y = prop, group = int
     color = ifelse(unique(connected.scatterplot.all.ppn1$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
 
+ggsave(file.path(plot.path.png, "fraction.input.to.post.PPN1.excluded.by.valence.and.modality.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.PPN1.excluded.by.valence.and.modality.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+
 # vAB3
 vab3_all <- pie_data(all.modalities.excluded, "vAB3", NULL)
 vab3_exc <- pie_data(all.modalities.excluded, "vAB3", c("excitatory", 1))
@@ -1196,6 +1389,15 @@ vab3_inh <- pie_data(all.modalities.excluded, "vAB3", c("inhibitory", -1))
 p_vab3_all <- pie_plot(vab3_all, "vAB3: modality contribution per target neuron (all)")
 p_vab3_exc <- pie_plot(vab3_exc, "vAB3: modality contribution per target neuron (excitatory only)")
 p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron (inhibitory only)")
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.excluded.all.paths.png"), plot = p_vab3_all, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.excluded.all.paths.pdf"), plot = p_vab3_all, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.excluded.excitatory.paths.png"), plot = p_vab3_exc, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.excluded.excitatory.paths.pdf"), plot = p_vab3_exc, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.excluded.inhibitory.paths.png"), plot = p_vab3_inh, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.excluded.inhibitory.paths.png"), plot = p_vab3_inh, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 p_vab3_all
@@ -1219,7 +1421,7 @@ connected.scatterplot.all.vab3 <- rbind(vab3_all, vab3_exc, vab3_inh) %>%
     x_jittered = x_pos + x_shift
   )
 
-ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+p<-ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1239,6 +1441,10 @@ ggplot(connected.scatterplot.all.vab3, aes(x = x_jittered, y = prop, group = int
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.vab3$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
+
+p
+ggsave(file.path(plot.path.png, "fraction.input.to.post.vAB3.excluded.by.valence.and.modality.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.vAB3.excluded.by.valence.and.modality.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 ```
 
 #### 4.1.1 Quick ridge plot with all data
@@ -1255,21 +1461,28 @@ df_all.all.vis$modality <- "visual"
 all.all.all <- dplyr::bind_rows(df_all.all.ppk23.included,df_all.all.ppk25.included,df_all.all.aud,df_all.all.DA1,df_all.all.VA1v,df_all.all.vis)%>%
   mutate(label_color = ifelse(end %in% intersect(target.PPN1.all, target.vAB3.all), "highlight", "normal"))
 
-ggplot(all.all.all, aes(x = strength, y = modality, fill = dataset)) +
+p<-ggplot(all.all.all, aes(x = strength, y = modality, fill = dataset)) +
   geom_density_ridges(scale = 1.2, rel_min_height = 0.01, alpha = 0.5) +
   scale_x_log10() +
   scale_alpha_manual(values = c(0.6, 0.9)) +  # adjust per dataset
   theme_ridges() +
   theme(legend.position = "right")
+p
+ggsave(file.path(plot.path.png, "ridgeplots.PPN1.vs.vAB3.included.paths.per.modality.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "ridgeplots.PPN1.vs.vAB3.included.paths.per.modality.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 
-ggplot(all.all.all, aes(x = strength, y = modality, fill = dataset)) +
+p<-ggplot(all.all.all, aes(x = strength, y = modality, fill = dataset)) +
   geom_density_ridges(scale = 1.2, rel_min_height = 0.01, alpha = 0.5) +
   facet_wrap(~valence, ncol = 1, scales = "free_y") +
   scale_x_log10() +
   theme_ridges() +
   theme(legend.position = "right")
 
-ggplot(all.all.all, aes(x = strength, y = end, fill = modality)) +
+p
+ggsave(file.path(plot.path.png, "ridgeplots.PPN1.vs.vAB3.included.paths.per.modality.facetted.by.valence.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "ridgeplots.PPN1.vs.vAB3.included.paths.per.modality.facetted.by.valence.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+
+p<-ggplot(all.all.all, aes(x = strength, y = end, fill = modality)) +
   geom_density_ridges(scale = 1.2, rel_min_height = 0.01, alpha = 0.5) +
   scale_x_log10() +
   theme_ridges() +
@@ -1283,33 +1496,8 @@ ggplot(all.all.all, aes(x = strength, y = end, fill = modality)) +
     )
   )
 
-
-ggplot(all.all.all, aes(x = modality, y = strength, color = modality)) +
-    geom_jitter(width = 0.2, height = 0, alpha = 0.4, size = 1) +
-    scale_y_log10() +
-    stat_summary(fun = median, geom = "crossbar", width = 0.4, color = "black") +
-    theme_bw() +
-    theme(legend.position = "none",
-          axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(all.all.all, aes(x = modality, y = strength, color = modality)) +
-    geom_jitter(width = 0.2, height = 0, alpha = 0.4, size = 1) +
-    scale_y_log10() +
-    facet_wrap(~valence, ncol = 1, scales = "free_y") +
-    stat_summary(fun = median, geom = "crossbar", width = 0.4, color = "black") +
-    theme_bw() +
-    theme(legend.position = "none",
-          axis.text.x = element_text(angle = 45, hjust = 1))
-
-all.all.all %>%
-  group_by(end, modality) %>%
-  summarise(med = median(strength, na.rm = TRUE), .groups = "drop") %>%
-  ggplot(aes(x = modality, y = end, fill = med)) +
-  geom_tile() +
-  scale_fill_viridis_c(option = "magma", trans = "log10") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(size = 6))
-
+ggsave(file.path(plot.path.png, "ridgeplots.PPN1.vs.vAB3.included.paths.per.all.modality.facetted.by.valence.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "ridgeplots.PPN1.vs.vAB3.included.paths.per.all.modality.facetted.by.valence.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 ```
 
 #### 4.1.2 Quick pheatmap
@@ -1347,7 +1535,7 @@ rownames(ann_row) <- rownames(logm)
 ann_colors <- list(highlight = c(target_both = "#D62728", other = "#BBBBBB"))
 
 # 4) heatmap with clustering
-pheatmap(
+p<-pheatmap(
   mat_m,
   color = viridis(100),
   cluster_rows = TRUE,
@@ -1363,8 +1551,11 @@ pheatmap(
   annotation_row = ann_row,
   annotation_colors = ann_colors
 )
+p
+ggsave(file.path(plot.path.png, "pheatmap.path.input.to.post.vAB3.and.PPN1.row.clustered.png"), plot = p, width = 25, height = 25, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pheatmap.path.input.to.post.vAB3.and.PPN1.row.clustered.pdf"), plot = p, width = 25, height = 25, units = "cm", dpi = 300)
 
-pheatmap(
+p<-pheatmap(
   logm,
   color = viridis(100),
   cluster_rows = TRUE,
@@ -1380,38 +1571,10 @@ pheatmap(
   annotation_row = ann_row,
   annotation_colors = ann_colors
 )
+
+ggsave(file.path(plot.path.png, "pheatmap.path.input.to.post.vAB3.and.PPN1.row.clustered.log.transformed.png"), plot = p, width = 25, height = 25, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pheatmap.path.input.to.post.vAB3.and.PPN1.row.clustered.log.transformed.pdf"), plot = p, width = 25, height = 25, units = "cm", dpi = 300)
 ```
-
-#### 4.1.3 Point clouds with statistical tests
-
-
-```{r}
-library(dplyr)
-library(ggplot2)
-library(rstatix)   # pairwise_wilcox_test, kruskal_test
-library(ggpubr)    # stat_pvalue_manual
-
-library(ggpubr)
-
-ggplot(all.all.all, aes(x = modality, y = strength, color = modality)) +
-    geom_jitter(width = 0.2, alpha = 0.4, size = 1) +
-    scale_y_log10() +
-    facet_wrap(~valence, ncol = 1, scales = "free_y") +
-    stat_summary(fun = median, geom = "crossbar", width = 0.4, color = "black") +
-    stat_compare_means(
-        comparisons = combn(unique(all.all.all$modality), 2, simplify = FALSE),
-        method = "t.test",
-        label = "p.signif"
-    ) +
-    theme_bw() +
-    theme(
-        legend.position = "none",
-        axis.text.x = element_text(angle = 45, hjust = 1)
-    )
-
-
-```
-
 
 
 ### 4.2 Including circuit feedback
@@ -1447,6 +1610,15 @@ p_ppn1_all
 p_ppn1_exc
 p_ppn1_inh
 
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.included.all.paths.png"), plot = p_ppn1_all, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.included.all.paths.pdf"), plot = p_ppn1_all, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.included.excitatory.paths.png"), plot = p_ppn1_exc, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.included.excitatory.paths.pdf"), plot = p_ppn1_exc, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.PPN1.included.inhibitory.paths.png"), plot = p_ppn1_inh, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.PPN1.included.inhibitory.paths.pdf"), plot = p_ppn1_inh, width = 18, height = 12, units = "cm", dpi = 300)
+
 ppn1_all$connection.type <- "all"
 ppn1_exc$connection.type <- "excitatory"
 ppn1_inh$connection.type <- "inhibitory"
@@ -1462,7 +1634,7 @@ connected.scatterplot.all.include.ppn1 <- rbind(ppn1_all, ppn1_exc, ppn1_inh) %>
     x_jittered = x_pos + x_shift
   )
 
-ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+p<-ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1482,6 +1654,8 @@ ggplot(connected.scatterplot.all.include.ppn1, aes(x = x_jittered, y = prop, gro
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.ppn1$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
+ggsave(file.path(plot.path.png, "fraction.input.to.post.PPN1.included.by.valence.and.modality.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.PPN1.included.by.valence.and.modality.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 
 temp_df <- connected.scatterplot.all.include.ppn1 %>%
   group_by(connection.type, modality) %>%
@@ -1499,7 +1673,7 @@ temp_df <- connected.scatterplot.all.include.ppn1 %>%
     x_jittered = x_pos + x_shift
   )
 
-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+p<-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1519,7 +1693,11 @@ ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality
     plot.title = element_text(hjust = 0.5)
   )
 
-ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+p
+ggsave(file.path(plot.path.png, "fraction.input.to.post.PPN1.included.by.connection.type.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.PPN1.included.by.connection.type.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+
+p<-ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
   geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
   theme_bw() +
   labs(
@@ -1532,6 +1710,8 @@ ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y 
   theme(
     plot.title = element_text(hjust = 0.5)
   )
+ggsave(file.path(plot.path.png, "barplot.connection.type.input.to.post.PPN1.included.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "barplot.connection.type.input.to.post.PPN1.included.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 
 
 # vAB3
@@ -1547,6 +1727,16 @@ p_vab3_inh <- pie_plot(vab3_inh, "vAB3: modality contribution per target neuron 
 p_vab3_all
 p_vab3_exc
 p_vab3_inh
+
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.included.all.paths.png"), plot = p_vab3_all, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.included.all.paths.pdf"), plot = p_vab3_all, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.included.excitatory.paths.png"), plot = p_vab3_exc, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.included.excitatory.paths.pdf"), plot = p_vab3_exc, width = 18, height = 12, units = "cm", dpi = 300)
+
+ggsave(file.path(plot.path.png, "pie.plot.modality.contribution.to.post.vAB3.included.inhibitory.paths.png"), plot = p_vab3_inh, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "pie.plot.modality.contribution.to.post.vAB3.included.inhibitory.paths.pdf"), plot = p_vab3_inh, width = 18, height = 12, units = "cm", dpi = 300)
 
 # connected scatter plot
 
@@ -1565,7 +1755,7 @@ connected.scatterplot.all.include.vab3 <- rbind(vab3_all, vab3_exc, vab3_inh) %>
     x_jittered = x_pos + x_shift
   )
 
-ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
+p<-ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, group = interaction(end, modality), color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) + # line inherits modality color
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1585,7 +1775,9 @@ ggplot(connected.scatterplot.all.include.vab3, aes(x = x_jittered, y = prop, gro
     angle = 90, hjust = 1,
     color = ifelse(unique(connected.scatterplot.all.vab3$end) %in% intersect(target.vAB3.all, target.PPN1.all), "red", "black")
   ))
-
+p
+ggsave(file.path(plot.path.png, "fraction.input.to.post.vAB3.included.by.valence.and.modality.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.vAB3.included.by.valence.and.modality.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 
 temp_df <- connected.scatterplot.all.include.vab3 %>%
   group_by(connection.type, modality) %>%
@@ -1603,7 +1795,7 @@ temp_df <- connected.scatterplot.all.include.vab3 %>%
     x_jittered = x_pos + x_shift
   )
 
-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+p<-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1619,9 +1811,12 @@ ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality
     shape = "Connection type"
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
+ggsave(file.path(plot.path.png, "fraction.input.to.post.vAB3.included.by.connection.type.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.vAB3.included.by.connection.type.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 
 
-ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
+p<-ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y = prop, fill = modality)) +
   geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.2) +
   theme_bw() +
   labs(
@@ -1633,6 +1828,10 @@ ggplot(temp_df %>% filter(connection.type != "all"), aes(x = connection.type, y 
   theme(
     plot.title = element_text(hjust = 0.5)
   )
+
+p
+ggsave(file.path(plot.path.png, "barplot.connection.type.input.to.post.vAB3.included.png"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "barplot.connection.type.input.to.post.vAB3.included.pdf"), plot = p, width = 18, height = 12, units = "cm", dpi = 300)
 ```
 
 #### 4.2.1 Trends all modalities
@@ -1714,7 +1913,7 @@ temp_df <- connected.scatterplot.all.include.ppn1 %>%
 
 
 
-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+p<-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1733,6 +1932,10 @@ ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality
   theme(
     plot.title = element_text(hjust = 0.5)
   )
+p
+ggsave(file.path(plot.path.png, "fraction.input.to.post.PPN1.included.all.modalities.by.connection.type.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.PPN1.included.all.modalities.by.connection.type.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+
 
 temp_df <- connected.scatterplot.all.include.vab3 %>%
   group_by(connection.type, modality) %>%
@@ -1751,7 +1954,7 @@ temp_df <- connected.scatterplot.all.include.vab3 %>%
   )
 
 
-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
+p<-ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality)) +
   geom_line(alpha = 0.6, linewidth = 0.8) +
   geom_point(aes(shape = connection.type), size = 3, alpha = 0.9) +
   scale_x_continuous(
@@ -1768,7 +1971,12 @@ ggplot(temp_df, aes(x = x_jittered, y = prop, group = modality, color = modality
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+ggsave(file.path(plot.path.png, "fraction.input.to.post.vAB3.included.all.modalities.by.connection.type.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "fraction.input.to.post.vAB3.included.all.modalities.by.connection.type.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+
 ```
+
+
 
 ### 4.3 Stacked barplot of synaptic contributions
 
@@ -1800,10 +2008,13 @@ aaa <- all.modalities.second_last %>%
 Confirm the aggregated weights visually by faceting barplots across datasets.
 
 ```{r strongest-paths-budget-check}
-ggplot(aaa, aes(x = end, y = weight, fill = modality)) +
+p<-ggplot(aaa, aes(x = end, y = weight, fill = modality)) +
   geom_bar(stat = "identity", position = "stack") +
   facet_wrap(~dataset, scales = "free_x") +
   theme_minimal() +
   labs(x = "Neuron (end)", y = "Weight", fill = "Modality") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+p
+ggsave(file.path(plot.path.png, "stacked.synaptic.contribution.penultimate.step.png"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
+ggsave(file.path(plot.path.pdf, "stacked.synaptic.contribution.penultimate.step.pdf"), plot = p, width = 25, height = 16, units = "cm", dpi = 300)
 ```

@@ -1,0 +1,582 @@
+---
+title: "Figure 6K: Outlook -- Modality Integration Across Circuit Layers"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 8
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel K: Outlook — Modality Integration Across Circuit Layers — Examines how sensory modality information converges at increasing circuit depth. Each node in a path is assigned a circuit order (position 1 = sensory, position 2 = 2nd-order, etc.). Analyses include modality-by-layer heatmaps, convergence curves, co-occurrence matrices, per-neuron integration heatmaps at 3rd/4th order, modality dendrograms, and flow diagrams. All analyses run for three target sets: aSP-f/aSP-g, vAB3/PPN1, and all targets."
+panel_legend <- "(K) Modality integration across circuit layers. Each node in a path is assigned a circuit order by position (1 = sensory, 2 = second-order, etc.). Heatmaps show modality composition at each layer; line plots track the fraction of multimodal neurons with increasing depth. Co-occurrence matrices, per-neuron heatmaps, modality dendrograms, and flow diagrams are computed separately for aSP-f/aSP-g, vAB3/PPN1, and all target sets."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_K_description", "txt"), "panel_K_description.txt"))
+```
+
+## Overview
+
+This panel examines how sensory modality information converges as signals
+propagate deeper into the circuit. By assigning each node in a path a
+**circuit order** based on its position (position 1 = sensory, position 2 =
+2nd-order, etc.), we can ask: at which layer do modalities first share
+neurons? Do modality groupings remain stable across layers?
+
+## 1. Shared style and helper functions
+
+```{r helpers}
+# ---------------------------------------------------------------------------
+# Cohesive minimal theme for all ggplots
+# ---------------------------------------------------------------------------
+theme_fig6 <- function(base_size = 11) {
+  theme_minimal(base_size = base_size) %+replace%
+    theme(
+      text             = element_text(family = "Helvetica", color = "grey20"),
+      plot.title       = element_text(size = rel(1.05), face = "plain",
+                                      hjust = 0, margin = margin(b = 8)),
+      axis.title       = element_text(size = rel(0.9), color = "grey30"),
+      axis.text        = element_text(size = rel(0.85), color = "grey40"),
+      axis.line        = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks       = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.title     = element_text(size = rel(0.85), face = "plain"),
+      legend.text      = element_text(size = rel(0.8)),
+      legend.key.size  = unit(0.4, "cm"),
+      plot.margin      = margin(8, 8, 8, 8)
+    )
+}
+
+# ---------------------------------------------------------------------------
+# Consistent heatmap palette
+# ---------------------------------------------------------------------------
+hm_pal     <- colorRampPalette(c("#F7F7F7", "#D1E5F0", "#92C5DE",
+                                  "#4393C3", "#2166AC"))(100)
+hm_pal_exc <- colorRampPalette(c("#F7F7F7", "#FEE0D2", "#FC9272",
+                                  "#DE2D26"))(100)
+hm_pal_inh <- colorRampPalette(c("#F7F7F7", "#DEEBF7", "#9ECAE1",
+                                  "#3182BD"))(100)
+hm_pal_cor <- colorRampPalette(c("#2166AC", "#F7F7F7", "#B2182B"))(100)
+co_pal     <- colorRampPalette(c("#F7F7F7", "#FEE08B", "#FDAE61",
+                                  "#D73027"))(100)
+
+# ---------------------------------------------------------------------------
+# Sensory neuron exclusion
+# ---------------------------------------------------------------------------
+sensory_patterns <- c(
+  "^ORN_DA1", "^ORN_VA1v", "^ORN_VA1d",
+  "^JO-B", "^LC10", "^ppk23", "^ppk25"
+)
+sensory_regex <- paste(sensory_patterns, collapse = "|")
+
+# ---------------------------------------------------------------------------
+# Neuron type classification
+# ---------------------------------------------------------------------------
+neuron_patterns <- c(
+  "aSP-f" = "^aSP-f", "aSP-g" = "^aSP-g", "P1" = "^P1_",
+  "pC1" = "^pC1", "pC2" = "^pC2", "mAL" = "^mAL",
+  "vAB3" = "^vAB3", "PPN1" = "^PPN1",
+  "LH" = "^LH", "PN" = "PN", "MBON" = "^MBON", "KC" = "^KC",
+  "SMP" = "^SMP", "SIP" = "^SIP", "SLP" = "^SLP",
+  "AVLP" = "^AVLP", "PVLP" = "^PVLP", "WED" = "^WED",
+  "CX" = "^(FB|EB|PB|NO|EPG|PFN|PFL|hDelta|FC|FR)",
+  "AL-local" = "^(lLN|vLN|LN|v2LN|l2LN)",
+  "LC" = "^(LC|LPLC|LPC)", "DN" = "^DN", "LAL" = "^LAL",
+  "CRE" = "^CRE", "AOTU" = "^(AOTU|TuBu)", "SEZ" = "^(SEZ|GNG)"
+)
+
+classify_neurons <- function(names_vec) {
+  classes <- character(length(names_vec))
+  for (i in seq_along(neuron_patterns)) {
+    mask <- grepl(neuron_patterns[i], names_vec)
+    classes[mask & classes == ""] <- names(neuron_patterns)[i]
+  }
+  classes[classes == ""] <- "other"
+  classes
+}
+
+# ---------------------------------------------------------------------------
+# Parse paths with circuit order
+# ---------------------------------------------------------------------------
+parse_paths_with_order <- function(paths_df) {
+  paths_df %>%
+    filter(!is.na(path), !is.na(strength), strength > 0) %>%
+    rowwise() %>%
+    mutate(nodes_list = list(strsplit(path, " -> ", fixed = TRUE)[[1]])) %>%
+    ungroup() %>%
+    mutate(path_id = row_number()) %>%
+    tidyr::unnest_longer(nodes_list, indices_to = "position") %>%
+    rename(node = nodes_list) %>%
+    mutate(circuit_order = as.integer(position)) %>%
+    filter(!grepl(sensory_regex, node), circuit_order >= 2)
+}
+
+# ---------------------------------------------------------------------------
+# Safe pheatmap save (no device leak)
+# ---------------------------------------------------------------------------
+save_and_show_pheatmap <- function(..., png_path, pdf_path,
+                                    save_width = 9, save_height = 8) {
+  p <- pheatmap(..., silent = TRUE)
+  png(png_path, width = save_width, height = save_height,
+      units = "in", res = 300)
+  on.exit(try(dev.off(), silent = TRUE), add = TRUE)
+  grid::grid.draw(p$gtable)
+  dev.off(); on.exit(NULL)
+  pdf(pdf_path, width = save_width, height = save_height)
+  on.exit(try(dev.off(), silent = TRUE), add = TRUE)
+  grid::grid.draw(p$gtable)
+  dev.off(); on.exit(NULL)
+  grid::grid.newpage(); grid::grid.draw(p$gtable)
+  invisible(p)
+}
+
+col_normalize <- function(mat) {
+  cm <- apply(mat, 2, max, na.rm = TRUE); cm[cm == 0] <- 1
+  sweep(mat, 2, cm, "/")
+}
+
+# ---------------------------------------------------------------------------
+# Dendrogram data extractor (lightweight, no ggdendro dependency)
+# ---------------------------------------------------------------------------
+dendro_data_from_hclust <- function(hc) {
+  dend <- as.dendrogram(hc)
+  segments <- list()
+  extract_seg <- function(d, pm) {
+    if (is.leaf(d)) return(invisible(NULL))
+    ch <- as.list(d)
+    cx <- vapply(ch, function(c) {
+      if (is.leaf(c)) pm[[attr(c, "label")]] else attr(c, "midpoint_abs")
+    }, numeric(1))
+    ch_h <- vapply(ch, attr, numeric(1), "height")
+    h <- attr(d, "height")
+    segments[[length(segments) + 1]] <<- data.frame(
+      x = min(cx), y = h, xend = max(cx), yend = h)
+    for (i in seq_along(ch))
+      segments[[length(segments) + 1]] <<- data.frame(
+        x = cx[i], y = h, xend = cx[i], yend = ch_h[i])
+    for (c in ch) extract_seg(c, pm)
+  }
+  add_mid <- function(d, pm) {
+    if (is.leaf(d)) { attr(d, "midpoint_abs") <- pm[[attr(d, "label")]]; return(d) }
+    ch <- lapply(as.list(d), add_mid, pm = pm)
+    attr(d, "midpoint_abs") <- mean(vapply(ch, attr, numeric(1), "midpoint_abs"))
+    for (i in seq_along(ch)) d[[i]] <- ch[[i]]
+    d
+  }
+  ord <- hc$order; labs <- hc$labels[ord]
+  pm <- setNames(as.list(seq_along(labs)), labs)
+  dend <- add_mid(dend, pm); extract_seg(dend, pm)
+  list(
+    segments = do.call(rbind, segments),
+    labels   = data.frame(x = as.numeric(pm[labs]), y = 0, label = labs,
+                          stringsAsFactors = FALSE)
+  )
+}
+```
+
+```{r parse-all-sets}
+# ---------------------------------------------------------------------------
+# Three target-set variants
+# ---------------------------------------------------------------------------
+path_sets <- list(
+  aspf_aspg = paths.aspf_aspg,
+  vab3_ppn1 = bind_rows(paths.vab3, paths.ppn1),
+  all       = paths.all
+)
+set_titles <- c(
+  aspf_aspg = "aSP-f / aSP-g",
+  vab3_ppn1 = "vAB3 + PPN1",
+  all       = "All targets"
+)
+parsed <- lapply(path_sets, parse_paths_with_order)
+```
+
+## 2. Modality representation by circuit layer
+
+```{r modality-by-layer, fig.width=7, fig.height=4.5, results='asis'}
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+
+  order_mod <- nd %>%
+    group_by(circuit_order, modality) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE),
+              n_unique_nodes = n_distinct(node), .groups = "drop") %>%
+    filter(circuit_order >= 2, circuit_order <= 5)
+
+  mat_wide <- order_mod %>%
+    mutate(order_lab = paste0("Order ", circuit_order)) %>%
+    select(modality, order_lab, total_strength) %>%
+    pivot_wider(names_from = order_lab, values_from = total_strength, values_fill = 0) %>%
+    column_to_rownames("modality")
+  mat <- as.matrix(mat_wide)
+  present_mods <- intersect(modality_order, rownames(mat))
+  mat <- mat[present_mods, , drop = FALSE]
+  mat_norm <- col_normalize(mat)
+
+  row_annot <- data.frame(row.names = rownames(mat_norm),
+    group = unname(modality_group[rownames(mat_norm)]))
+
+  # Column-normalized
+  save_and_show_pheatmap(
+    mat_norm, cluster_rows = FALSE, cluster_cols = FALSE,
+    color = hm_pal, border_color = NA,
+    display_numbers = TRUE, number_format = "%.2f", number_color = "grey30",
+    annotation_row = row_annot,
+    annotation_colors = list(group = modality_group_colors),
+    cellwidth = 55, cellheight = 35, fontsize = 10, fontsize_number = 8,
+    main = "",
+    png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_%s", set_name), "png"), sprintf("panel_K_modality_by_layer_%s.png", set_name)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_%s", set_name), "pdf"), sprintf("panel_K_modality_by_layer_%s.pdf", set_name)),
+    save_width = 7, save_height = 4.5)
+
+  # Unnormalized
+  save_and_show_pheatmap(
+    mat, cluster_rows = FALSE, cluster_cols = FALSE,
+    color = hm_pal, border_color = NA,
+    display_numbers = TRUE, number_format = "%.1f", number_color = "grey30",
+    annotation_row = row_annot,
+    annotation_colors = list(group = modality_group_colors),
+    cellwidth = 55, cellheight = 35, fontsize = 10, fontsize_number = 8,
+    main = "",
+    png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_raw_%s", set_name), "png"), sprintf("panel_K_modality_by_layer_raw_%s.png", set_name)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_raw_%s", set_name), "pdf"), sprintf("panel_K_modality_by_layer_raw_%s.pdf", set_name)),
+    save_width = 7, save_height = 4.5)
+
+  # Bar chart
+  p_bar <- ggplot(
+    order_mod %>% mutate(modality = factor(modality, levels = modality_order)),
+    aes(x = factor(circuit_order), y = n_unique_nodes, fill = modality)
+  ) +
+    geom_col(position = "dodge", width = 0.75) +
+    scale_fill_manual(values = modality_colors, name = NULL) +
+    labs(x = "Circuit order", y = "Unique neurons") +
+    theme_fig6()
+
+  print(p_bar)
+  save_fig6_plot(p_bar, sprintf("panel_K_neuron_count_by_layer_%s", set_name),
+                 width = 7, height = 4)
+}
+```
+
+## 3. Multimodal convergence by layer
+
+```{r convergence, fig.width=6, fig.height=4, results='asis'}
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+
+  convergence <- nd %>%
+    filter(circuit_order >= 2, circuit_order <= 5) %>%
+    group_by(circuit_order, node) %>%
+    summarise(n_mod = n_distinct(modality), .groups = "drop") %>%
+    group_by(circuit_order) %>%
+    summarise(n_nodes = n(), n_mm = sum(n_mod >= 2),
+              pct_mm = 100 * n_mm / n_nodes, .groups = "drop")
+
+  p_conv <- ggplot(convergence, aes(circuit_order, pct_mm)) +
+    geom_line(linewidth = 0.8, color = "#4393C3") +
+    geom_point(aes(size = n_nodes), color = "#4393C3", shape = 16) +
+    scale_x_continuous(breaks = 2:5, labels = paste0(2:5, "nd/rd/th")) +
+    scale_size_continuous(name = "n neurons", range = c(1.5, 5),
+                          guide = guide_legend(override.aes = list(color = "grey50"))) +
+    labs(x = "Circuit layer", y = "% multimodal neurons") +
+    theme_fig6()
+
+  print(p_conv)
+  save_fig6_plot(p_conv, sprintf("panel_K_convergence_by_layer_%s", set_name),
+                 width = 6, height = 4)
+}
+```
+
+## 4. Modality co-occurrence by layer
+
+```{r cooccurrence, fig.width=6, fig.height=5.5, results='asis'}
+compute_cooccurrence <- function(nd, ord) {
+  bdf <- nd %>% filter(circuit_order == ord) %>% distinct(node, modality) %>%
+    mutate(v = 1L) %>%
+    pivot_wider(names_from = modality, values_from = v, values_fill = 0L) %>%
+    column_to_rownames("node")
+  for (m in modality_order) if (!m %in% colnames(bdf)) bdf[[m]] <- 0L
+  bm <- as.matrix(bdf[, intersect(modality_order, colnames(bdf))])
+  t(bm) %*% bm
+}
+
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+  for (ord in intersect(2:min(5, max(nd$circuit_order)), unique(nd$circuit_order))) {
+    co <- compute_cooccurrence(nd, ord)
+    if (nrow(co) < 2) next
+    save_and_show_pheatmap(
+      co, cluster_rows = TRUE, cluster_cols = TRUE,
+      clustering_method = "ward.D2",
+      color = co_pal, border_color = NA,
+      display_numbers = TRUE, number_format = "%d", number_color = "grey25",
+      cellwidth = 42, cellheight = 42, fontsize = 10, fontsize_number = 9,
+      main = sprintf("Order %d", ord),
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d_%s", ord, set_name), "png"), sprintf("panel_K_cooccurrence_order%d_%s.png", ord, set_name)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d_%s", ord, set_name), "pdf"), sprintf("panel_K_cooccurrence_order%d_%s.pdf", ord, set_name)),
+      save_width = 6, save_height = 5.5)
+  }
+}
+```
+
+## 5. Per-neuron modality profiles at 3rd and 4th order
+
+```{r per-neuron-heatmaps, fig.width=8, fig.height=9, results='asis'}
+build_order_matrix <- function(nd, ord, top_n = 40, val = NULL) {
+  dat <- nd %>% filter(circuit_order == ord)
+  if (!is.null(val)) dat <- dat %>% filter(valence == val)
+  if (nrow(dat) == 0) return(NULL)
+  mdf <- dat %>%
+    group_by(node, modality) %>%
+    summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = modality, values_from = s, values_fill = 0) %>%
+    column_to_rownames("node")
+  for (m in modality_order) if (!m %in% colnames(mdf)) mdf[[m]] <- 0
+  mdf <- as.matrix(mdf[, intersect(modality_order, colnames(mdf))])
+  rs <- rowSums(mdf); n <- min(top_n, nrow(mdf))
+  mdf[order(rs, decreasing = TRUE)[seq_len(n)], , drop = FALSE]
+}
+
+col_annot <- data.frame(row.names = modality_order,
+  group = unname(modality_group[modality_order]))
+annot_colors_base <- list(group = modality_group_colors)
+
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+
+  for (ord in c(3, 4)) {
+    ol <- paste0(ord, ifelse(ord == 3, "rd", "th"))
+
+    mat_raw <- build_order_matrix(nd, ord)
+    if (is.null(mat_raw) || nrow(mat_raw) < 3) next
+
+    ra <- data.frame(row.names = rownames(mat_raw),
+      type = classify_neurons(rownames(mat_raw)))
+    nc <- sort(unique(ra$type))
+    nc_col <- setNames(scales::hue_pal(l = 65, c = 80)(length(nc)), nc)
+    if ("other" %in% names(nc_col)) nc_col["other"] <- "#D0D0D0"
+    ac <- c(annot_colors_base, list(type = nc_col))
+
+    # Raw
+    save_and_show_pheatmap(
+      mat_raw, cluster_rows = TRUE, cluster_cols = FALSE,
+      clustering_method = "ward.D2",
+      color = hm_pal, border_color = NA,
+      annotation_row = ra, annotation_col = col_annot, annotation_colors = ac,
+      fontsize_row = 6.5, fontsize_col = 9, main = "",
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_raw_%s.png", ol, set_name)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_raw_%s.pdf", ol, set_name)),
+      save_width = 8, save_height = 9)
+
+    # Normalized
+    save_and_show_pheatmap(
+      col_normalize(mat_raw), cluster_rows = TRUE, cluster_cols = FALSE,
+      clustering_method = "ward.D2",
+      color = hm_pal, border_color = NA,
+      annotation_row = ra, annotation_col = col_annot, annotation_colors = ac,
+      fontsize_row = 6.5, fontsize_col = 9, main = "",
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_%s.png", ol, set_name)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_%s.pdf", ol, set_name)),
+      save_width = 8, save_height = 9)
+
+    # Excitatory
+    me <- build_order_matrix(nd, ord, val = "excitatory")
+    if (!is.null(me) && nrow(me) >= 3) {
+      re <- data.frame(row.names = rownames(me), type = classify_neurons(rownames(me)))
+      ne <- sort(unique(re$type))
+      ne_c <- setNames(scales::hue_pal(l = 65, c = 80)(length(ne)), ne)
+      if ("other" %in% names(ne_c)) ne_c["other"] <- "#D0D0D0"
+      save_and_show_pheatmap(
+        me, cluster_rows = TRUE, cluster_cols = FALSE,
+        clustering_method = "ward.D2",
+        color = hm_pal_exc, border_color = NA,
+        annotation_row = re, annotation_col = col_annot,
+        annotation_colors = c(annot_colors_base, list(type = ne_c)),
+        fontsize_row = 6.5, fontsize_col = 9, main = "",
+        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_exc_%s.png", ol, set_name)),
+        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_exc_%s.pdf", ol, set_name)),
+        save_width = 8, save_height = 9)
+    }
+
+    # Inhibitory
+    mi <- build_order_matrix(nd, ord, val = "inhibitory")
+    if (!is.null(mi) && nrow(mi) >= 3) {
+      ri <- data.frame(row.names = rownames(mi), type = classify_neurons(rownames(mi)))
+      ni <- sort(unique(ri$type))
+      ni_c <- setNames(scales::hue_pal(l = 65, c = 80)(length(ni)), ni)
+      if ("other" %in% names(ni_c)) ni_c["other"] <- "#D0D0D0"
+      save_and_show_pheatmap(
+        mi, cluster_rows = TRUE, cluster_cols = FALSE,
+        clustering_method = "ward.D2",
+        color = hm_pal_inh, border_color = NA,
+        annotation_row = ri, annotation_col = col_annot,
+        annotation_colors = c(annot_colors_base, list(type = ni_c)),
+        fontsize_row = 6.5, fontsize_col = 9, main = "",
+        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_inh_%s.png", ol, set_name)),
+        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_inh_%s.pdf", ol, set_name)),
+        save_width = 8, save_height = 9)
+    }
+  }
+}
+```
+
+## 6. Modality dendrogram
+
+```{r dendrograms, fig.width=6, fig.height=4, results='asis'}
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+
+  # Overall dendrogram
+  mp <- nd %>%
+    group_by(node, modality) %>%
+    summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = modality, values_from = s, values_fill = 0)
+  for (m in modality_order) if (!m %in% colnames(mp)) mp[[m]] <- 0
+  pmat <- mp %>% column_to_rownames("node") %>%
+    select(all_of(intersect(modality_order, colnames(.)))) %>% as.matrix()
+
+  if (nrow(pmat) >= 3) {
+    mc <- cor(pmat, method = "pearson")
+    hc <- hclust(as.dist(1 - mc), method = "ward.D2")
+    dd <- dendro_data_from_hclust(hc)
+
+    p_d <- ggplot() +
+      geom_segment(data = dd$segments,
+        aes(x = x, y = y, xend = xend, yend = yend),
+        color = "grey50", linewidth = 0.5) +
+      geom_text(data = dd$labels,
+        aes(x = x, y = y - 0.015, label = label, color = label),
+        hjust = 0.5, vjust = 1, size = 3.8, fontface = "bold") +
+      scale_color_manual(values = modality_colors, guide = "none") +
+      labs(y = "1 - r", x = NULL) +
+      theme_fig6() +
+      theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+            axis.line.x = element_blank())
+
+    print(p_d)
+    save_fig6_plot(p_d, sprintf("panel_K_modality_dendrogram_%s", set_name),
+                   width = 6, height = 4)
+
+    # Correlation heatmap
+    save_and_show_pheatmap(
+      mc, cluster_rows = TRUE, cluster_cols = TRUE,
+      clustering_method = "ward.D2",
+      color = hm_pal_cor, breaks = seq(-1, 1, length.out = 101),
+      border_color = NA,
+      display_numbers = TRUE, number_format = "%.2f", number_color = "grey25",
+      cellwidth = 42, cellheight = 42, fontsize = 10, fontsize_number = 8,
+      main = "",
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_correlation_%s", set_name), "png"), sprintf("panel_K_modality_correlation_%s.png", set_name)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_correlation_%s", set_name), "pdf"), sprintf("panel_K_modality_correlation_%s.pdf", set_name)),
+      save_width = 6, save_height = 5.5)
+  }
+
+  # Per-layer dendrograms
+  dps <- list()
+  for (ord in intersect(2:min(5, max(nd$circuit_order)), unique(nd$circuit_order))) {
+    od <- nd %>% filter(circuit_order == ord) %>%
+      group_by(node, modality) %>%
+      summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+      pivot_wider(names_from = modality, values_from = s, values_fill = 0)
+    for (m in modality_order) if (!m %in% colnames(od)) od[[m]] <- 0
+    om <- od %>% column_to_rownames("node") %>%
+      select(all_of(intersect(modality_order, colnames(.)))) %>% as.matrix()
+    if (nrow(om) >= 3) {
+      ohc <- hclust(as.dist(1 - cor(om)), method = "ward.D2")
+      odd <- dendro_data_from_hclust(ohc)
+      dps[[paste0("Order ", ord)]] <- ggplot() +
+        geom_segment(data = odd$segments,
+          aes(x = x, y = y, xend = xend, yend = yend),
+          color = "grey50", linewidth = 0.4) +
+        geom_text(data = odd$labels,
+          aes(x = x, y = y - 0.015, label = label, color = label),
+          hjust = 0.5, vjust = 1, size = 3, fontface = "bold") +
+        scale_color_manual(values = modality_colors, guide = "none") +
+        labs(title = paste0("Order ", ord), y = "1 - r", x = NULL) +
+        theme_fig6(base_size = 9) +
+        theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+              axis.line.x = element_blank(),
+              plot.title = element_text(size = 9, hjust = 0.5))
+    }
+  }
+  if (length(dps) >= 2) {
+    pc <- wrap_plots(dps, nrow = 1)
+    print(pc)
+    save_fig6_plot(pc, sprintf("panel_K_modality_dendrogram_per_layer_%s", set_name),
+                   width = 3.5 * length(dps), height = 4)
+  }
+}
+```
+
+## 7. Modality flow across layers
+
+```{r modality-flow, fig.width=6, fig.height=4, results='asis'}
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+
+  flow <- nd %>%
+    filter(circuit_order >= 2, circuit_order <= 5) %>%
+    group_by(circuit_order, modality) %>%
+    summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    mutate(modality = factor(modality, levels = modality_order))
+
+  p_prop <- ggplot(flow, aes(factor(circuit_order), s, fill = modality)) +
+    geom_col(position = "fill", width = 0.7) +
+    scale_fill_manual(values = modality_colors, name = NULL) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    labs(x = "Circuit order", y = "Proportion") +
+    theme_fig6()
+
+  print(p_prop)
+  save_fig6_plot(p_prop, sprintf("panel_K_modality_flow_%s", set_name),
+                 width = 6, height = 4)
+
+  p_abs <- ggplot(flow, aes(factor(circuit_order), s, fill = modality)) +
+    geom_col(position = "stack", width = 0.7) +
+    scale_fill_manual(values = modality_colors, name = NULL) +
+    scale_y_continuous(labels = scales::comma) +
+    labs(x = "Circuit order", y = "Total strength") +
+    theme_fig6()
+
+  print(p_abs)
+  save_fig6_plot(p_abs, sprintf("panel_K_modality_flow_raw_%s", set_name),
+                 width = 6, height = 4)
+}
+```
+
+## 8. Summary
+
+```{r summary-table, results='asis'}
+for (set_name in names(parsed)) {
+  cat(sprintf("\n\n### %s\n\n", set_titles[set_name]))
+  nd <- parsed[[set_name]]
+  ls <- nd %>%
+    filter(circuit_order >= 2, circuit_order <= 5) %>%
+    group_by(circuit_order, node) %>%
+    summarise(nm = n_distinct(modality), .groups = "drop") %>%
+    group_by(circuit_order) %>%
+    summarise(n = n(), multimodal = sum(nm >= 2),
+              `% multimodal` = round(100 * multimodal / n, 1),
+              `mean modalities` = round(mean(nm), 2), .groups = "drop")
+  print(knitr::kable(ls))
+}
+```
+
+```{r session-info}
+sessionInfo()
+```

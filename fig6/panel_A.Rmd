@@ -1,0 +1,261 @@
+---
+title: "Figure 6A: Multimodal Circuit Schematic"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 7
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel A: Circuit Schematic — Programmatic diagram showing 7 sensory modalities converging through 2nd-order relay neurons (vAB3, PPN1) onto 3rd-order courtship command neurons (aSP-f, aSP-g). Arrows indicate connectivity flow across three circuit layers."
+panel_legend <- "(A) Schematic of the multimodal sensory-to-motor circuit. Seven sensory modalities (cVA, mAL, IR, Z4, auditory, visual, mechanosensory) converge through second-order relay neurons (vAB3, PPN1) onto third-order courtship command neurons (aSP-f, aSP-g). Arrow width represents aggregate path strength."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_A_description", "txt"), "panel_A_description.txt"))
+```
+
+## Overview
+
+Panel A is a programmatic circuit schematic showing 7 sensory modalities
+converging through second-order relay neurons (vAB3, PPN1) to third-order
+courtship command neurons (aSP-f, aSP-g). The layout has three columns
+representing circuit layers, with arrows indicating connectivity flow.
+
+## Build node layout
+
+Define positions for all nodes across three columns (layers): sensory inputs,
+second-order relays, and third-order targets.
+
+```{r node-layout}
+# ---------------------------------------------------------------------------
+# Column x-positions for the three circuit layers
+# ---------------------------------------------------------------------------
+x_sensory  <- 0
+x_relay    <- 5
+x_target   <- 10
+
+# ---------------------------------------------------------------------------
+# Sensory input nodes (left column)
+# Ordered top-to-bottom: DA1, VA1v, VA1d, JO-B, LC10, ppk23, ppk25
+# ---------------------------------------------------------------------------
+sensory_labels <- c("DA1", "VA1v", "VA1d", "JO-B", "LC10", "ppk23", "ppk25")
+sensory_keys   <- c("DA1", "VA1v", "VA1d", "auditory", "visual", "ppk23", "ppk25")
+
+n_sensory <- length(sensory_labels)
+sensory_y <- seq(from = n_sensory, to = 1, length.out = n_sensory)
+
+nodes_sensory <- data.frame(
+  label = sensory_labels,
+  key   = sensory_keys,
+  x     = x_sensory,
+  y     = sensory_y,
+  layer = "sensory",
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Relay nodes (middle column)
+# ---------------------------------------------------------------------------
+nodes_relay <- data.frame(
+  label = c("vAB3", "PPN1"),
+  key   = c("vAB3", "PPN1"),
+  x     = x_relay,
+  y     = c(5.5, 2.5),
+  layer = "relay",
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Target nodes (right column)
+# ---------------------------------------------------------------------------
+nodes_target <- data.frame(
+  label = c("aSP-f", "aSP-g", "..."),
+  key   = c("aSP-f", "aSP-g", "other"),
+  x     = x_target,
+  y     = c(5.5, 4.0, 2.5),
+  layer = "target",
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Combine all nodes
+# ---------------------------------------------------------------------------
+nodes <- bind_rows(nodes_sensory, nodes_relay, nodes_target)
+```
+
+## Build edges
+
+Connect every sensory input to every relay neuron, and every relay neuron
+to every target neuron, reflecting the convergence/divergence topology.
+
+```{r edges}
+# ---------------------------------------------------------------------------
+# Sensory -> relay edges (all-to-all)
+# ---------------------------------------------------------------------------
+edges_s2r <- expand.grid(
+  from = sensory_labels,
+  to   = nodes_relay$label,
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Relay -> target edges (all-to-all)
+# ---------------------------------------------------------------------------
+edges_r2t <- expand.grid(
+  from = nodes_relay$label,
+  to   = nodes_target$label,
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Look up coordinates for edge endpoints
+# ---------------------------------------------------------------------------
+node_lookup <- nodes %>% select(label, x, y)
+
+add_coords <- function(edges_df) {
+  edges_df %>%
+    left_join(node_lookup, by = c("from" = "label")) %>%
+    rename(x_from = x, y_from = y) %>%
+    left_join(node_lookup, by = c("to" = "label")) %>%
+    rename(x_to = x, y_to = y)
+}
+
+edges_s2r <- add_coords(edges_s2r)
+edges_r2t <- add_coords(edges_r2t)
+edges_all <- bind_rows(edges_s2r, edges_r2t)
+```
+
+## Build group annotations
+
+Label the sensory modality groups on the far left of the diagram.
+
+```{r group-annotations}
+# ---------------------------------------------------------------------------
+# Map each sensory node to its group using modality_group from setup.R
+# ---------------------------------------------------------------------------
+group_mapping <- data.frame(
+  label = sensory_labels,
+  key   = sensory_keys,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(group = modality_group[as.character(key)])
+
+# Compute y-position for each group label (mean y of its member nodes)
+group_annot <- group_mapping %>%
+  left_join(nodes_sensory %>% select(label, y), by = "label") %>%
+  group_by(group) %>%
+  summarise(
+    y_mid = mean(y),
+    y_min = min(y) - 0.35,
+    y_max = max(y) + 0.35,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    x = x_sensory - 2.8,
+    group_label = str_to_title(group)
+  )
+```
+
+## Draw schematic
+
+Assemble the diagram with boxes, arrows, labels, and group annotations.
+
+```{r schematic, fig.width=12, fig.height=7}
+# ---------------------------------------------------------------------------
+# Box dimensions
+# ---------------------------------------------------------------------------
+box_hw <- 0.8   # half-width
+box_hh <- 0.35  # half-height
+arrow_nudge_x <- box_hw + 0.05
+
+# ---------------------------------------------------------------------------
+# Pre-compute all colour columns on plain data.frames
+# ---------------------------------------------------------------------------
+nodes_df <- as.data.frame(nodes)
+nodes_df$fill_color <- ifelse(
+  nodes_df$layer == "sensory",
+  unname(modality_colors[as.character(nodes_df$key)]),
+  ifelse(nodes_df$layer == "relay", "#D9D9D9",
+         ifelse(nodes_df$layer == "target", "#BDBDBD", "#F0F0F0"))
+)
+
+edges_df <- as.data.frame(edges_all)
+
+group_df <- as.data.frame(group_annot)
+group_df$group_color <- unname(modality_group_colors[as.character(group_df$group)])
+
+layer_labels <- data.frame(
+  label = c("Sensory\ninputs", "2nd-order\nneurons", "3rd-order\ntargets"),
+  x     = c(x_sensory, x_relay, x_target),
+  y     = max(sensory_y) + 1.0,
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Main plot
+# ---------------------------------------------------------------------------
+p <- ggplot() +
+  geom_segment(
+    data = edges_df,
+    aes(x = x_from + arrow_nudge_x, xend = x_to - arrow_nudge_x,
+        y = y_from, yend = y_to),
+    arrow     = grid::arrow(length = grid::unit(0.12, "cm"), type = "closed"),
+    linewidth = 0.35, color = "grey55", alpha = 0.5
+  ) +
+  geom_rect(
+    data = nodes_df,
+    aes(xmin = x - box_hw, xmax = x + box_hw,
+        ymin = y - box_hh, ymax = y + box_hh,
+        fill = fill_color),
+    color = "grey30", linewidth = 0.4
+  ) +
+  scale_fill_identity() +
+  geom_text(
+    data = nodes_df,
+    aes(x = x, y = y, label = label),
+    color = "black", size = 3.5, fontface = "bold"
+  ) +
+  geom_segment(
+    data = group_df,
+    aes(x = x + 0.8, xend = x + 0.8, y = y_min, yend = y_max,
+        color = group_color),
+    linewidth = 0.6
+  ) +
+  scale_color_identity() +
+  geom_text(
+    data = group_df,
+    aes(x = x + 0.35, y = y_mid, label = group_label, color = group_color),
+    size = 3.2, fontface = "italic", hjust = 0.5
+  ) +
+  geom_text(
+    data = layer_labels,
+    aes(x = x, y = y, label = label),
+    size = 3.8, fontface = "bold", color = "grey25", lineheight = 0.85
+  ) +
+  coord_fixed(ratio = 0.75, clip = "off") +
+  xlim(x_sensory - 3.5, x_target + 1.5) +
+  ylim(0.2, max(sensory_y) + 1.5) +
+  theme_void() +
+  theme(
+    plot.margin = margin(10, 10, 10, 10, "pt"),
+    plot.title  = element_text(hjust = 0.5, face = "bold", size = 14)
+  ) +
+  ggtitle("Multimodal sensory convergence onto courtship command neurons")
+
+p
+```
+
+## Save
+
+```{r save}
+save_fig6_plot(p, "panel_A_circuit_schematic", width = 12, height = 7)
+```

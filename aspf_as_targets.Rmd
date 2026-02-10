@@ -1,0 +1,756 @@
+---
+title: "aspf_targets_exploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 6
+)
+
+# ============================================================================
+# Library imports (consolidated from throughout the file)
+# ============================================================================
+
+# Data manipulation
+library(arrow)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(reshape2)
+
+# Visualization
+library(ggplot2)
+library(ggpubr)
+library(ggraph)
+library(ggridges)
+library(cowplot)
+library(grid)
+library(patchwork)
+library(plotly)
+library(pheatmap)
+library(RColorBrewer)
+library(viridisLite)
+library(scales)
+library(nat.ggplot)
+
+# Network analysis
+library(igraph)
+library(tidygraph)
+library(RCy3)
+
+# Neuroscience-specific
+library(coconatfly)
+library(fafbseg)
+library(malecns)
+library(neuprintr)
+
+# Statistical/ML
+library(Rtsne)
+library(dbscan)
+
+# Other
+library(Matrix)
+library(jsonlite)
+
+# ============================================================================
+# Source custom functions from R/ directory
+# ============================================================================
+source("R/utils.R")
+source("R/data_processing.R")
+source("R/path_analysis.R")
+source("R/visualization.R")
+source("R/neuroglancer.R")
+neuprint_login(server='https://neuprint-cns.janelia.org')
+```
+
+
+## 1. Data Loading and Preprocessing
+
+### 1.1 Define save paths
+```{r}
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/pdf/"
+```
+
+
+### 1.2 Load all data (mba, connectivity, adjacency matrices, graph)
+
+All data loading is now handled by functions in `R/data_processing.R`:
+- `load_mba()` - Load body annotations with ppk region suffixes
+- `load_connectivity()` - Load connectivity data
+- `load_adjacency_matrices()` - Load all three adjacency matrices (post, pre, raw)
+- `load_graph()` - Load igraph with log weights
+- `load_all_data()` - Complete pipeline in one call
+
+```{r load-data}
+choose_mcns()
+
+# Load everything at once
+data <- load_all_data(
+  cache_dir = "/Users/fkampf/Documents/pheromone.paper/feather",
+  force_recompute = FALSE,
+  set_ppk25_glutamate = TRUE
+)
+
+# Extract to global environment for compatibility with rest of notebook
+mba <- data$mba
+conn <- data$conn
+conn_save <- conn
+adj.matrix <- data$adj.matrix
+adj.matrix.pre <- data$adj.matrix.pre
+adj.matrix.raw <- data$adj.matrix.raw
+graph.general <- data$graph
+```
+
+
+```{r}
+aspf.ids <- mba %>% filter(grepl('aSP-f',synonyms)) %>% pull(bodyid) %>% unique()
+aspf.types <- mba %>% filter(grepl('aSP-f',synonyms)) %>% pull(type) %>% unique()
+
+
+
+start.types.DA1 <- c("ORN_DA1")
+start.types.VA1v <- c("ORN_VA1v")
+start.types.VA1d <- c("ORN_VA1d")
+start.types.aud <- "JO-B"
+start.types.vis <- mba %>%
+  filter(grepl("LC10", type)) %>%
+  pull(type) %>%
+  unique()
+
+start.types.ppk23 <- mba %>%
+  filter(grepl("ppk23", receptor_type)) %>%
+  pull(type) %>%
+  unique()
+start.types.ppk23[grepl("Pro", start.types.ppk23)] -> start.types.ppk23.pro
+
+start.types.ppk25 <- mba %>%
+  filter(grepl("ppk25", receptor_type)) %>%
+  pull(type) %>%
+  unique()
+start.types.ppk25[grepl("Pro", start.types.ppk25)] -> start.types.ppk25.pro
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.DA1.2.aspf.feather")) {
+  res.aspf.DA1 <- find_k_strongest_paths_yen(
+    graph.general, 
+    starts = start.types.DA1, 
+    targets = aspf.types, 
+    n_paths = 50, 
+    mba = mba)
+  res.aspf.DA1$df$dataset <- "aspf"
+  strongest.50.paths.DA1.2.aspf <- res.aspf.DA1$df
+  write_feather(strongest.50.paths.DA1.2.aspf, "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.DA1.2.aspf.feather")
+} else {
+  strongest.50.paths.DA1.2.aspf <- read_feather("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.DA1.2.aspf.feather")
+}
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1v.2.aspf.feather")) {
+  res.aspf.VA1v <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.VA1v,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.VA1v$df$dataset <- "aspf"
+  strongest.50.paths.VA1v.2.aspf <- res.aspf.VA1v$df
+  write_feather(
+    strongest.50.paths.VA1v.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1v.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.VA1v.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1v.2.aspf.feather"
+  )
+}
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1d.2.aspf.feather")) {
+  res.aspf.VA1d <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.VA1d,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.VA1d$df$dataset <- "aspf"
+  strongest.50.paths.VA1d.2.aspf <- res.aspf.VA1d$df
+  write_feather(
+    strongest.50.paths.VA1d.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1d.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.VA1d.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.VA1d.2.aspf.feather"
+  )
+}
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.aud.2.aspf.feather")) {
+  res.aspf.aud <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.aud,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.aud$df$dataset <- "aspf"
+  strongest.50.paths.aud.2.aspf <- res.aspf.aud$df
+  write_feather(
+    strongest.50.paths.aud.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.aud.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.aud.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.aud.2.aspf.feather"
+  )
+}
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.vis.2.aspf.feather")) {
+  res.aspf.vis <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.vis,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.vis$df$dataset <- "aspf"
+  strongest.50.paths.vis.2.aspf <- res.aspf.vis$df
+  write_feather(
+    strongest.50.paths.vis.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.vis.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.vis.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.vis.2.aspf.feather"
+  )
+}
+
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk23.2.aspf.feather")) {
+  res.aspf.ppk23 <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.ppk23,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.ppk23$df$dataset <- "aspf"
+  strongest.50.paths.ppk23.2.aspf <- res.aspf.ppk23$df
+  write_feather(
+    strongest.50.paths.ppk23.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk23.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.ppk23.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk23.2.aspf.feather"
+  )
+}
+if (load_or_execute("/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk25.2.aspf.feather")) {
+  res.aspf.ppk25 <- find_k_strongest_paths_yen(
+    graph.general,
+    starts   = start.types.ppk25,
+    targets  = aspf.types,
+    n_paths  = 50,
+    mba      = mba
+  )
+  res.aspf.ppk25$df$dataset <- "aspf"
+  strongest.50.paths.ppk25.2.aspf <- res.aspf.ppk25$df
+  write_feather(
+    strongest.50.paths.ppk25.2.aspf,
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk25.2.aspf.feather"
+  )
+} else {
+  strongest.50.paths.ppk25.2.aspf <- read_feather(
+    "/Users/fkampf/Documents/pheromone.paper/feather/strongest.paths/strongest.50.paths.ppk25.2.aspf.feather"
+  )
+}
+
+
+```
+
+
+```{r}
+# Helper to drop problematic arrow_list columns before binding
+drop_list_cols <- function(df) {
+  df %>% dplyr::select(-nodes, -nts, -inhib)
+}
+
+strongest.50.paths.all.aspf <- dplyr::bind_rows(
+  drop_list_cols(strongest.50.paths.DA1.2.aspf)   %>% dplyr::mutate(modality = "DA1"),
+  drop_list_cols(strongest.50.paths.VA1v.2.aspf)  %>% dplyr::mutate(modality = "VA1v"),
+  drop_list_cols(strongest.50.paths.VA1d.2.aspf)  %>% dplyr::mutate(modality = "VA1d"),
+  drop_list_cols(strongest.50.paths.aud.2.aspf)   %>% dplyr::mutate(modality = "aud"),
+  drop_list_cols(strongest.50.paths.vis.2.aspf)   %>% dplyr::mutate(modality = "vis"),
+  drop_list_cols(strongest.50.paths.ppk23.2.aspf) %>% dplyr::mutate(modality = "ppk23"),
+  drop_list_cols(strongest.50.paths.ppk25.2.aspf) %>% dplyr::mutate(modality = "ppk25")
+)
+```
+
+
+```{r}
+# Sum strength per modality per end neuron
+strength_summary <- strongest.50.paths.all.aspf %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop")
+
+ggplot(strength_summary, aes(x = end, y = total_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Total Strength",
+    fill = "Modality",
+    title = "Sum of Path Strength per Modality per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Get total raw synapse input per target type from adjacency matrix
+total_input_raw <- colSums(adj.matrix.raw, na.rm = TRUE)
+total_input_df <- tibble(
+  end = names(total_input_raw),
+  total_raw_input = as.numeric(total_input_raw)
+)
+
+# Normalize by total raw synapse input to each neuron type
+strength_summary_normalized <- strength_summary %>%
+  dplyr::left_join(total_input_df, by = "end") %>%
+  dplyr::mutate(normalized_strength = total_strength / total_raw_input)
+
+ggplot(strength_summary_normalized, aes(x = end, y = normalized_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Total Raw Synapse Input",
+    fill = "Modality",
+    title = "Path Strength per Modality Normalized by Total Raw Synapse Input to Each aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Normalize so modalities sum to 1 per end neuron
+strength_normalized <- strongest.50.paths.all.aspf %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(
+    total_strength = sum(strength, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::group_by(end) %>%
+  dplyr::mutate(
+    proportion = total_strength / sum(total_strength)
+  ) %>%
+  dplyr::ungroup()
+
+ggplot(strength_normalized, aes(x = end, y = proportion, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Input",
+    fill = "Modality",
+    title = "Distribution of Input per Modality to Each Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# ============================================================================
+# EXCITATORY PATHS ONLY
+# ============================================================================
+
+# Filter for excitatory paths
+excitatory_paths <- strongest.50.paths.all.aspf %>%
+  dplyr::filter(valence == "excitatory")
+
+# Sum strength per modality per end neuron (excitatory only)
+strength_summary_exc <- excitatory_paths %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop")
+
+ggplot(strength_summary_exc, aes(x = end, y = total_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Total Strength",
+    fill = "Modality",
+    title = "Sum of EXCITATORY Path Strength per Modality per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Normalized by total raw synapse input (excitatory only)
+strength_summary_exc_normalized <- strength_summary_exc %>%
+  dplyr::left_join(total_input_df, by = "end") %>%
+  dplyr::mutate(normalized_strength = total_strength / total_raw_input)
+
+ggplot(strength_summary_exc_normalized, aes(x = end, y = normalized_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Total Raw Synapse Input",
+    fill = "Modality",
+    title = "EXCITATORY Path Strength Normalized by Total Raw Synapse Input"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Stacked proportion (excitatory only)
+strength_normalized_exc <- excitatory_paths %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  dplyr::group_by(end) %>%
+  dplyr::mutate(proportion = total_strength / sum(total_strength)) %>%
+  dplyr::ungroup()
+
+ggplot(strength_normalized_exc, aes(x = end, y = proportion, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Input",
+    fill = "Modality",
+    title = "Distribution of EXCITATORY Input per Modality to Each Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# ============================================================================
+# INHIBITORY PATHS ONLY
+# ============================================================================
+
+# Filter for inhibitory paths
+inhibitory_paths <- strongest.50.paths.all.aspf %>%
+  dplyr::filter(valence == "inhibitory")
+
+# Sum strength per modality per end neuron (inhibitory only)
+strength_summary_inh <- inhibitory_paths %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop")
+
+ggplot(strength_summary_inh, aes(x = end, y = total_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Total Strength",
+    fill = "Modality",
+    title = "Sum of INHIBITORY Path Strength per Modality per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Normalized by total raw synapse input (inhibitory only)
+strength_summary_inh_normalized <- strength_summary_inh %>%
+  dplyr::left_join(total_input_df, by = "end") %>%
+  dplyr::mutate(normalized_strength = total_strength / total_raw_input)
+
+ggplot(strength_summary_inh_normalized, aes(x = end, y = normalized_strength, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Total Raw Synapse Input",
+    fill = "Modality",
+    title = "INHIBITORY Path Strength Normalized by Total Raw Synapse Input"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Stacked proportion (inhibitory only)
+strength_normalized_inh <- inhibitory_paths %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  dplyr::group_by(end) %>%
+  dplyr::mutate(proportion = total_strength / sum(total_strength)) %>%
+  dplyr::ungroup()
+
+ggplot(strength_normalized_inh, aes(x = end, y = proportion, fill = modality)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Proportion of Input",
+    fill = "Modality",
+    title = "Distribution of INHIBITORY Input per Modality to Each Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# ============================================================================
+# NORMALIZED BY NUMBER OF CELLS PER TYPE
+# ============================================================================
+
+# Count unique cells per type from mba
+cells_per_type <- mba %>%
+  dplyr::group_by(type) %>%
+  dplyr::summarise(n_cells = n_distinct(bodyid), .groups = "drop") %>%
+  dplyr::rename(end = type)
+
+# --- ALL PATHS ---
+strength_summary_per_cell <- strength_summary %>%
+  dplyr::left_join(cells_per_type, by = "end") %>%
+  dplyr::mutate(strength_per_cell = total_strength / n_cells)
+
+ggplot(strength_summary_per_cell, aes(x = end, y = strength_per_cell, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Strength per Cell",
+    fill = "Modality",
+    title = "Path Strength per Modality Normalized by Number of Cells per Type"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# --- EXCITATORY PATHS (per cell) ---
+strength_summary_exc_per_cell <- strength_summary_exc %>%
+  dplyr::left_join(cells_per_type, by = "end") %>%
+  dplyr::mutate(strength_per_cell = total_strength / n_cells)
+
+ggplot(strength_summary_exc_per_cell, aes(x = end, y = strength_per_cell, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Strength per Cell",
+    fill = "Modality",
+    title = "EXCITATORY Path Strength Normalized by Number of Cells per Type"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# --- INHIBITORY PATHS (per cell) ---
+strength_summary_inh_per_cell <- strength_summary_inh %>%
+  dplyr::left_join(cells_per_type, by = "end") %>%
+  dplyr::mutate(strength_per_cell = total_strength / n_cells)
+
+ggplot(strength_summary_inh_per_cell, aes(x = end, y = strength_per_cell, fill = modality)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron",
+    y = "Strength per Cell",
+    fill = "Modality",
+    title = "INHIBITORY Path Strength Normalized by Number of Cells per Type"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# ============================================================================
+# CUMULATIVE PATH STRENGTH VS TOP N PATHS (per modality per target)
+# ============================================================================
+
+# For each modality and end neuron, take top 50 paths, then compute cumulative sum
+cumulative_strength <- strongest.50.paths.all.aspf %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::arrange(desc(strength), .by_group = TRUE) %>%
+  dplyr::slice_head(n = 50) %>%
+  dplyr::mutate(
+    path_rank = row_number(),
+    cumulative_strength = cumsum(strength)
+  ) %>%
+  dplyr::ungroup()
+
+ggplot(cumulative_strength, aes(x = path_rank, y = cumulative_strength, color = modality)) +
+  geom_line() +
+  facet_wrap(~ end, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    x = "Top N Paths",
+    y = "Cumulative Path Strength",
+    color = "Modality",
+    title = "Cumulative Path Strength vs Number of Top Paths per Target aSP-f Neuron"
+  ) +
+  scale_color_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Fractional cumulative strength (fraction of total strength at each step)
+cumulative_strength_frac <- strongest.50.paths.all.aspf %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::arrange(desc(strength), .by_group = TRUE) %>%
+  dplyr::slice_head(n = 50) %>%
+  dplyr::mutate(
+    path_rank = row_number(),
+    cumulative_strength = cumsum(strength),
+    total_strength = sum(strength),
+    fraction_of_total = cumulative_strength / total_strength
+  ) %>%
+  dplyr::ungroup()
+
+ggplot(cumulative_strength_frac, aes(x = path_rank, y = fraction_of_total, color = modality)) +
+  geom_line() +
+  facet_wrap(~ end, scales = "free_x") +
+  theme_minimal() +
+  labs(
+    x = "Top N Paths",
+    y = "Fraction of Total Strength",
+    color = "Modality",
+    title = "Fractional Cumulative Path Strength per Target aSP-f Neuron"
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_y_continuous(labels = scales::percent)
+```
+
+
+```{r}
+# Fractional cumulative strength where modalities sum to 1 at each step
+cumulative_strength_share <- strongest.50.paths.all.aspf %>%
+  dplyr::group_by(modality, end) %>%
+  dplyr::arrange(desc(strength), .by_group = TRUE) %>%
+  dplyr::slice_head(n = 50) %>%
+  dplyr::mutate(
+    path_rank = row_number(),
+    cumulative_strength = cumsum(strength)
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(end, path_rank) %>%
+  dplyr::mutate(
+    total_at_rank = sum(cumulative_strength),
+    modality_share = cumulative_strength / total_at_rank
+  ) %>%
+  dplyr::ungroup()
+
+ggplot(cumulative_strength_share, aes(x = path_rank, y = modality_share, fill = modality)) +
+  geom_area(position = "stack") +
+  facet_wrap(~ end, scales = "free_x") +
+  theme_minimal() +
+  labs(
+    x = "Top N Paths",
+    y = "Share of Total Strength",
+    fill = "Modality",
+    title = "Modality Share of Cumulative Path Strength per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = scales::percent)
+```
+
+
+```{r}
+# ============================================================================
+# PATH STRENGTH DISTRIBUTION PER INDIVIDUAL PATH (for consistency boxplots)
+# ============================================================================
+
+# Show distribution of individual path strengths per modality per target type
+ggplot(strongest.50.paths.all.aspf, aes(x = end, y = strength, fill = modality)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.size = 0.5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron Type",
+    y = "Path Strength",
+    fill = "Modality",
+    title = "Distribution of Individual Path Strengths per Modality per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# Log-scaled version for better visualization of spread
+ggplot(strongest.50.paths.all.aspf, aes(x = end, y = strength, fill = modality)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.size = 0.5) +
+  #scale_y_log10() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    x = "Target Neuron Type",
+    y = "Path Strength (log scale)",
+    fill = "Modality",
+    title = "Distribution of Individual Path Strengths (log scale) per Target aSP-f Neuron"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+
+```{r}
+# ============================================================================
+# CELL-LEVEL PATH ANALYSIS (per individual neuron bodyid)
+# ============================================================================
+
+# Create cell-level adjacency matrix
+adj.matrix.cell <- calculate_normed_adj_matrix(conn, cell.or.type = "cell", pre.or.post = "post")
+
+# Create graph from cell-level adjacency
+graph.cell <- graph_from_adjacency_matrix(
+  adj.matrix.cell,
+  mode = "directed",
+  weighted = TRUE,
+  diag = FALSE
+)
+
+# Add log weights for path finding
+w <- E(graph.cell)$weight
+w[!is.finite(w) | w <= 0] <- .Machine$double.eps
+E(graph.cell)$log_weight <- -log(w)
+
+# Get individual aSP-f neuron bodyids
+aspf.bodyids <- mba %>%
+  filter(grepl('aSP-f', synonyms)) %>%
+  pull(bodyid) %>%
+  unique() %>%
+  as.character()
+
+# Get start bodyids for each modality
+get_start_bodyids <- function(start_types, mba) {
+  mba %>%
+    filter(type %in% start_types) %>%
+    pull(bodyid) %>%
+    unique() %>%
+    as.character()
+}
+
+start.bodyids.DA1 <- get_start_bodyids(start.types.DA1, mba)
+start.bodyids.VA1v <- get_start_bodyids(start.types.VA1v, mba)
+start.bodyids.VA1d <- get_start_bodyids(start.types.VA1d, mba)
+start.bodyids.aud <- get_start_bodyids(start.types.aud, mba)
+start.bodyids.vis <- get_start_bodyids(start.types.vis, mba)
+start.bodyids.ppk23 <- get_start_bodyids(start.types.ppk23, mba)
+start.bodyids.ppk25 <- get_start_bodyids(start.types.ppk25, mba)
+```

@@ -1,0 +1,306 @@
+---
+title: "Figure 6A (Bella's targets): Multimodal Circuit Schematic"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 12,
+  fig.height = 7
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel A: Circuit Schematic (Bella's targets) — Programmatic diagram showing 7 sensory modalities converging onto downstream targets of M cells, F cells, and IR-expressing cells. Arrows indicate connectivity flow across circuit layers."
+panel_legend <- "(A) Schematic of the multimodal sensory circuit targeting neurons downstream of M cells, F cells, and IR-expressing cells. Seven sensory modalities converge through intermediate relay neurons onto Bella's target neuron populations."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_A_description", "txt"), "panel_A_description.txt"))
+```
+
+## Overview
+
+Panel A is a programmatic circuit schematic showing 7 sensory modalities
+converging through pathways to Bella's third-order target neuron groups:
+M cells downstream, F cells downstream, and IR cells downstream. The layout
+has two columns representing circuit layers (sensory inputs on the left,
+target groups on the right), with arrows indicating direct connectivity flow.
+Representative neuron type names are annotated beneath each target group box.
+
+## Build node layout
+
+Define positions for all nodes across two columns: sensory inputs (left)
+and target groups (right).
+
+```{r node-layout}
+# ---------------------------------------------------------------------------
+# Column x-positions for the two circuit layers
+# ---------------------------------------------------------------------------
+x_sensory <- 0
+x_target  <- 8
+
+# ---------------------------------------------------------------------------
+# Sensory input nodes (left column)
+# Ordered top-to-bottom: DA1, VA1v, VA1d, JO-B, LC10, ppk23, ppk25
+# ---------------------------------------------------------------------------
+sensory_labels <- c("DA1", "VA1v", "VA1d", "JO-B", "LC10", "ppk23", "ppk25")
+sensory_keys   <- c("DA1", "VA1v", "VA1d", "auditory", "visual", "ppk23", "ppk25")
+
+n_sensory <- length(sensory_labels)
+sensory_y <- seq(from = n_sensory, to = 1, length.out = n_sensory)
+
+nodes_sensory <- data.frame(
+  label = sensory_labels,
+  key   = sensory_keys,
+  x     = x_sensory,
+  y     = sensory_y,
+  layer = "sensory",
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Target group nodes (right column)
+# Three boxes for M, F, IR downstream groups
+# ---------------------------------------------------------------------------
+nodes_target <- data.frame(
+  label = c("M cells\ndownstream", "F cells\ndownstream", "IR cells\ndownstream"),
+  key   = c("M_downstream", "F_downstream", "IR_downstream"),
+  x     = x_target,
+  y     = c(6.0, 4.0, 2.0),
+  layer = "target",
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Representative neuron types for each target group (shown as sub-labels)
+# ---------------------------------------------------------------------------
+representative_types <- data.frame(
+  label = c("mAL_m1, AVLP494m",
+            "P1_3c, AVLP743m",
+            "LH004m, DNd02"),
+  key   = c("M_downstream", "F_downstream", "IR_downstream"),
+  x     = x_target,
+  y     = c(6.0 - 0.65, 4.0 - 0.65, 2.0 - 0.65),
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Combine all nodes
+# ---------------------------------------------------------------------------
+nodes <- bind_rows(nodes_sensory, nodes_target)
+```
+
+## Build edges
+
+Connect every sensory input directly to every target group, reflecting the
+multimodal convergence topology (no relay intermediaries).
+
+```{r edges}
+# ---------------------------------------------------------------------------
+# Sensory -> target edges (all-to-all)
+# ---------------------------------------------------------------------------
+edges_s2t <- expand.grid(
+  from = sensory_labels,
+  to   = nodes_target$label,
+  stringsAsFactors = FALSE
+)
+
+# ---------------------------------------------------------------------------
+# Look up coordinates for edge endpoints
+# ---------------------------------------------------------------------------
+node_lookup <- nodes %>% select(label, x, y)
+
+add_coords <- function(edges_df) {
+  edges_df %>%
+    left_join(node_lookup, by = c("from" = "label")) %>%
+    rename(x_from = x, y_from = y) %>%
+    left_join(node_lookup, by = c("to" = "label")) %>%
+    rename(x_to = x, y_to = y)
+}
+
+edges_all <- add_coords(edges_s2t)
+```
+
+## Build group annotations
+
+Label the sensory modality groups on the far left of the diagram.
+
+```{r group-annotations}
+# ---------------------------------------------------------------------------
+# Map each sensory node to its group using modality_group from setup.R
+# ---------------------------------------------------------------------------
+group_mapping <- data.frame(
+  label = sensory_labels,
+  key   = sensory_keys,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(group = modality_group[key])
+
+# Compute y-position for each group label (mean y of its member nodes)
+group_annot <- group_mapping %>%
+  left_join(nodes_sensory %>% select(label, y), by = "label") %>%
+  group_by(group) %>%
+  summarise(
+    y_mid = mean(y),
+    y_min = min(y) - 0.35,
+    y_max = max(y) + 0.35,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    x = x_sensory - 2.8,
+    group_label = str_to_title(group)
+  )
+```
+
+## Draw schematic
+
+Assemble the diagram with boxes, arrows, labels, and group annotations.
+
+```{r schematic, fig.width=12, fig.height=7}
+# ---------------------------------------------------------------------------
+# Box dimensions
+# ---------------------------------------------------------------------------
+box_hw_sensory <- 0.8    # half-width for sensory nodes
+box_hh_sensory <- 0.35   # half-height for sensory nodes
+box_hw_target  <- 1.3    # half-width for target group boxes (wider)
+box_hh_target  <- 0.45   # half-height for target group boxes (taller)
+
+# Nudge arrow start/end so they originate from box edges, not centres
+arrow_nudge_x_left  <- box_hw_sensory + 0.05
+arrow_nudge_x_right <- box_hw_target + 0.05
+
+# Assign fill colours: sensory nodes use modality_colors, targets use target_set_colors
+nodes <- nodes %>%
+  mutate(
+    fill_color = case_when(
+      layer == "sensory" ~ modality_colors[key],
+      layer == "target"  ~ target_set_colors[key],
+      TRUE               ~ "#F0F0F0"
+    ),
+    text_color = case_when(
+      layer == "target" ~ "white",
+      TRUE              ~ "black"
+    ),
+    hw = ifelse(layer == "target", box_hw_target, box_hw_sensory),
+    hh = ifelse(layer == "target", box_hh_target, box_hh_sensory)
+  )
+
+# ---------------------------------------------------------------------------
+# Column (layer) labels
+# ---------------------------------------------------------------------------
+layer_labels <- data.frame(
+  label = c("Sensory\ninputs", "3rd-order\ntargets"),
+  x     = c(x_sensory, x_target),
+  y     = max(sensory_y) + 1.0
+)
+
+# ---------------------------------------------------------------------------
+# Main plot
+# ---------------------------------------------------------------------------
+p <- ggplot() +
+
+  # -- Edges (arrows) -------------------------------------------------------
+  geom_segment(
+    data = edges_all,
+    aes(
+      x    = x_from + arrow_nudge_x_left,
+      xend = x_to   - arrow_nudge_x_right,
+      y    = y_from,
+      yend = y_to
+    ),
+    arrow     = grid::arrow(length = unit(0.12, "cm"), type = "closed"),
+    linewidth = 0.35,
+    color     = "grey55",
+    alpha     = 0.5
+  ) +
+
+  # -- Node boxes -----------------------------------------------------------
+  geom_rect(
+    data = nodes,
+    aes(
+      xmin = x - hw,
+      xmax = x + hw,
+      ymin = y - hh,
+      ymax = y + hh
+    ),
+    fill  = nodes$fill_color,
+    color = "grey30",
+    linewidth = 0.4
+  ) +
+
+  # -- Node labels ----------------------------------------------------------
+  geom_text(
+    data = nodes,
+    aes(x = x, y = y, label = label),
+    color    = nodes$text_color,
+    size     = 3.5,
+    fontface = "bold",
+    lineheight = 0.85
+  ) +
+
+  # -- Representative neuron type names below target boxes -------------------
+  geom_text(
+    data = representative_types,
+    aes(x = x, y = y, label = label),
+    size     = 2.5,
+    fontface = "italic",
+    color    = "grey30"
+  ) +
+
+  # -- Group bracket lines (left side) --------------------------------------
+  geom_segment(
+    data = group_annot,
+    aes(
+      x    = x + 0.8,
+      xend = x + 0.8,
+      y    = y_min,
+      yend = y_max
+    ),
+    linewidth = 0.6,
+    color     = modality_group_colors[group_annot$group]
+  ) +
+
+  # -- Group labels ---------------------------------------------------------
+  geom_text(
+    data = group_annot,
+    aes(x = x + 0.35, y = y_mid, label = group_label),
+    size     = 3.2,
+    fontface = "italic",
+    hjust    = 0.5,
+    color    = modality_group_colors[group_annot$group]
+  ) +
+
+  # -- Layer (column) headers -----------------------------------------------
+  geom_text(
+    data = layer_labels,
+    aes(x = x, y = y, label = label),
+    size     = 3.8,
+    fontface = "bold",
+    color    = "grey25",
+    lineheight = 0.85
+  ) +
+
+  # -- Theme ----------------------------------------------------------------
+  coord_fixed(ratio = 0.75, clip = "off") +
+  xlim(x_sensory - 3.5, x_target + 2.0) +
+  ylim(0.2, max(sensory_y) + 1.5) +
+  theme_void() +
+  theme(
+    plot.margin = margin(10, 10, 10, 10, "pt"),
+    plot.title  = element_text(hjust = 0.5, face = "bold", size = 14)
+  ) +
+  ggtitle("Multimodal sensory convergence onto third-order courtship neurons")
+
+p
+```
+
+## Save
+
+```{r save}
+save_fig6_plot(p, "panel_A_circuit_schematic_bella", width = 12, height = 7)
+```

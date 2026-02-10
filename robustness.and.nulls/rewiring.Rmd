@@ -374,6 +374,113 @@ find_k_strongest_paths <- function(
 
   list(df = results_df_wo_na, nodes = all_nodes, raw = results)
 }
+
+
+find_k_strongest_paths_yen <- function(
+  g,
+  starts,
+  targets,
+  mba,
+  n_paths = 3,
+  diversity = c("otheredges", "othernodes", "none"),
+  ignore_pattern = NULL # grepl() pattern; matched node names are excluded (start/target kept),
+) {
+  for (ip in ignore_pattern){
+  g <- delete_vertices(g, V(g)[grepl(ip, name)])
+  }
+  type2nt <- mba %>%
+    select(type, consensus_nt) %>%
+    group_by(type) %>%
+    distinct() %>%
+    rename(nt = consensus_nt)
+  nt_by_type <- setNames(type2nt$nt, type2nt$type)
+  inhibitory_nts <- c("gaba", "glycine", "histamine")
+  all_nts <- unique(type2nt$nt)
+  is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
+
+
+  # weights → log-costs; guard zeros/NAs
+  w <- E(g)$weight
+  if (is.null(w)) stop("Edges must have numeric 'weight'.")
+  w[!is.finite(w) | w <= 0] <- .Machine$double.eps
+  log_w <- -log(w)
+
+  results <- list()
+  all_nodes <- character(0)
+
+  for (s in starts) {
+    for (t in targets) {
+      pair_paths <- list()
+      temp.k.shortest.paths = k_shortest_paths(g,from = s, to = t,weights = E(g)$log_weight,k=n_paths)
+
+
+      # cache once
+      vnames <- V(g)$name
+      w      <- E(g)$weight
+      logw   <- E(g)$log_weight
+      
+      paths_e <- temp.k.shortest.paths$epaths
+      paths_v <- temp.k.shortest.paths$vpaths
+      n_k     <- length(paths_e)
+      
+      if (n_k == 0L) {
+        pair_paths <- list(list(start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_))
+      } else {
+        # strengths: prefer log-weights if present (faster + stable)
+        if (!is.null(logw)) {
+          strengths <- exp(-vapply(paths_e, function(idx) sum(logw[idx]), numeric(1)))
+        } else {
+          strengths <- vapply(paths_e, function(idx) prod(w[idx]), numeric(1))
+        }
+      
+        hops      <- lengths(paths_e)
+        path_str  <- vapply(paths_v, function(idx) paste(vnames[idx], collapse = " -> "), character(1))
+      
+        # build list-of-lists without a for-loop
+        pair_paths <- lapply(seq_len(n_k), function(i) {
+          list(
+            start    = s,
+            end      = t,
+            path     = path_str[i],
+            strength = strengths[i],
+            hops     = hops[i]
+          )
+        })
+        names(pair_paths) <- paste0("path", seq_len(n_k))
+      }
+      
+      # collect nodes once, not in the loop
+      all_nodes <- c(all_nodes, vnames[unique(unlist(paths_v, use.names = FALSE))])
+
+      if (length(pair_paths) == 0) {
+        pair_paths <- list(list(
+          start = s, end = t, path = NA_character_, strength = NA_real_, hops = NA_integer_
+        ))
+      }
+
+      results[[paste(s, t, sep = "->")]] <- pair_paths
+    }
+  }
+
+  # flatten
+  results_df <- do.call(rbind, lapply(results, function(pl) {
+    do.call(rbind, lapply(pl, function(r) {
+      data.frame(
+        start = r$start, end = r$end, path = r$path,
+        strength = r$strength, hops = r$hops,
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+
+  results_df_wo_na <- dplyr::filter(results_df, !is.na(strength))
+  all_nodes <- unique(all_nodes)
+
+  results_df_wo_na <- add_valence_flag(results_df_wo_na, nt_by_type, is_inhib_by_nt) %>%
+    mutate(valence = ifelse(d == 1L, "excitatory", "inhibitory"))
+
+  list(df = results_df_wo_na, nodes = all_nodes, raw = results)
+}
 ```
 ## 3 Downstream target selection
 

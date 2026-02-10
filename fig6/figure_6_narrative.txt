@@ -1,0 +1,135 @@
+Figure 6: Multimodal Sensory Integration in the Male Courtship Circuit
+======================================================================
+
+Central question
+----------------
+Male courtship in Drosophila requires integrating multiple sensory cues:
+pheromones (3 olfactory channels: DA1, VA1v, VA1d), song (auditory),
+visual motion, and contact chemosensation (ppk23, ppk25). How does the
+male CNS connectome wire these 7 sensory channels to converge on
+courtship decision neurons -- and does this wiring produce genuine
+nonlinear integration?
+
+
+Act 1: The wiring (Panels A-C)
+------------------------------
+Panel A  Circuit schematic
+  7 modalities -> 2nd-order relays -> 3rd-order command neurons.
+  Sets the stage: what is the circuit?
+
+Panel B  Composition heatmap
+  "Who gets what?" Each target neuron's modality input profile,
+  column-normalized to reveal relative targeting patterns independent
+  of absolute strength.
+
+Panel C  Valence heatmap
+  "With what sign?" Same structure, split into excitatory vs.
+  inhibitory contributions. Modalities don't just converge -- they
+  converge with distinct E/I signatures.
+
+
+Act 2: Quantifying multimodality (Panels D-F)
+----------------------------------------------
+Panel D  Entropy / multimodality
+  Most targets are genuinely multimodal (high Shannon entropy), not
+  dominated by a single sense. Strength vs. entropy separates
+  strong-but-narrow from weak-but-broad neurons.
+
+Panel E  Modality correlations
+  Which modality pairs co-target the same neurons? Reveals modality
+  groupings (the 3 olfactory channels cluster; contact channels
+  form a separate group).
+
+Panel F  Path diversity
+  Some modalities reach targets via a few dominant paths; others
+  distribute signal across many parallel routes. This affects
+  robustness and information capacity.
+
+
+Act 3: Where and how integration happens (Panels G-H)
+-----------------------------------------------------
+Panel G  Shared intermediates
+  Identifies hidden integration hubs -- 2nd-order neurons that appear
+  in strongest paths from multiple modalities. These are the circuit's
+  multimodal crossroads.
+
+Panel H  Spotlight integrators
+  Deep dive into specific hub neurons. Radar plots showing their
+  modality input fingerprint (excitatory and inhibitory overlaid).
+
+
+Act 4: Target-specific differences (Panels I-J)
+------------------------------------------------
+Panel I  aSP-f vs. aSP-g
+  Same circuit architecture, different integration profiles. Paired
+  comparisons reveal which modalities preferentially target one
+  population over the other.
+
+Panel J  Valence patterns
+  Different modalities reach the same target via different
+  neurotransmitter sequences (e.g., E->I->E vs. E->E->E). The sign
+  of the path, not just its existence, matters for computation.
+
+
+Act 5: Integration deepens with circuit depth (Panel K)
+-------------------------------------------------------
+Panel K  Layer-by-layer analysis
+  2nd-order neurons are modality-specific; 3rd/4th-order neurons are
+  increasingly multimodal. Convergence builds progressively across
+  circuit layers.
+
+
+Act 6: From structure to function -- combinatorial signal flow (NEW)
+--------------------------------------------------------------------
+Everything above describes the wiring. The combinatorial signal flow
+analysis asks: does this wiring actually produce nonlinear computation?
+
+Method:
+  - Propagate signal through the real signed connectome (excitatory/
+    inhibitory weights, neurotransmitter identity)
+  - Test all 127 combinations of the 7 channels (singles, pairs,
+    triplets, ..., all 7 together)
+  - Compute interaction scores:
+      R(i,j) = A(i+j) - A(i) - A(j)
+    Positive = synergy (super-additive)
+    Negative = opposition (sub-additive)
+    Zero = independence (linear summation)
+
+Key story points:
+  1. Synergistic pairs -- specific modality combinations are
+     super-additive at specific targets. The circuit is wired for
+     particular multimodal conjunctions.
+
+  2. Opposing pairs -- some combinations are sub-additive, suggesting
+     competitive inhibition between channels via shared inhibitory
+     interneurons.
+
+  3. Target-group specificity -- the interaction structure differs
+     between aSP-f, aSP-g, and PPN1/vAB3 targets. Different targets
+     compute different functions over the same sensory inputs.
+
+  4. Robustness -- results hold across activation functions (ReLU,
+     sigmoid, leaky ReLU), normalization schemes, and propagation
+     depths (sensitivity analysis).
+
+  5. Sustained vs. pulse -- continuous stimulation (modeling persistent
+     pheromone exposure) vs. transient input produces qualitatively
+     similar but quantitatively different interaction landscapes.
+
+
+Panel summary table
+-------------------
+Panel  Content                          Story role
+-----  -------------------------------  ----------------------------
+A      Circuit schematic                "Here's the circuit"
+B      Composition heatmap              "Who gets what"
+C      Valence heatmap                  "With what sign"
+D      Entropy / multimodality          "How multimodal"
+E      Modality correlations            "Which modalities co-target"
+F      Path diversity                   "How many routes"
+G      Shared intermediates             "Where integration happens"
+H      Spotlight integrators            "Key hub neurons"
+I      aSP-f vs. aSP-g                  "Target-specific differences"
+J      Valence patterns                 "Different routes, different signs"
+K      Layer-by-layer integration       "Integration builds with depth"
+NEW    Combinatorial signal flow        "Does the wiring compute?"

@@ -1,0 +1,504 @@
+---
+title: "Figure 6H (Bella's targets): Spotlight Examples -- Individual Integration Nodes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 7
+)
+
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel H: Spotlight Integration Nodes (Bella's targets) — Individual radar/spider plots for top multimodal integration neurons, with excitatory/inhibitory overlays and stacked bar breakdowns."
+panel_legend <- "(H) Spotlight profiles of top multimodal integration nodes for Bella's targets. Radar plots show normalized modality input with excitatory/inhibitory overlays; stacked bars show absolute and proportional composition."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_H_description", "txt"), "panel_H_description.txt"))
+```
+
+## Overview
+
+Panel H spotlights 3-4 specific neurons that serve as top multimodal
+integration nodes among the paths reaching Bella's target populations
+(M cells, F cells, IR cells). Each neuron receives input from multiple
+sensory modalities, and we visualize its input profile using radar/spider
+plots and stacked bar charts broken down by excitatory vs. inhibitory
+valence.
+
+## Step 1: Compute entropy and rank neurons
+
+Shannon entropy across the 7 modality channels quantifies how evenly a
+neuron integrates across modalities. Higher entropy = more multimodal.
+
+```{r compute-entropy}
+# ---------------------------------------------------------------------------
+# Compute Shannon entropy for each neuron (row) in the combined strength matrix
+# ---------------------------------------------------------------------------
+entropy_vals <- apply(strength.bella, 1, shannon_entropy)
+
+entropy_df <- data.frame(
+  neuron    = names(entropy_vals),
+  entropy   = entropy_vals,
+  n_modalities = apply(strength.bella > 0, 1, sum),
+  total_strength = rowSums(strength.bella),
+  stringsAsFactors = FALSE
+) %>%
+  arrange(desc(entropy))
+
+# Show the top 20 most multimodal neurons
+head(entropy_df, 20)
+```
+
+## Step 2: Identify spotlight neurons
+
+Select the top-entropy neurons. Also look for known neurons from Bella's
+target populations (mAL_m1, AVLP494m, P1_3c, LH004m, etc.) to provide
+biologically meaningful examples.
+
+```{r select-spotlight}
+# ---------------------------------------------------------------------------
+# Inspect what neuron names exist in the strength matrix
+# ---------------------------------------------------------------------------
+all_neurons <- rownames(strength.bella)
+message("Total neurons in combined matrix: ", length(all_neurons))
+
+# Check for known neuron types from Bella's targets
+known_patterns <- c("mAL", "AVLP494", "P1_3", "LH004",
+                     "SMP", "SIP", "SLP", "LH", "pC1", "pC2")
+known_hits <- lapply(known_patterns, function(pat) {
+  grep(pat, all_neurons, value = TRUE, ignore.case = TRUE)
+})
+names(known_hits) <- known_patterns
+
+# Print matches for each pattern
+for (pat in known_patterns) {
+  if (length(known_hits[[pat]]) > 0) {
+    message(sprintf("  Pattern '%s': %s", pat,
+                    paste(known_hits[[pat]], collapse = ", ")))
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Build a candidate list: top-entropy neurons + known types if present
+# ---------------------------------------------------------------------------
+# Start with top 6 by entropy
+top_entropy <- entropy_df %>%
+  filter(n_modalities >= 3) %>%     # require input from at least 3 modalities
+  head(6) %>%
+  pull(neuron)
+
+# Add known neurons if they are present and have reasonable entropy
+known_candidates <- c(
+  grep("mAL", all_neurons, value = TRUE, ignore.case = TRUE),
+  grep("AVLP494", all_neurons, value = TRUE, ignore.case = TRUE),
+  grep("P1_3", all_neurons, value = TRUE, ignore.case = TRUE),
+  grep("LH004", all_neurons, value = TRUE, ignore.case = TRUE)
+)
+known_candidates <- intersect(known_candidates, entropy_df$neuron)
+
+# Combine and deduplicate, then take 3-4
+spotlight_candidates <- unique(c(top_entropy, known_candidates))
+
+# Final selection: pick top 4 by entropy from the candidate pool
+spotlight_neurons <- entropy_df %>%
+  filter(neuron %in% spotlight_candidates) %>%
+  arrange(desc(entropy)) %>%
+  head(4) %>%
+  pull(neuron)
+
+message("Spotlight neurons: ", paste(spotlight_neurons, collapse = ", "))
+
+# Look up synonyms/descriptions from mba for annotation
+spotlight_info <- mba %>%
+  filter(type %in% spotlight_neurons) %>%
+  select(type, synonyms) %>%
+  distinct(type, .keep_all = TRUE)
+
+spotlight_info
+```
+
+## Step 3: Prepare per-neuron data for plotting
+
+Extract strength values (total, excitatory, inhibitory) for each
+spotlight neuron across all 7 modalities.
+
+```{r prepare-neuron-data}
+# ---------------------------------------------------------------------------
+# Build a long-format dataframe for spotlight neurons
+# ---------------------------------------------------------------------------
+
+# Total strength
+spotlight_total <- as.data.frame(strength.bella[spotlight_neurons, , drop = FALSE]) %>%
+  rownames_to_column("neuron") %>%
+  pivot_longer(cols = all_of(modality_order), names_to = "modality",
+               values_to = "strength") %>%
+  mutate(valence = "total")
+
+# Excitatory strength (handle neurons that may be absent from exc/inh matrices)
+exc_neurons <- intersect(spotlight_neurons, rownames(strength.bella.exc))
+inh_neurons <- intersect(spotlight_neurons, rownames(strength.bella.inh))
+
+spotlight_exc <- if (length(exc_neurons) > 0) {
+  as.data.frame(strength.bella.exc[exc_neurons, , drop = FALSE]) %>%
+    rownames_to_column("neuron") %>%
+    pivot_longer(cols = all_of(modality_order), names_to = "modality",
+                 values_to = "strength") %>%
+    mutate(valence = "excitatory")
+} else {
+  data.frame(neuron = character(), modality = character(),
+             strength = numeric(), valence = character())
+}
+
+spotlight_inh <- if (length(inh_neurons) > 0) {
+  as.data.frame(strength.bella.inh[inh_neurons, , drop = FALSE]) %>%
+    rownames_to_column("neuron") %>%
+    pivot_longer(cols = all_of(modality_order), names_to = "modality",
+                 values_to = "strength") %>%
+    mutate(valence = "inhibitory")
+} else {
+  data.frame(neuron = character(), modality = character(),
+             strength = numeric(), valence = character())
+}
+
+# Combine all
+spotlight_long <- bind_rows(spotlight_total, spotlight_exc, spotlight_inh) %>%
+  mutate(modality = factor(modality, levels = modality_order))
+```
+
+## Step 4: Individual radar plots (total strength)
+
+One radar per spotlight neuron showing total input strength across the 7
+modalities.
+
+```{r radar-individual, fig.width=14, fig.height=4}
+# ---------------------------------------------------------------------------
+# Build a custom radar plot for each spotlight neuron
+# ---------------------------------------------------------------------------
+make_neuron_radar <- function(neuron_name, strength_mat, fill_color = "steelblue",
+                               fill_alpha = 0.3, line_color = "steelblue") {
+  vals <- strength_mat[neuron_name, modality_order]
+  # Normalize to 0-1 for comparable radar shape
+  max_val <- max(vals, na.rm = TRUE)
+  if (max_val == 0) max_val <- 1
+  vals_norm <- vals / max_val
+
+  radar_df <- data.frame(
+    modality = factor(modality_order, levels = modality_order),
+    value    = as.numeric(vals_norm),
+    raw      = as.numeric(vals)
+  )
+
+  # Close the polygon by appending the first point
+  radar_closed <- bind_rows(radar_df, radar_df[1, ])
+
+  # Look up synonym if available
+  syn <- mba %>%
+    filter(type == neuron_name) %>%
+    pull(synonyms) %>%
+    unique() %>%
+    na.omit()
+  subtitle_text <- if (length(syn) > 0 && nchar(syn[1]) > 0) {
+    paste0("(", substr(syn[1], 1, 60), ")")
+  } else {
+    ""
+  }
+
+  # Entropy for this neuron
+  ent <- entropy_df %>% filter(neuron == neuron_name) %>% pull(entropy)
+  ent_label <- sprintf("H = %.2f", ent)
+
+  # Determine which target group(s) this neuron belongs to
+  group_info <- bella_groups_df %>% filter(type == neuron_name)
+  group_label <- if (nrow(group_info) > 0) {
+    paste(target_set_labels[group_info$target_group], collapse = ", ")
+  } else {
+    ""
+  }
+
+  ggplot(radar_df, aes(x = modality, y = value, group = 1)) +
+    # Grid circles at 25%, 50%, 75%, 100%
+    annotate("path",
+             x = rep(1:7, each = 100) + rep(seq(0, 1, length.out = 100) - 0.5, 7),
+             y = rep(0.25, 700), alpha = 0, color = NA) +
+    geom_polygon(fill = alpha(fill_color, fill_alpha), color = line_color,
+                 linewidth = 0.8) +
+    geom_point(aes(color = modality), size = 3, show.legend = FALSE) +
+    scale_color_manual(values = modality_colors) +
+    coord_polar(start = 0) +
+    scale_y_continuous(limits = c(0, 1.05), breaks = c(0.25, 0.5, 0.75, 1.0),
+                       labels = c("25%", "50%", "75%", "100%")) +
+    labs(
+      title    = neuron_name,
+      subtitle = paste(group_label, ent_label, subtitle_text)
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      axis.title        = element_blank(),
+      axis.text.y       = element_text(size = 7, color = "grey50"),
+      axis.text.x       = element_text(size = 9, face = "bold"),
+      panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+      plot.title         = element_text(hjust = 0.5, face = "bold", size = 12),
+      plot.subtitle      = element_text(hjust = 0.5, size = 8, color = "grey40")
+    )
+}
+
+# Generate individual radar plots
+radar_plots <- lapply(spotlight_neurons, function(n) {
+  make_neuron_radar(n, strength.bella)
+})
+names(radar_plots) <- spotlight_neurons
+
+# Arrange in a single row
+radar_combined <- plot_grid(
+  plotlist = radar_plots,
+  nrow = 1,
+  labels = LETTERS[1:length(radar_plots)],
+  label_size = 12
+)
+radar_combined
+```
+
+```{r save-radar-individual}
+save_fig6_plot(radar_combined, "panel_H_bella_radar_individual",
+               width = 3.5 * length(spotlight_neurons), height = 4)
+```
+
+## Step 5: Excitatory vs. inhibitory overlaid radars
+
+For each spotlight neuron, overlay excitatory (solid) and inhibitory
+(dashed) radar polygons on the same chart.
+
+```{r radar-valence, fig.width=14, fig.height=4.5}
+# ---------------------------------------------------------------------------
+# Dual-valence radar: excitatory (solid) + inhibitory (dashed) overlaid
+# ---------------------------------------------------------------------------
+make_valence_radar <- function(neuron_name) {
+  # Get excitatory values
+  exc_vals <- if (neuron_name %in% rownames(strength.bella.exc)) {
+    strength.bella.exc[neuron_name, modality_order]
+  } else {
+    setNames(rep(0, 7), modality_order)
+  }
+
+  # Get inhibitory values
+  inh_vals <- if (neuron_name %in% rownames(strength.bella.inh)) {
+    strength.bella.inh[neuron_name, modality_order]
+  } else {
+    setNames(rep(0, 7), modality_order)
+  }
+
+  # Normalize both to the same scale (max across both)
+  global_max <- max(c(exc_vals, inh_vals), na.rm = TRUE)
+  if (global_max == 0) global_max <- 1
+
+  radar_df <- data.frame(
+    modality = factor(rep(modality_order, 2), levels = modality_order),
+    value    = c(as.numeric(exc_vals) / global_max,
+                 as.numeric(inh_vals) / global_max),
+    valence  = rep(c("excitatory", "inhibitory"), each = 7)
+  )
+
+  ggplot(radar_df, aes(x = modality, y = value, group = valence)) +
+    geom_polygon(aes(fill = valence, linetype = valence, color = valence),
+                 alpha = 0.2, linewidth = 0.9) +
+    geom_point(aes(color = valence), size = 2) +
+    scale_fill_manual(values = c("excitatory" = "#2166AC",
+                                  "inhibitory" = "#B2182B")) +
+    scale_color_manual(values = c("excitatory" = "#2166AC",
+                                   "inhibitory" = "#B2182B")) +
+    scale_linetype_manual(values = c("excitatory" = "solid",
+                                      "inhibitory" = "dashed")) +
+    coord_polar(start = 0) +
+    scale_y_continuous(limits = c(0, 1.05)) +
+    labs(title = neuron_name) +
+    theme_minimal(base_size = 10) +
+    theme(
+      axis.title        = element_blank(),
+      axis.text.y       = element_blank(),
+      axis.text.x       = element_text(size = 8, face = "bold"),
+      panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
+      plot.title         = element_text(hjust = 0.5, face = "bold", size = 11),
+      legend.position    = "bottom",
+      legend.title       = element_blank(),
+      legend.text        = element_text(size = 8)
+    )
+}
+
+valence_radars <- lapply(spotlight_neurons, make_valence_radar)
+names(valence_radars) <- spotlight_neurons
+
+valence_combined <- plot_grid(
+  plotlist = valence_radars,
+  nrow = 1,
+  labels = LETTERS[1:length(valence_radars)],
+  label_size = 12
+)
+valence_combined
+```
+
+```{r save-radar-valence}
+save_fig6_plot(valence_combined, "panel_H_bella_radar_valence",
+               width = 3.5 * length(spotlight_neurons), height = 5)
+```
+
+## Step 6: Input breakdown stacked bar (excitatory/inhibitory by modality)
+
+For each spotlight neuron, a stacked bar chart showing the proportion of
+each modality split by valence.
+
+```{r stacked-bar, fig.width=14, fig.height=5}
+# ---------------------------------------------------------------------------
+# Build stacked bar data for spotlight neurons
+# ---------------------------------------------------------------------------
+bar_data <- spotlight_long %>%
+  filter(valence %in% c("excitatory", "inhibitory"),
+         neuron %in% spotlight_neurons) %>%
+  # Compute proportion within each neuron
+  group_by(neuron) %>%
+  mutate(
+    total_all = sum(strength, na.rm = TRUE),
+    proportion = ifelse(total_all > 0, strength / total_all, 0)
+  ) %>%
+  ungroup() %>%
+  # Add modality group for ordering
+  mutate(
+    mod_group = modality_group[as.character(modality)],
+    modality  = factor(modality, levels = modality_order)
+  )
+
+# ---------------------------------------------------------------------------
+# Stacked bar: faceted by neuron, x = modality, fill = valence
+# ---------------------------------------------------------------------------
+p_stacked <- ggplot(bar_data,
+                     aes(x = modality, y = strength, fill = valence)) +
+  geom_col(position = "stack", width = 0.7, color = "white", linewidth = 0.2) +
+  facet_wrap(~ neuron, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = c("excitatory" = "#2166AC",
+                                "inhibitory" = "#B2182B"),
+                     name = "Valence") +
+  labs(
+    x     = "Modality",
+    y     = "Summed path strength",
+    title = "Input breakdown by modality and valence (Bella's targets)"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+p_stacked
+```
+
+```{r save-stacked-bar}
+save_fig6_plot(p_stacked, "panel_H_bella_stacked_bar",
+               width = 3.5 * length(spotlight_neurons), height = 5)
+```
+
+## Step 6b: Proportional stacked bar (normalized to 100%)
+
+Same breakdown but normalized so each neuron sums to 100%, making the
+modality proportions directly comparable.
+
+```{r stacked-bar-proportional, fig.width=14, fig.height=5}
+p_stacked_prop <- ggplot(bar_data,
+                          aes(x = modality, y = proportion, fill = valence)) +
+  geom_col(position = "stack", width = 0.7, color = "white", linewidth = 0.2) +
+  facet_wrap(~ neuron, nrow = 1) +
+  scale_fill_manual(values = c("excitatory" = "#2166AC",
+                                "inhibitory" = "#B2182B"),
+                     name = "Valence") +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    x     = "Modality",
+    y     = "Proportion of total input",
+    title = "Proportional input breakdown by modality and valence (Bella's targets)"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+p_stacked_prop
+```
+
+```{r save-stacked-prop}
+save_fig6_plot(p_stacked_prop, "panel_H_bella_stacked_bar_proportional",
+               width = 3.5 * length(spotlight_neurons), height = 5)
+```
+
+## Step 7: Neuron annotation summary table
+
+Print a summary table for the spotlight neurons with their entropy,
+number of modalities, total strength, and synonyms.
+
+```{r annotation-table}
+# ---------------------------------------------------------------------------
+# Build annotation table
+# ---------------------------------------------------------------------------
+
+# Also note target group membership
+group_membership <- bella_groups_df %>%
+  filter(type %in% spotlight_neurons) %>%
+  group_by(type) %>%
+  summarise(target_groups = paste(target_set_labels[target_group], collapse = ", "),
+            .groups = "drop")
+
+annotation_table <- entropy_df %>%
+  filter(neuron %in% spotlight_neurons) %>%
+  left_join(
+    mba %>%
+      select(type, synonyms) %>%
+      distinct(type, .keep_all = TRUE),
+    by = c("neuron" = "type")
+  ) %>%
+  left_join(group_membership, by = c("neuron" = "type")) %>%
+  mutate(
+    synonyms = ifelse(is.na(synonyms) | synonyms == "", "\u2014", synonyms),
+    target_groups = ifelse(is.na(target_groups), "\u2014", target_groups),
+    # Truncate long synonym strings
+    synonyms = ifelse(nchar(synonyms) > 80,
+                       paste0(substr(synonyms, 1, 77), "..."),
+                       synonyms)
+  ) %>%
+  arrange(desc(entropy))
+
+knitr::kable(annotation_table, digits = 3,
+             caption = "Spotlight neuron summary (Bella's targets)",
+             col.names = c("Neuron type", "Entropy (bits)",
+                           "N modalities", "Total strength",
+                           "Synonyms", "Target group(s)"))
+```
+
+## Step 8: Combined final panel
+
+Assemble the main panel figure: radars on top, stacked bars on bottom.
+
+```{r combined-panel, fig.width=14, fig.height=9}
+panel_H <- plot_grid(
+  radar_combined,
+  valence_combined,
+  p_stacked,
+  ncol    = 1,
+  rel_heights = c(1, 1, 1),
+  labels  = c("i", "ii", "iii"),
+  label_size = 14
+)
+panel_H
+```
+
+```{r save-combined}
+save_fig6_plot(panel_H, "panel_H_bella_combined", width = 14, height = 12)
+```

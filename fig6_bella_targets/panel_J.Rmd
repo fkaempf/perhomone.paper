@@ -1,0 +1,786 @@
+---
+title: "Figure 6J (Bella): Strongest Path Valence Pattern Comparison Across Modalities"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 10, fig.height = 8)
+source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+panel_desc <- "Panel J: Valence Pattern Comparison (Bella's targets) — Neurotransmitter sequence patterns (E/I hops) of strongest paths per (modality, target) pair. Compares whether different modalities use similar or different valence sequences."
+panel_legend <- "(J) Neurotransmitter valence patterns along strongest paths to Bella's targets. Hop-by-hop E/I sequences reveal conserved or divergent signalling motifs across modalities and target groups."
+cat(panel_desc)
+writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_J_description", "txt"), "panel_J_description.txt"))
+```
+
+## Overview
+
+This panel compares the **neurotransmitter sequence patterns** of the strongest
+single path from each sensory modality to each 3rd-order target neuron
+(Bella's M/F/IR downstream targets). For each (modality, target) pair we take
+only the single strongest path, extract the E/I identity of each hop, and form
+a "valence pattern" string (e.g. `E_I_E`). The key question is: **do different
+modalities reach the same target neuron via the same or different NT sequences?**
+
+## 1. Load row order from Panel B
+
+```{r load-row-order}
+# Use Panel B row order for consistent ordering across panels
+row_order_file <- file.path(fig6_dir, "panel_B_row_order.rds")
+use_panel_b_order <- file.exists(row_order_file)
+
+if (use_panel_b_order) {
+  row_order_b <- readRDS(row_order_file)
+  cat("Loaded Panel B row order:", length(row_order_b), "neurons\n")
+} else {
+  cat("Panel B row order not found -- will cluster independently.\n")
+}
+
+# Row normalization: scale each row by its max absolute value -> [-1, 1]
+row_normalize <- function(mat) {
+  row_max <- apply(abs(mat), 1, max, na.rm = TRUE)
+  row_max[row_max == 0] <- 1
+  sweep(mat, 1, row_max, "/")
+}
+```
+
+## 2. Derive neurotransmitter sequence for each path
+
+```{r derive-nt-sequence}
+# Build NT lookup from mba
+nt_lookup <- mba %>%
+  select(type, consensus_nt) %>%
+  distinct() %>%
+  group_by(type) %>%
+  summarise(nt = first(consensus_nt), .groups = "drop")
+nt_by_type <- setNames(nt_lookup$nt, nt_lookup$type)
+
+inhibitory_nts <- c("gaba", "glycine", "histamine")
+
+# Extract valence pattern from a path string
+get_valence_pattern <- function(path_str) {
+  nodes <- strsplit(path_str, " -> ", fixed = TRUE)[[1]]
+  transmitting <- nodes[-length(nodes)]
+  nts <- nt_by_type[transmitting]
+  pattern <- ifelse(nts %in% inhibitory_nts, "I", "E")
+  paste(pattern, collapse = "_")
+}
+
+add_valence_pattern <- function(df) {
+  df %>%
+    filter(!is.na(path)) %>%
+    rowwise() %>%
+    mutate(valence_pattern = get_valence_pattern(path)) %>%
+    ungroup()
+}
+
+paths_patterned <- add_valence_pattern(paths.bella)
+cat(sprintf("Total paths with patterns: %d\n", nrow(paths_patterned)))
+cat(sprintf("Unique valence patterns: %d\n", n_distinct(paths_patterned$valence_pattern)))
+```
+
+## 3. Select absolute strongest single path per (modality, target)
+
+```{r select-strongest}
+# Strongest per (modality, end, valence) — for signed strength later
+strongest_by_valence <- paths_patterned %>%
+  group_by(modality, end, valence) %>%
+  slice_max(strength, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+# For each (modality, end) pair, keep only THE single strongest path
+absolute_strongest <- paths_patterned %>%
+  group_by(modality, end) %>%
+  slice_max(strength, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+cat(sprintf("Absolute strongest paths: %d\n", nrow(absolute_strongest)))
+cat(sprintf("  Excitatory: %d (%.0f%%)\n",
+            sum(absolute_strongest$valence == "excitatory"),
+            100 * mean(absolute_strongest$valence == "excitatory")))
+cat(sprintf("  Inhibitory: %d (%.0f%%)\n",
+            sum(absolute_strongest$valence == "inhibitory"),
+            100 * mean(absolute_strongest$valence == "inhibitory")))
+```
+
+---
+
+# Cross-modality pattern comparison
+
+## 4. Valence tile map: target neuron x modality
+
+For each target neuron, is the strongest path from each modality overall
+excitatory or inhibitory? Red = excitatory, blue = inhibitory.
+
+```{r valence-tile, fig.width=12, fig.height=14}
+valence_colors <- c("excitatory" = "#B2182B", "inhibitory" = "#2166AC", "none" = "grey95")
+
+# Build binary valence matrix for clustering (1 = excitatory, 0 = inhibitory)
+valence_wide <- absolute_strongest %>%
+  distinct(end, modality, .keep_all = TRUE) %>%
+  mutate(val_num = ifelse(valence == "excitatory", 1, 0)) %>%
+  select(end, modality, val_num) %>%
+  pivot_wider(names_from = modality, values_from = val_num, values_fill = 0.5) %>%
+  column_to_rownames("end")
+valence_wide <- as.matrix(valence_wide[, intersect(modality_order, colnames(valence_wide))])
+
+# Cluster rows and columns
+row_hc <- hclust(dist(valence_wide, method = "binary"), method = "ward.D2")
+col_hc <- hclust(dist(t(valence_wide), method = "binary"), method = "ward.D2")
+
+target_order <- rownames(valence_wide)[row_hc$order]
+mod_order_clust <- colnames(valence_wide)[col_hc$order]
+
+# Convert to long for ggplot with clustered order
+valence_long <- absolute_strongest %>%
+  select(end, modality, valence, strength) %>%
+  mutate(
+    end      = factor(end, levels = target_order),
+    modality = factor(modality, levels = mod_order_clust)
+  )
+
+p_tile <- ggplot(valence_long, aes(x = modality, y = end, fill = valence)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  scale_fill_manual(values = valence_colors, name = "Overall\nvalence") +
+  labs(
+    title = "Overall valence of strongest path: target neuron x modality (Bella's targets)",
+    subtitle = "Red = excitatory, Blue = inhibitory (clustered by row & column)",
+    x = "Sensory modality", y = "Target neuron"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.y = element_text(size = 5),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    panel.grid = element_blank(), legend.position = "right"
+  )
+
+p_tile
+
+save_fig6_plot(p_tile, "panel_J_valence_tile_map", width = 12, height = 14)
+```
+
+## 5. Valence conservation across modalities
+
+Do all modalities reach each target with the same overall valence, or is it mixed?
+
+```{r valence-conservation, fig.width=10, fig.height=6}
+conservation <- absolute_strongest %>%
+  group_by(end) %>%
+  summarise(
+    n_modalities = n_distinct(modality),
+    n_excitatory = sum(valence == "excitatory"),
+    n_inhibitory = sum(valence == "inhibitory"),
+    pct_excitatory = round(100 * mean(valence == "excitatory"), 1),
+    category = case_when(
+      all(valence == "excitatory") ~ "all excitatory",
+      all(valence == "inhibitory") ~ "all inhibitory",
+      TRUE ~ "mixed"
+    ),
+    .groups = "drop"
+  )
+
+cat_counts <- conservation %>% count(category)
+
+p_cons <- ggplot(cat_counts, aes(x = category, y = n, fill = category)) +
+  geom_col(color = "grey30", linewidth = 0.3) +
+  scale_fill_manual(values = c("all excitatory" = "#B2182B",
+                                "all inhibitory" = "#2166AC",
+                                "mixed" = "#999999"),
+                    guide = "none") +
+  geom_text(aes(label = n), vjust = -0.3, size = 5) +
+  labs(
+    title = "Valence conservation: do all modalities agree on excitatory vs inhibitory?",
+    x = NULL, y = "Number of target neurons"
+  ) +
+  theme_minimal(base_size = 13)
+
+p_cons
+
+save_fig6_plot(p_cons, "panel_J_valence_conservation", width = 8, height = 5)
+
+cat(sprintf("All excitatory: %d (%.0f%%)\n",
+            sum(conservation$category == "all excitatory"),
+            100 * mean(conservation$category == "all excitatory")))
+cat(sprintf("All inhibitory: %d (%.0f%%)\n",
+            sum(conservation$category == "all inhibitory"),
+            100 * mean(conservation$category == "all inhibitory")))
+cat(sprintf("Mixed: %d (%.0f%%)\n",
+            sum(conservation$category == "mixed"),
+            100 * mean(conservation$category == "mixed")))
+```
+
+```{r mixed-detail, fig.width=10, fig.height=6}
+mixed_targets <- conservation %>% filter(category == "mixed")
+
+if (nrow(mixed_targets) > 0) {
+  p_mixed <- ggplot(mixed_targets, aes(x = pct_excitatory)) +
+    geom_histogram(binwidth = 10, fill = "#999999", color = "white", alpha = 0.8) +
+    labs(
+      title = "Mixed-valence targets: % of modalities that are excitatory",
+      x = "% modalities excitatory", y = "Number of target neurons"
+    ) +
+    theme_minimal(base_size = 12)
+
+  p_mixed
+  save_fig6_plot(p_mixed, "panel_J_mixed_valence_detail", width = 10, height = 5)
+}
+```
+
+## 6. Valence agreement between modalities
+
+For each pair of modalities, what fraction of shared target neurons have the
+same overall valence?
+
+```{r valence-similarity, fig.width=8, fig.height=7}
+mod_list <- modality_order
+sim_mat <- matrix(NA, nrow = length(mod_list), ncol = length(mod_list),
+                  dimnames = list(mod_list, mod_list))
+
+valence_by_target <- absolute_strongest %>%
+  select(end, modality, valence) %>%
+  pivot_wider(names_from = modality, values_from = valence)
+
+for (i in seq_along(mod_list)) {
+  for (j in seq_along(mod_list)) {
+    m1 <- mod_list[i]; m2 <- mod_list[j]
+    if (m1 %in% names(valence_by_target) && m2 %in% names(valence_by_target)) {
+      both_present <- !is.na(valence_by_target[[m1]]) & !is.na(valence_by_target[[m2]])
+      if (sum(both_present) > 0) {
+        sim_mat[i, j] <- mean(valence_by_target[[m1]][both_present] ==
+                              valence_by_target[[m2]][both_present])
+      }
+    }
+  }
+}
+
+pheatmap(
+  sim_mat, cluster_rows = TRUE, cluster_cols = TRUE,
+  color = colorRampPalette(c("#F7F7F7", "#D1E5F0", "#4393C3", "#2166AC"))(100),
+  border_color = "grey80", display_numbers = TRUE,
+  number_format = "%.2f", fontsize_number = 9,
+  fontsize_row = 11, fontsize_col = 11,
+  main = "Valence agreement between modalities\n(fraction of shared targets with same overall valence)"
+)
+```
+
+```{r save-similarity}
+for (ext in c("png", "pdf")) {
+  f <- file.path(get(paste0("plot_dir_", ext)),
+                 paste0("panel_J_valence_agreement_matrix.", ext))
+  if (ext == "png") png(f, width = 8, height = 7, units = "in", res = 300)
+  else              pdf(f, width = 8, height = 7)
+  pheatmap(sim_mat, cluster_rows = TRUE, cluster_cols = TRUE,
+           color = colorRampPalette(c("#F7F7F7", "#D1E5F0", "#4393C3", "#2166AC"))(100),
+           border_color = "grey80", display_numbers = TRUE,
+           number_format = "%.2f", fontsize_number = 9,
+           fontsize_row = 11, fontsize_col = 11,
+           main = "Valence agreement between modalities")
+  dev.off()
+}
+```
+
+## 7. Valence x strength tile map
+
+Same as section 4 but with strength encoded as opacity.
+
+```{r valence-strength-tile, fig.width=12, fig.height=14}
+p_tile_str <- ggplot(valence_long, aes(x = modality, y = end)) +
+  geom_tile(aes(fill = valence, alpha = strength),
+            color = "white", linewidth = 0.3) +
+  scale_fill_manual(values = valence_colors, name = "Overall\nvalence") +
+  scale_alpha_continuous(range = c(0.3, 1), name = "Strength") +
+  labs(
+    title = "Valence x strength: target neuron x modality (Bella's targets)",
+    subtitle = "Color = excitatory/inhibitory; opacity = path strength",
+    x = "Sensory modality", y = "Target neuron"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.y = element_text(size = 5),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    panel.grid = element_blank()
+  )
+
+p_tile_str
+
+save_fig6_plot(p_tile_str, "panel_J_valence_strength_tile", width = 12, height = 14)
+```
+
+---
+
+# Valence pattern frequency & distribution
+
+## 8. Valence pattern frequency (bar chart)
+
+```{r valence-pattern-freq, fig.width=12, fig.height=6}
+pattern_counts <- absolute_strongest %>%
+  group_by(valence_pattern) %>%
+  summarise(count = n(), mean_strength = mean(strength),
+            median_strength = median(strength), .groups = "drop") %>%
+  arrange(desc(count))
+
+p_freq <- ggplot(pattern_counts, aes(x = reorder(valence_pattern, -count), y = count)) +
+  geom_col(aes(fill = log10(mean_strength)), color = "grey30", linewidth = 0.3) +
+  scale_fill_viridis_c(option = "plasma", name = "log10(mean\nstrength)") +
+  labs(title = "Valence pattern frequency (Bella's targets)",
+       x = "Valence pattern (E = excitatory hop, I = inhibitory hop)", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+
+p_freq
+
+save_fig6_plot(p_freq, "panel_J_valence_pattern_frequency", width = 12, height = 6)
+```
+
+## 9. Valence pattern by modality (stacked bar)
+
+```{r pattern-by-modality, fig.width=12, fig.height=6}
+pattern_by_mod <- absolute_strongest %>%
+  group_by(modality, valence_pattern) %>%
+  summarise(count = n(), mean_strength = mean(strength), .groups = "drop")
+
+p_mod_pattern <- ggplot(pattern_by_mod,
+    aes(x = factor(modality, levels = modality_order), y = count, fill = valence_pattern)) +
+  geom_col(position = "stack", color = "white", linewidth = 0.2) +
+  scale_fill_brewer(palette = "Set3", name = "Valence\npattern") +
+  labs(title = "Detailed valence patterns by modality (Bella's targets)",
+       x = "Modality", y = "Number of target neurons") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_mod_pattern
+
+save_fig6_plot(p_mod_pattern, "panel_J_pattern_by_modality", width = 12, height = 6)
+```
+
+## 10. Modality x valence pattern heatmap (mean signed strength)
+
+```{r mod-pattern-heatmap, fig.width=12, fig.height=6}
+diverging_palette <- colorRampPalette(
+  c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+    "#F7F7F7",
+    "#FDDBC7", "#F4A582", "#D6604D", "#B2182B")
+)(100)
+
+pattern_heatmap_df <- absolute_strongest %>%
+  mutate(signed_str = ifelse(valence == "excitatory", strength, -strength)) %>%
+  group_by(modality, valence_pattern) %>%
+  summarise(mean_signed = mean(signed_str), count = n(), .groups = "drop")
+
+pattern_mat <- pattern_heatmap_df %>%
+  select(modality, valence_pattern, mean_signed) %>%
+  pivot_wider(names_from = valence_pattern, values_from = mean_signed, values_fill = 0) %>%
+  column_to_rownames("modality")
+pattern_mat <- as.matrix(pattern_mat[intersect(modality_order, rownames(pattern_mat)), ])
+
+col_order <- names(sort(colSums(abs(pattern_mat)), decreasing = TRUE))
+pattern_mat <- pattern_mat[, col_order, drop = FALSE]
+
+abs_max_p <- max(abs(pattern_mat), na.rm = TRUE)
+if (abs_max_p == 0) abs_max_p <- 1
+breaks_p <- seq(-abs_max_p, abs_max_p, length.out = 101)
+
+pheatmap(
+  pattern_mat, cluster_rows = FALSE, cluster_cols = FALSE,
+  color = diverging_palette, breaks = breaks_p,
+  border_color = "grey80", fontsize_row = 11, fontsize_col = 9,
+  main = "Mean signed strength by modality x valence pattern (Bella's targets)",
+  angle_col = 45, display_numbers = TRUE,
+  number_format = "%.4f", fontsize_number = 7
+)
+```
+
+```{r save-mod-pattern-heatmap}
+for (ext in c("png", "pdf")) {
+  f <- file.path(get(paste0("plot_dir_", ext)),
+                 paste0("panel_J_modality_x_valence_pattern.", ext))
+  if (ext == "png") png(f, width = 12, height = 6, units = "in", res = 300)
+  else              pdf(f, width = 12, height = 6)
+  pheatmap(pattern_mat, cluster_rows = FALSE, cluster_cols = FALSE,
+           color = diverging_palette, breaks = breaks_p,
+           border_color = "grey80", fontsize_row = 11, fontsize_col = 9,
+           main = "Mean signed strength by modality x valence pattern",
+           angle_col = 45, display_numbers = TRUE,
+           number_format = "%.4f", fontsize_number = 7)
+  dev.off()
+}
+```
+
+## 11. Modality x valence pattern count heatmap
+
+```{r mod-pattern-count-heatmap, fig.width=12, fig.height=6}
+count_mat <- pattern_heatmap_df %>%
+  select(modality, valence_pattern, count) %>%
+  pivot_wider(names_from = valence_pattern, values_from = count, values_fill = 0) %>%
+  column_to_rownames("modality")
+count_mat <- as.matrix(count_mat[intersect(modality_order, rownames(count_mat)), ])
+count_mat <- count_mat[, intersect(col_order, colnames(count_mat)), drop = FALSE]
+
+pheatmap(
+  count_mat, cluster_rows = FALSE, cluster_cols = FALSE,
+  color = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(50),
+  border_color = "grey80", fontsize_row = 11, fontsize_col = 9,
+  main = "Count of strongest paths by modality x valence pattern",
+  angle_col = 45, display_numbers = TRUE,
+  number_format = "%.0f", fontsize_number = 8
+)
+```
+
+```{r save-mod-pattern-count}
+for (ext in c("png", "pdf")) {
+  f <- file.path(get(paste0("plot_dir_", ext)),
+                 paste0("panel_J_modality_x_pattern_count.", ext))
+  if (ext == "png") png(f, width = 12, height = 6, units = "in", res = 300)
+  else              pdf(f, width = 12, height = 6)
+  pheatmap(count_mat, cluster_rows = FALSE, cluster_cols = FALSE,
+           color = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(50),
+           border_color = "grey80", fontsize_row = 11, fontsize_col = 9,
+           main = "Count of strongest paths by modality x valence pattern",
+           angle_col = 45, display_numbers = TRUE,
+           number_format = "%.0f", fontsize_number = 8)
+  dev.off()
+}
+```
+
+---
+
+# Signed strength heatmaps
+
+## 12. Signed strength heatmap: modality x target neuron (row-normalized)
+
+Using strongest excitatory and strongest inhibitory path per (modality, target).
+Row-normalized so each target neuron's values span [-1, 1].
+
+```{r signed-strength-heatmap, fig.width=10, fig.height=12}
+signed_df <- strongest_by_valence %>%
+  mutate(signed_strength = ifelse(valence == "excitatory", strength, -strength)) %>%
+  group_by(modality, end) %>%
+  summarise(net_signed = sum(signed_strength), .groups = "drop")
+
+signed_mat <- signed_df %>%
+  pivot_wider(names_from = modality, values_from = net_signed, values_fill = 0) %>%
+  column_to_rownames("end")
+
+for (mod in modality_order) {
+  if (!mod %in% colnames(signed_mat)) signed_mat[[mod]] <- 0
+}
+signed_mat <- as.matrix(signed_mat[, intersect(modality_order, colnames(signed_mat))])
+
+# Apply Panel B row order
+cluster_rows_flag <- !use_panel_b_order
+if (use_panel_b_order) {
+  shared_rows <- intersect(row_order_b, rownames(signed_mat))
+  extra_rows  <- setdiff(rownames(signed_mat), row_order_b)
+  signed_mat  <- signed_mat[c(shared_rows, extra_rows), ]
+}
+
+# Row-normalize
+signed_mat_norm <- row_normalize(signed_mat)
+breaks_signed <- seq(-1, 1, length.out = 101)
+
+# Row annotation: 3-band for Bella's target groups
+M_ends  <- unique(paths.M$end)
+F_ends  <- unique(paths.F$end)
+IR_ends <- unique(paths.IR$end)
+
+row_annot <- data.frame(
+  `M cells`  = ifelse(rownames(signed_mat_norm) %in% M_ends,  "yes", "no"),
+  `F cells`  = ifelse(rownames(signed_mat_norm) %in% F_ends,  "yes", "no"),
+  `IR cells` = ifelse(rownames(signed_mat_norm) %in% IR_ends, "yes", "no"),
+  row.names = rownames(signed_mat_norm), check.names = FALSE
+)
+col_annot <- data.frame(
+  modality_group = modality_group[colnames(signed_mat_norm)],
+  row.names = colnames(signed_mat_norm)
+)
+ann_colors <- list(
+  `M cells`      = c("yes" = "#E41A1C", "no" = "white"),
+  `F cells`      = c("yes" = "#377EB8", "no" = "white"),
+  `IR cells`     = c("yes" = "#4DAF4A", "no" = "white"),
+  modality_group = modality_group_colors
+)
+
+draw_heatmap_fixed_annot(
+  signed_mat_norm, row_annot, col_annot, ann_colors,
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  color = diverging_palette, breaks = breaks_signed,
+  border_color = NA, fontsize_row = 6, fontsize_col = 10,
+  main = "Signed strength (row-normalized, strongest exc - inh path)\nRed = excitatory, Blue = inhibitory",
+  angle_col = 45
+)
+```
+
+```{r save-signed-heatmap}
+save_heatmap_both_orientations(
+  mat = signed_mat_norm, row_annot = row_annot, col_annot = col_annot,
+  ann_colors = ann_colors, name = "panel_J_signed_strength",
+  width = 8, height = 10,
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  color = diverging_palette, breaks = breaks_signed,
+  border_color = NA, fontsize_row = 6, fontsize_col = 10,
+  main = "Signed strength (row-normalized): strongest single path",
+  angle_col = 45
+)
+```
+
+## 13. Per-target valence profile (absolute strongest path, row-normalized)
+
+```{r per-target-valence, fig.width=12, fig.height=10}
+valence_profile <- absolute_strongest %>%
+  mutate(signed_str = ifelse(valence == "excitatory", strength, -strength)) %>%
+  select(end, modality, signed_str) %>%
+  pivot_wider(names_from = modality, values_from = signed_str, values_fill = 0) %>%
+  column_to_rownames("end")
+
+for (mod in modality_order) {
+  if (!mod %in% colnames(valence_profile)) valence_profile[[mod]] <- 0
+}
+valence_profile <- as.matrix(valence_profile[, intersect(modality_order, colnames(valence_profile))])
+
+# Apply Panel B row order
+if (use_panel_b_order) {
+  shared_vp <- intersect(row_order_b, rownames(valence_profile))
+  extra_vp  <- setdiff(rownames(valence_profile), row_order_b)
+  valence_profile <- valence_profile[c(shared_vp, extra_vp), ]
+}
+
+# Row-normalize
+valence_profile_norm <- row_normalize(valence_profile)
+breaks_vp <- seq(-1, 1, length.out = 101)
+
+row_annot_vp <- data.frame(
+  `M cells`  = ifelse(rownames(valence_profile_norm) %in% M_ends,  "yes", "no"),
+  `F cells`  = ifelse(rownames(valence_profile_norm) %in% F_ends,  "yes", "no"),
+  `IR cells` = ifelse(rownames(valence_profile_norm) %in% IR_ends, "yes", "no"),
+  row.names = rownames(valence_profile_norm), check.names = FALSE
+)
+col_annot_vp <- data.frame(
+  modality_group = modality_group[colnames(valence_profile_norm)],
+  row.names = colnames(valence_profile_norm)
+)
+
+draw_heatmap_fixed_annot(
+  valence_profile_norm, row_annot_vp, col_annot_vp, ann_colors,
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  color = diverging_palette, breaks = breaks_vp,
+  border_color = NA, fontsize_row = 6, fontsize_col = 10,
+  main = "Per-target valence profile (row-normalized): absolute strongest path\nRed = excitatory, Blue = inhibitory",
+  angle_col = 45
+)
+```
+
+```{r save-valence-profile}
+save_heatmap_both_orientations(
+  mat = valence_profile_norm, row_annot = row_annot_vp, col_annot = col_annot_vp,
+  ann_colors = ann_colors, name = "panel_J_valence_profile",
+  width = 8, height = 10,
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  color = diverging_palette, breaks = breaks_vp,
+  border_color = NA, fontsize_row = 6, fontsize_col = 10,
+  main = "Valence profile (row-normalized): strongest single path",
+  angle_col = 45
+)
+```
+
+---
+
+# Network diagrams
+
+## 14. Network diagram: modality -> target (igraph)
+
+```{r network-diagram, fig.width=14, fig.height=14}
+edges <- absolute_strongest %>%
+  select(modality, end, strength, valence, valence_pattern) %>%
+  rename(from = modality, to = end)
+
+g_net <- graph_from_data_frame(edges, directed = TRUE)
+
+V(g_net)$type <- ifelse(V(g_net)$name %in% modality_order, "modality", "target")
+V(g_net)$color <- ifelse(V(g_net)$type == "modality",
+                          modality_colors[V(g_net)$name], "grey85")
+V(g_net)$size <- ifelse(V(g_net)$type == "modality", 12, 5)
+V(g_net)$label.cex <- ifelse(V(g_net)$type == "modality", 1.0, 0.5)
+V(g_net)$frame.color <- ifelse(V(g_net)$type == "modality", "grey30", "grey60")
+
+E(g_net)$color <- ifelse(E(g_net)$valence == "excitatory",
+                          adjustcolor("#B2182B", alpha.f = 0.4),
+                          adjustcolor("#2166AC", alpha.f = 0.4))
+E(g_net)$width <- scales::rescale(E(g_net)$strength, to = c(0.3, 3))
+E(g_net)$arrow.size <- 0.3
+
+mod_nodes <- which(V(g_net)$type == "modality")
+tar_nodes <- which(V(g_net)$type == "target")
+
+layout_mat <- matrix(0, nrow = vcount(g_net), ncol = 2)
+layout_mat[mod_nodes, 1] <- seq_along(mod_nodes)
+layout_mat[mod_nodes, 2] <- 1
+layout_mat[tar_nodes, 1] <- seq(0.5, length(mod_nodes) + 0.5, length.out = length(tar_nodes))
+layout_mat[tar_nodes, 2] <- 0
+
+plot(g_net, layout = layout_mat,
+     vertex.label = V(g_net)$name, edge.curved = 0.1,
+     main = "Modality -> target: strongest single path (Bella's targets)\nRed = excitatory, Blue = inhibitory")
+legend("bottomright", legend = c("Excitatory", "Inhibitory"),
+       col = c("#B2182B", "#2166AC"), lwd = 2, bty = "n", cex = 0.9)
+```
+
+```{r save-network}
+for (ext in c("png", "pdf")) {
+  f <- file.path(get(paste0("plot_dir_", ext)),
+                 paste0("panel_J_network_modality_target.", ext))
+  if (ext == "png") png(f, width = 14, height = 14, units = "in", res = 300)
+  else              pdf(f, width = 14, height = 14)
+  plot(g_net, layout = layout_mat,
+       vertex.label = V(g_net)$name, edge.curved = 0.1,
+       main = "Modality -> target: strongest single path (Bella's targets)\nRed = excitatory, Blue = inhibitory")
+  legend("bottomright", legend = c("Excitatory", "Inhibitory"),
+         col = c("#B2182B", "#2166AC"), lwd = 2, bty = "n", cex = 0.9)
+  dev.off()
+}
+```
+
+## 15. Simplified network (top 50% connections)
+
+```{r simplified-network, fig.width=14, fig.height=10}
+net_summary <- absolute_strongest %>%
+  group_by(modality, end) %>%
+  summarise(total_strength = sum(strength),
+            dominant_valence = valence[which.max(strength)], .groups = "drop")
+
+strength_threshold <- quantile(net_summary$total_strength, 0.5)
+net_filtered <- net_summary %>% filter(total_strength >= strength_threshold)
+
+g_simple <- graph_from_data_frame(
+  net_filtered %>% select(from = modality, to = end, everything()), directed = TRUE
+)
+
+V(g_simple)$type <- ifelse(V(g_simple)$name %in% modality_order, "modality", "target")
+V(g_simple)$color <- ifelse(V(g_simple)$type == "modality",
+                             modality_colors[V(g_simple)$name], "grey85")
+V(g_simple)$size <- ifelse(V(g_simple)$type == "modality", 15, 8)
+V(g_simple)$label.cex <- ifelse(V(g_simple)$type == "modality", 1.1, 0.65)
+V(g_simple)$frame.color <- ifelse(V(g_simple)$type == "modality", "grey30", "grey60")
+
+E(g_simple)$color <- ifelse(E(g_simple)$dominant_valence == "excitatory",
+                             adjustcolor("#B2182B", alpha.f = 0.5),
+                             adjustcolor("#2166AC", alpha.f = 0.5))
+E(g_simple)$width <- scales::rescale(E(g_simple)$total_strength, to = c(0.5, 4))
+E(g_simple)$arrow.size <- 0.4
+
+mod_n2 <- which(V(g_simple)$type == "modality")
+tar_n2 <- which(V(g_simple)$type == "target")
+layout2 <- matrix(0, nrow = vcount(g_simple), ncol = 2)
+layout2[mod_n2, 1] <- seq_along(mod_n2)
+layout2[mod_n2, 2] <- 1
+layout2[tar_n2, 1] <- seq(0.5, length(mod_n2) + 0.5, length.out = length(tar_n2))
+layout2[tar_n2, 2] <- 0
+
+plot(g_simple, layout = layout2,
+     vertex.label = V(g_simple)$name, edge.curved = 0.15,
+     main = "Top 50% strongest connections (Bella's targets)\nRed = excitatory, Blue = inhibitory")
+legend("bottomright", legend = c("Excitatory", "Inhibitory"),
+       col = c("#B2182B", "#2166AC"), lwd = 2, bty = "n")
+```
+
+```{r save-simplified-network}
+for (ext in c("png", "pdf")) {
+  f <- file.path(get(paste0("plot_dir_", ext)),
+                 paste0("panel_J_network_simplified.", ext))
+  if (ext == "png") png(f, width = 14, height = 10, units = "in", res = 300)
+  else              pdf(f, width = 14, height = 10)
+  plot(g_simple, layout = layout2,
+       vertex.label = V(g_simple)$name, edge.curved = 0.15,
+       main = "Top 50% strongest connections (Bella's targets)\nRed = excitatory, Blue = inhibitory")
+  legend("bottomright", legend = c("Excitatory", "Inhibitory"),
+         col = c("#B2182B", "#2166AC"), lwd = 2, bty = "n")
+  dev.off()
+}
+```
+
+## 16. ggraph network (publication-quality)
+
+```{r ggraph-network, fig.width=14, fig.height=10}
+library(ggraph)
+library(tidygraph)
+
+node_df <- data.frame(
+  name = c(modality_order, setdiff(unique(absolute_strongest$end), modality_order)),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    node_type = ifelse(name %in% modality_order, "modality", "target"),
+    node_color = ifelse(node_type == "modality", unname(modality_colors[name]), "grey75"),
+    type = (node_type == "modality")
+  )
+
+edge_df <- absolute_strongest %>%
+  select(from = modality, to = end, strength, valence, valence_pattern)
+
+tg <- tbl_graph(nodes = node_df, edges = edge_df, directed = TRUE)
+
+p_net <- ggraph(tg, layout = "bipartite") +
+  geom_edge_fan(
+    aes(color = valence, width = strength, alpha = strength),
+    arrow = grid::arrow(length = unit(2, "mm"), type = "closed"),
+    end_cap = circle(3, "mm")
+  ) +
+  scale_edge_color_manual(values = c("excitatory" = "#B2182B", "inhibitory" = "#2166AC")) +
+  scale_edge_width(range = c(0.2, 2), guide = "none") +
+  scale_edge_alpha(range = c(0.15, 0.6), guide = "none") +
+  geom_node_point(aes(color = node_color, size = node_type)) +
+  scale_color_identity() +
+  scale_size_manual(values = c("modality" = 8, "target" = 3), guide = "none") +
+  geom_node_text(aes(label = name, y = y + ifelse(node_type == "modality", 0.08, -0.08)),
+                 size = 3, fontface = "bold") +
+  theme_void() +
+  labs(title = "Modality -> 3rd-order neuron (Bella's targets): strongest path per pair",
+       subtitle = "Red = excitatory, Blue = inhibitory") +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11))
+
+p_net
+
+save_fig6_plot(p_net, "panel_J_ggraph_network", width = 14, height = 10)
+```
+
+---
+
+## 17. Summary statistics
+
+```{r summary-table}
+summary_tab <- absolute_strongest %>%
+  group_by(modality) %>%
+  summarise(
+    n_targets = n_distinct(end),
+    n_excitatory = sum(valence == "excitatory"),
+    n_inhibitory = sum(valence == "inhibitory"),
+    pct_excitatory = round(100 * mean(valence == "excitatory"), 1),
+    mean_strength = mean(strength),
+    n_unique_patterns = n_distinct(valence_pattern),
+    top_pattern = names(sort(table(valence_pattern), decreasing = TRUE))[1],
+    .groups = "drop"
+  )
+
+cat("Summary per modality:\n")
+print(as.data.frame(summary_tab), row.names = FALSE)
+
+cat(sprintf("\nOverall excitatory fraction: %.1f%%\n",
+            100 * mean(absolute_strongest$valence == "excitatory")))
+cat(sprintf("Most common pattern: %s (%d occurrences)\n",
+            pattern_counts$valence_pattern[1], pattern_counts$count[1]))
+cat(sprintf("\nValence conservation: %.0f%% all excitatory, %.0f%% all inhibitory, %.0f%% mixed\n",
+            100 * mean(conservation$category == "all excitatory"),
+            100 * mean(conservation$category == "all inhibitory"),
+            100 * mean(conservation$category == "mixed")))
+```

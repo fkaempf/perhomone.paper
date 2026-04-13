@@ -1,0 +1,219 @@
+---
+title: "Figure 5A: mAL Input Profiles"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel A: Discrete mAL subtypes receive different sensory channels
+=========================================================================
+Diverging heatmap showing the effective sensory input profile for each mAL
+subtype, computed from K strongest connectome paths (excitatory - inhibitory
+path strength).
+
+Rows: mAL subtypes, hierarchically clustered by input profile similarity
+Columns: 7 sensory channels (DA1, VA1v, VA1d, auditory, visual, ppk23, ppk25)
+Color: Blue (inhibited) - White (zero) - Red (activated)
+
+Row annotations:
+  - Neurotransmitter: GABA (purple) / unclear (grey) / etc.
+  - Dimorphism: male_specific (orange) / shared (light blue)
+"
+pdir <- panel_plot_dir("panel_A_description", "txt")
+writeLines(description, file.path(pdir, "panel_A_description.txt"))
+cat(description)
+```
+
+## Build activation matrix
+
+```{r activation-matrix}
+# mal_activation_matrix is pre-computed in setup.R
+# Rows = mAL subtypes, Cols = sensory modalities
+mat <- mal_activation_matrix
+
+# Verify data
+cat("Activation matrix dimensions:", dim(mat), "\n")
+cat("Row names:", rownames(mat), "\n")
+cat("Col names:", colnames(mat), "\n")
+cat("\nRange:", range(mat), "\n")
+```
+
+## Row annotations
+
+```{r row-annotations}
+# Row annotation dataframe (must match rownames of mat)
+row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"),
+                       drop = FALSE]
+
+# Column annotation: modality group
+col_annot <- data.frame(
+  modality_group = modality_group[colnames(mat)],
+  row.names = colnames(mat)
+)
+
+# Annotation colors
+ann_colors <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors,
+  modality_group   = modality_group_colors
+)
+```
+
+## Heatmap: raw activation values
+
+```{r heatmap-raw, fig.width=8, fig.height=10}
+# Diverging color palette: blue - white - red
+n_colors <- 100
+max_abs <- max(abs(mat))
+breaks <- seq(-max_abs, max_abs, length.out = n_colors + 1)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(n_colors)
+
+save_heatmap_both_orientations(
+  mat         = mat,
+  row_annot   = row_annot,
+  col_annot   = col_annot,
+  ann_colors  = ann_colors,
+  name        = "panel_A_input_profiles_raw",
+  width       = 8,
+  height      = 10,
+  breaks      = breaks,
+  color       = colors,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6,
+  fontsize_col = 10,
+  border_color = NA,
+  cellwidth    = 30,
+  cellheight   = 14,
+  gaps_col     = c(3, 4, 5)   # gaps between olfactory|auditory|visual|contact
+)
+
+# Also render inline
+draw_heatmap_fixed_annot <- function(mat, row_annot, col_annot, ann_colors,
+                                     total_annot_cm = 1.5, ...) {
+  library(grid)
+  library(gtable)
+  n_bands <- ncol(row_annot)
+  band_w  <- unit(total_annot_cm / n_bands, "cm")
+  dots <- list(...)
+  if (pub_mode) { dots$main <- "" }
+  hm <- do.call(pheatmap, c(list(
+    mat = mat, annotation_row = row_annot, annotation_col = col_annot,
+    annotation_colors = ann_colors, silent = TRUE
+  ), dots))
+  gt <- hm$gtable
+  ann_idx <- grep("row_annotation", gt$layout$name)
+  for (idx in ann_idx) {
+    col_pos <- gt$layout$l[idx]
+    gt$widths[col_pos] <- band_w
+  }
+  grid.newpage(); grid.draw(gt)
+  invisible(hm)
+}
+
+hm_raw <- draw_heatmap_fixed_annot(
+  mat, row_annot, col_annot, ann_colors,
+  breaks = breaks, color = colors,
+  cluster_rows = TRUE, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 10,
+  border_color = NA, cellwidth = 30, cellheight = 14,
+  gaps_col = c(3, 4, 5)
+)
+
+# Save dendrogram row order for downstream panels
+panel_A_row_order <- hm_raw$tree_row$order
+names(panel_A_row_order) <- rownames(mat)[panel_A_row_order]
+saveRDS(panel_A_row_order, file.path(fig5_dir, "panel_A_row_order.rds"))
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_subtypes <- nrow(mat)
+n_modalities <- ncol(mat)
+n_gaba <- sum(mal_nt[rownames(mat)] == "GABA", na.rm = TRUE)
+n_unclear <- sum(mal_nt[rownames(mat)] == "unclear", na.rm = TRUE)
+
+dominant_mod <- apply(abs(mat), 1, function(row) colnames(mat)[which.max(row)])
+mod_table <- table(dominant_mod)
+
+neg_ppk23 <- rownames(mat)[mat[, "ppk23"] < 0]
+pos_ppk23 <- rownames(mat)[mat[, "ppk23"] > 0]
+
+strongest_channel <- names(which.max(colMeans(abs(mat))))
+weakest_channel   <- names(which.min(colMeans(abs(mat))))
+
+narrative <- sprintf(
+"PANEL A: mAL Input Profiles -- Sensory Specialization Heatmap
+================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+A diverging heatmap displaying the net sensory input strength (excitatory minus
+inhibitory path strength) for each of the %d mAL interneuron subtypes across
+%d sensory channels: three olfactory (DA1, VA1v, VA1d), one auditory, one
+visual, and two contact chemosensory (ppk23 and ppk25).
+
+Rows are hierarchically clustered (Ward's method on Euclidean distance) to
+reveal groups of subtypes with similar input profiles. Row annotations mark
+each subtype's neurotransmitter identity (%d GABAergic, %d unclear) and dimorphism
+(male-specific vs shared). Column annotations mark the sensory modality group.
+
+KEY OBSERVATIONS
+----------------
+1. mAL subtypes are NOT uniformly driven by all sensory channels. The
+   clustering reveals distinct input profile groups.
+
+2. The strongest average channel is %s; the weakest is %s.
+
+3. %d subtypes show NEGATIVE net ppk23 strength (%s), indicating that
+   inhibitory paths from ppk23 sensory neurons dominate over excitatory
+   paths at these neurons -- the signature of the GABAergic sign-inverting
+   relay through AN05B035 (detailed in Panel C).
+
+4. %d subtypes show positive ppk23 strength (%s), receiving ppk23
+   input through excitatory relay pathways.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The mAL interneuron population, classically treated as a single cell type
+that uniformly inhibits P1 courtship command neurons, is in fact a
+heterogeneous ensemble of at least %d functionally distinct subtypes.
+Each subtype samples a different combination of sensory modalities, meaning
+the mAL population can encode WHICH sensory channels are active, not merely
+WHETHER pheromone contact has occurred.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel A is the anchor panel for Figure 5. It establishes the central claim:
+mAL subtypes are sensory-specialized. All subsequent panels elaborate on
+specific aspects of this diversity:
+  - Panel B: How relay neurons create the selectivity spectrum
+  - Panel C: Why ppk23 is sign-inverted at some subtypes
+  - Panel D: How subtypes differentially target P1 command neurons
+  - Panel E: The excitatory/inhibitory path balance underlying these profiles
+  - Panels F/I: How this diversity creates distinct population codes
+  - Panel G: A case study of convergent excitation/inhibition at mAL_m2a
+  - Panel H: Sexual dimorphism of the pheromone pathway
+",
+n_subtypes, n_modalities, n_gaba, n_unclear,
+strongest_channel, weakest_channel,
+length(neg_ppk23), paste(neg_ppk23, collapse = ", "),
+length(pos_ppk23), paste(pos_ppk23, collapse = ", "),
+n_subtypes
+)
+
+save_panel_narrative("panel_A", narrative)
+cat(narrative)
+```

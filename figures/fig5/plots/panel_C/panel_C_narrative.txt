@@ -1,0 +1,56 @@
+PANEL C: ppk23 Sign Reversal -- Opposing Pheromone Responses
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Paired bar chart showing ppk23 (gold) and ppk25 (tan) net path strength
+for each mAL subtype, ordered by ppk23 response from most negative to most
+positive. The zero line separates subtypes where ppk23 paths are net-inhibitory
+(bars extending left/down) from those where ppk23 is net-excitatory.
+
+Right: Scatter plot of ppk23 vs ppk25 net path strength, colored by
+neurotransmitter. The quadrants separate subtypes by their response polarity
+to each pheromone channel.
+
+KEY OBSERVATIONS
+----------------
+1. 11 of 37 mAL subtypes have NEGATIVE ppk23 net path strength, meaning
+   ppk23 pheromone input is effectively inhibitory at these neurons.
+   The most negative is mAL4F (ppk23 = -0.0011).
+
+2. 26 subtypes have positive ppk23, with mAL_m3c being the strongest
+   (ppk23 = 0.1115).
+
+3. ppk25 is positive in 26 subtypes -- nearly all mAL neurons receive
+   net-excitatory ppk25 pheromone input.
+
+4. ppk23 ranges from -0.0011 to 0.1115; ppk25 ranges from -0.0011 to 0.1113.
+
+5. Subtypes with negative ppk23 (mAL4F, mAL4D, mAL4B, mAL4E, mALB4, mAL6, mAL4I, mAL4G, mAL4H, mALD3, mALB1) cluster in the
+   negative-ppk23 / positive-ppk25 quadrant, while subtypes with positive
+   ppk23 (mALB3, mALD1, mALB2, mALD4, mAL4A, mALB5, mAL_m10, mAL4C, mAL_m7, mAL_m11, mAL_m8, mAL_m2b, mAL_m2a, mAL_m5b, mAL5B, mAL_m9, mAL_m3b, mAL5A1, mAL_m5c, mAL_m6, mAL_m4, mAL_m1, mAL_m5a, mAL_m3a, mAL5A2, mAL_m3c) show positive responses to both channels.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The ppk23 sign reversal is a circuit-level computation, not a receptor-level
+property. ppk23 sensory neurons (WG4, LgLG1a, etc.) make excitatory synapses,
+but the GABAergic ascending neuron AN05B035 intercepts these signals and
+re-routes them through an inhibitory relay to specific AN09B017 variants.
+Subtypes wired through this inhibitory relay receive ppk23 as a net-negative
+signal.
+
+This creates two functionally opposite mAL subpopulations:
+  - ppk23-inhibited: excited by female (ppk25) but INHIBITED by male (ppk23)
+    pheromones. These neurons could encode 'female-only' contact.
+  - ppk23-excited: excited by both ppk23 and ppk25. These neurons could
+    encode 'any conspecific contact' regardless of sex.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel C reveals the most surprising finding of the path analysis: the same
+pheromone receptor (ppk23) produces opposite effects at different mAL subtypes.
+This builds directly on Panel B's AN09B017 relay architecture (which showed
+the AN05B035 inhibitory branch) and provides the mechanistic basis for the
+subtype diversity shown in Panel A. The sign reversal is further decomposed
+into its excitatory and inhibitory components in Panel E.
+

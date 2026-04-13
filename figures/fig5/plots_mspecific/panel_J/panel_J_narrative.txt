@@ -1,0 +1,96 @@
+PANEL J: ppk23 Response Group vs P1 Connectivity
+===================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+mAL subtypes are split into two groups based on their response to ppk23
+(male contact): ppk23-inhibited (0 subtypes, net negative path strength)
+and ppk23-excited (16 subtypes, net positive). This panel asks: do these
+two groups connect differently to downstream P1 courtship command neurons?
+
+Connectivity is measured as INPUT-NORMALIZED synaptic weights -- the fraction
+of each P1 neuron's total input that comes from each mAL subtype. This
+controls for differences in P1 neuron size and total synapse count.
+
+Top: Heatmap of signed input-normalized mAL -> P1 weights, with rows split
+by ppk23 response group and annotated by NT.
+
+Middle: Box plot comparing total P1 output between the two groups.
+
+Bottom: Per-P1 bar chart showing the total input fraction from each group.
+
+KEY OBSERVATIONS
+----------------
+1. ppk23-inhibited subtypes have mean total P1 output = NaN;
+   ppk23-excited subtypes = 0.185090 (NaNx difference).
+   Wilcoxon p = NA.
+
+2. Continuous relationship (ppk23 strength vs P1 output): rho=0.359, p=0.173.
+
+3. P1 subtype bias:   P1_10a: biased toward ppk23-excited
+  P1_10b: biased toward ppk23-excited
+  P1_10c: biased toward ppk23-excited
+  P1_10d: biased toward ppk23-excited
+  P1_11a: biased toward ppk23-excited
+  P1_11b: biased toward ppk23-excited
+  P1_12a: biased toward ppk23-excited
+  P1_12b: biased toward ppk23-excited
+  P1_13a: biased toward ppk23-excited
+  P1_13b: biased toward ppk23-excited
+  P1_13c: biased toward ppk23-excited
+  P1_14a: biased toward ppk23-excited
+  P1_14b: biased toward ppk23-excited
+  P1_15a: biased toward ppk23-excited
+  P1_15b: biased toward ppk23-excited
+  P1_15c: biased toward ppk23-excited
+  P1_16a: biased toward ppk23-excited
+  P1_16b: biased toward ppk23-excited
+  P1_17a: biased toward ppk23-excited
+  P1_17b: biased toward ppk23-excited
+  P1_18a: biased toward ppk23-excited
+  P1_18b: biased toward ppk23-excited
+  P1_19: biased toward ppk23-excited
+  P1_1a: biased toward ppk23-excited
+  P1_1b: biased toward ppk23-excited
+  P1_2a: biased toward ppk23-excited
+  P1_2a/2b: biased toward ppk23-excited
+  P1_2b: biased toward ppk23-excited
+  P1_2c: biased toward ppk23-excited
+  P1_3a: biased toward ppk23-excited
+  P1_3b: biased toward ppk23-excited
+  P1_3c: biased toward ppk23-excited
+  P1_4a: biased toward ppk23-excited
+  P1_4b: biased toward ppk23-excited
+  P1_5a: biased toward ppk23-excited
+  P1_5b: biased toward ppk23-excited
+  P1_6a: biased toward ppk23-excited
+  P1_6b: biased toward ppk23-excited
+  P1_7a: biased toward ppk23-excited
+  P1_7b: biased toward ppk23-excited
+  P1_8a: biased toward ppk23-excited
+  P1_8b: biased toward ppk23-excited
+  P1_8c: biased toward ppk23-excited
+  P1_9a: biased toward ppk23-excited
+  P1_9b: biased toward ppk23-excited
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+If ppk23-inhibited subtypes (which are suppressed during male contact)
+connect more strongly to P1, this creates a disinhibition mechanism:
+male pheromones suppress these mAL subtypes, releasing P1 from their
+inhibitory drive. Conversely, ppk23-excited subtypes (activated during
+male contact) would INCREASE P1 inhibition during male encounters.
+
+The differential targeting of P1 subtypes by the two groups means that
+male vs female contact could selectively release different P1 command
+neurons from inhibition, enabling sex-specific courtship responses.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel J connects the ppk23 sign reversal (Panel C) to the P1 output
+specificity (Panel D). While Panel C showed that subtypes differ in
+ppk23 polarity and Panel D showed they target different P1 neurons,
+Panel J tests whether these two properties are CORRELATED -- whether
+the subtypes that are inhibited by male contact are the same ones that
+project most heavily to specific P1 command neurons.
+

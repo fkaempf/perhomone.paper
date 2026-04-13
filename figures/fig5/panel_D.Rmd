@@ -1,0 +1,298 @@
+---
+title: "Figure 5D: mAL-to-P1 Output Specificity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel D: Different mAL subtypes target different courtship command neurons
+==========================================================================
+Top:    Biclustered heatmap of mAL -> P1 synaptic weights showing
+        block-diagonal structure. Rows = mAL_m subtypes. Columns = P1 subtypes.
+        Color: Blue (inhibitory) - White (none) - Red (excitatory)
+
+Bottom: Summary bar chart of total inhibitory drive onto P1 from each
+        mAL subtype.
+
+Key finding: mAL subtypes do NOT uniformly inhibit all P1 neurons.
+Instead, different mAL subtypes project to different P1 subtypes,
+creating channel-specific gating of courtship command neurons.
+"
+pdir <- panel_plot_dir("panel_D_description", "txt")
+writeLines(description, file.path(pdir, "panel_D_description.txt"))
+cat(description)
+```
+
+## Query mAL -> P1 connectivity
+
+```{r mal-p1-connectivity}
+# Get direct mAL -> P1 synaptic weights from connectivity table
+mal_to_p1 <- conn %>%
+  filter(pre_type %in% mal_subtypes, post_type %in% p1_subtypes) %>%
+  group_by(pre_type, post_type) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop")
+
+cat("mAL -> P1 connections:", nrow(mal_to_p1), "\n")
+cat("mAL types with P1 connections:", length(unique(mal_to_p1$pre_type)), "\n")
+cat("P1 types receiving mAL input:", length(unique(mal_to_p1$post_type)), "\n")
+
+# Build connectivity matrix
+mal_p1_mat <- mal_to_p1 %>%
+  pivot_wider(names_from = post_type, values_from = weight, values_fill = 0) %>%
+  column_to_rownames("pre_type")
+
+# Ensure all P1 and mAL types present
+for (p1 in p1_subtypes) {
+  if (!p1 %in% colnames(mal_p1_mat)) mal_p1_mat[[p1]] <- 0
+}
+for (mal in mal_subtypes) {
+  if (!mal %in% rownames(mal_p1_mat)) {
+    mal_p1_mat <- rbind(mal_p1_mat, setNames(rep(0, ncol(mal_p1_mat)), colnames(mal_p1_mat)))
+    rownames(mal_p1_mat)[nrow(mal_p1_mat)] <- mal
+  }
+}
+
+mal_p1_mat <- as.matrix(mal_p1_mat[mal_subtypes, p1_subtypes])
+cat("\nmAL -> P1 matrix:\n")
+print(round(mal_p1_mat, 1))
+```
+
+## Apply neurotransmitter signs
+
+```{r sign-matrix}
+# mAL neurons are mostly GABAergic -> their output should be negative (inhibitory)
+# Apply sign based on NT identity
+mal_p1_signed <- mal_p1_mat
+for (mal in rownames(mal_p1_signed)) {
+  nt <- mal_nt[mal]
+  if (!is.na(nt) && nt == "GABA") {
+    mal_p1_signed[mal, ] <- -abs(mal_p1_signed[mal, ])
+  }
+  # "unclear" types keep original sign (could be either)
+}
+
+cat("\nSigned mAL -> P1 matrix (GABA = inhibitory):\n")
+print(round(mal_p1_signed, 1))
+```
+
+## Heatmap: mAL -> P1 connectivity
+
+```{r heatmap, fig.width=12, fig.height=12}
+# Row annotations
+row_annot <- mal_annot[rownames(mal_p1_signed),
+                       c("neurotransmitter", "dimorphism"),
+                       drop = FALSE]
+
+# Empty column annotation for P1 (type names are sufficient)
+col_annot <- data.frame(row.names = colnames(mal_p1_signed))
+
+ann_colors <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors
+)
+
+# Diverging palette for signed weights
+max_abs <- max(abs(mal_p1_signed))
+if (max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100)
+
+# Dynamic cell sizing based on actual type counts
+n_p1 <- ncol(mal_p1_signed)
+n_mal <- nrow(mal_p1_signed)
+cw <- min(40, max(15, 400 / n_p1))  # scale cellwidth to fit
+ch <- min(20, max(10, 500 / n_mal))  # scale cellheight to fit
+fig_w <- max(10, n_p1 * cw / 72 + 4)  # estimate needed width
+fig_h <- max(10, n_mal * ch / 72 + 3)
+
+cat(sprintf("Heatmap dimensions: %d mAL x %d P1, cellwidth=%d, cellheight=%d\n",
+            n_mal, n_p1, round(cw), round(ch)))
+
+save_heatmap_both_orientations(
+  mat        = mal_p1_signed,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  name       = "panel_D_mal_to_p1",
+  width      = fig_w, height = fig_h,
+  breaks     = breaks, color = colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 8,
+  border_color = "grey90",
+  cellwidth = cw, cellheight = ch
+)
+```
+
+## Input-normalized drive per P1 subtype
+
+```{r total-drive, fig.width=10, fig.height=6}
+# Use input-normalized matrix: adj.matrix[pre, post] = fraction of P1's total input
+mal_p1_normed <- matrix(0, nrow = length(mal_subtypes), ncol = length(p1_subtypes),
+                        dimnames = list(mal_subtypes, p1_subtypes))
+adj_rows <- rownames(adj.matrix)
+adj_cols <- colnames(adj.matrix)
+for (mal in mal_subtypes) {
+  for (p1 in p1_subtypes) {
+    if (mal %in% adj_rows && p1 %in% adj_cols) {
+      mal_p1_normed[mal, p1] <- adj.matrix[mal, p1]
+    }
+  }
+}
+
+# Apply NT signs
+mal_p1_normed_signed <- mal_p1_normed
+for (mal in rownames(mal_p1_normed_signed)) {
+  nt <- mal_nt[mal]
+  if (!is.na(nt) && nt == "GABA") {
+    mal_p1_normed_signed[mal, ] <- -abs(mal_p1_normed_signed[mal, ])
+  }
+}
+
+drive_by_subtype <- as.data.frame(mal_p1_normed_signed) %>%
+  rownames_to_column("mAL_subtype") %>%
+  pivot_longer(-mAL_subtype, names_to = "P1", values_to = "drive") %>%
+  group_by(P1, mAL_subtype) %>%
+  summarise(total_drive = sum(drive), .groups = "drop")
+
+# Only show mAL subtypes in legend that contribute >= 0.001 to any P1
+active_mal <- drive_by_subtype %>%
+  group_by(mAL_subtype) %>%
+  summarise(max_abs = max(abs(total_drive)), .groups = "drop") %>%
+  filter(max_abs >= 0.001) %>%
+  pull(mAL_subtype)
+
+# Order P1 subtypes by summed drive (most negative first)
+p1_order <- drive_by_subtype %>%
+  group_by(P1) %>%
+  summarise(sum_drive = sum(total_drive), .groups = "drop") %>%
+  arrange(sum_drive) %>%
+  pull(P1)
+drive_by_subtype$P1 <- factor(drive_by_subtype$P1, levels = p1_order)
+
+p_drive <- ggplot(drive_by_subtype %>% filter(mAL_subtype %in% active_mal),
+                  aes(x = P1, y = total_drive, fill = mAL_subtype)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  labs(x = "P1 subtype",
+       y = "Input-normalized drive from mAL\n(fraction of P1 total input)",
+       fill = "mAL subtype") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "top"
+  )
+
+save_fig5_plot(p_drive, "panel_D_total_drive", width = 10, height = 6)
+print(p_drive)
+```
+
+## Dot plot: mAL output profile summary
+
+```{r dot-plot, fig.width=10, fig.height=8}
+# Reshape for dot plot
+dot_data <- as.data.frame(mal_p1_signed) %>%
+  rownames_to_column("mAL_subtype") %>%
+  pivot_longer(-mAL_subtype, names_to = "P1", values_to = "weight") %>%
+  mutate(
+    abs_weight = abs(weight),
+    sign = ifelse(weight < 0, "inhibitory", ifelse(weight > 0, "excitatory", "none"))
+  )
+
+p_dot <- ggplot(dot_data %>% filter(abs_weight > 0),
+                aes(x = P1, y = mAL_subtype)) +
+  geom_point(aes(size = abs_weight, color = sign)) +
+  scale_size_continuous(range = c(1, 8), name = "|Weight|") +
+  scale_color_manual(values = c("inhibitory" = "#2166AC", "excitatory" = "#B2182B"),
+                     name = "Sign") +
+  labs(x = "P1 subtype", y = "mAL subtype") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    panel.grid.major = element_line(linewidth = 0.2, color = "grey90")
+  )
+
+save_fig5_plot(p_dot, "panel_D_dot_plot", width = 10, height = 8)
+print(p_dot)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_mal_with_p1 <- sum(rowSums(abs(mal_p1_mat)) > 0)
+n_p1_targeted <- sum(colSums(abs(mal_p1_mat)) > 0)
+total_synapses <- sum(mal_p1_mat)
+max_connection <- max(mal_p1_mat)
+max_pair <- which(mal_p1_mat == max_connection, arr.ind = TRUE)
+strongest_mal <- rownames(mal_p1_mat)[max_pair[1, 1]]
+strongest_p1 <- colnames(mal_p1_mat)[max_pair[1, 2]]
+
+narrative <- sprintf(
+"PANEL D: mAL-to-P1 Output Specificity -- Channel-Specific Gating
+===================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Top: A biclustered heatmap of direct synaptic weights from %d mAL subtypes
+(rows) to %d P1 courtship command neuron subtypes (columns). Color encodes
+signed synaptic weight: blue = inhibitory (GABAergic mAL output), white = no
+connection, red = excitatory (unclear NT subtypes). Both rows and columns are
+hierarchically clustered to reveal block-diagonal structure.
+
+Bottom: Stacked bar chart showing total inhibitory drive from mAL onto each
+P1 subtype, decomposed by mAL subtype.
+
+Also: Dot plot showing each mAL->P1 connection as a point sized by weight
+and colored by sign.
+
+KEY OBSERVATIONS
+----------------
+1. %d of %d mAL subtypes make direct synapses onto P1 neurons; %d of %d
+   P1 subtypes receive mAL input.
+
+2. The connectivity is NOT uniform: mAL subtypes do not all inhibit the same
+   P1 neurons. Instead, different mAL subtypes preferentially target
+   different P1 subtypes.
+
+3. The strongest single connection is %s -> %s (%d synapses).
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+If all mAL subtypes uniformly inhibited all P1 neurons, then mAL would
+function as a simple ON/OFF gate for courtship. Instead, the block-diagonal
+structure reveals that mAL implements CHANNEL-SPECIFIC gating: each sensory
+stream (carried by a different mAL subtype) can independently modulate
+different P1 command neurons.
+
+This means the courtship decision is not binary (go/no-go) but graded --
+different P1 subtypes may be released from inhibition by different sensory
+combinations, potentially activating different aspects of courtship behavior.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel D closes the sensory-to-motor loop opened by Panel A. While Panel A
+shows that mAL subtypes receive different sensory inputs, Panel D shows that
+they also SEND different outputs to the courtship command layer. Together,
+they establish that the mAL population implements a labeled-line mapping
+from sensory channels to motor command channels. This is essential context
+for Panel H, which shows that this structured connectivity is sexually
+dimorphic.
+",
+length(mal_subtypes), length(p1_subtypes),
+n_mal_with_p1, length(mal_subtypes), n_p1_targeted, length(p1_subtypes),
+strongest_mal, strongest_p1, max_connection
+)
+
+save_panel_narrative("panel_D", narrative)
+cat(narrative)
+```

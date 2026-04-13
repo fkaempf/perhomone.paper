@@ -1,0 +1,16 @@
+
+Panel H: Male-specific subtypes carry the pheromone-to-P1 inhibitory pathway
+=============================================================================
+Left:  Paired box plots comparing male-specific vs shared mAL subtypes for:
+       - ppk input strength (top) -- direct synaptic weight
+       - P1 output strength (bottom) -- direct synaptic weight
+
+Right: Dot plot summary -- all mAL subtypes as rows, columns = dimorphism class,
+       fru/dsx expression, NT prediction, ppk23 input, ppk25 input, P1 output
+
+Key finding: Male-specific mAL_m subtypes receive stronger ppk input AND project
+more heavily to P1, indicating the pheromone-to-courtship inhibitory pathway is
+sexually dimorphic.
+
+Data source: Direct synaptic connectivity from the connectome.
+

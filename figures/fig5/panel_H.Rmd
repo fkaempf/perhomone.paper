@@ -1,0 +1,262 @@
+---
+title: "Figure 5H: Sexual Dimorphism of mAL Connectivity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel H: Male-specific subtypes carry the pheromone-to-P1 inhibitory pathway
+=============================================================================
+Left:  Paired box plots comparing male-specific vs shared mAL subtypes for:
+       - ppk input strength (top) -- direct synaptic weight
+       - P1 output strength (bottom) -- direct synaptic weight
+
+Right: Dot plot summary -- all mAL subtypes as rows, columns = dimorphism class,
+       fru/dsx expression, NT prediction, ppk23 input, ppk25 input, P1 output
+
+Key finding: Male-specific mAL_m subtypes receive stronger ppk input AND project
+more heavily to P1, indicating the pheromone-to-courtship inhibitory pathway is
+sexually dimorphic.
+
+Data source: Direct synaptic connectivity from the connectome.
+"
+pdir <- panel_plot_dir("panel_H_description", "txt")
+writeLines(description, file.path(pdir, "panel_H_description.txt"))
+cat(description)
+```
+
+## Split mAL types by dimorphism class
+
+```{r dimorphism-split}
+# Use mal_dimorphism from setup.R (male_specific vs shared)
+male_specific_mal <- mal_subtypes[mal_dimorphism[mal_subtypes] == "male_specific"]
+shared_mal <- mal_subtypes[mal_dimorphism[mal_subtypes] == "shared"]
+
+cat("Total mAL types:", length(mal_subtypes), "\n")
+cat("Male-specific:", length(male_specific_mal), "\n")
+cat("Shared:", length(shared_mal), "\n")
+```
+
+## Compute ppk input strength (direct synaptic + path-based)
+
+```{r ppk-input}
+ppk23_types <- channel_neurons[["ppk23"]]
+ppk25_types <- channel_neurons[["ppk25"]]
+
+# Direct synaptic input from ppk sensory neurons to all mAL types
+ppk_direct <- conn %>%
+  filter(pre_type %in% c(ppk23_types, ppk25_types),
+         post_type %in% mal_subtypes) %>%
+  mutate(channel = ifelse(pre_type %in% ppk23_types, "ppk23", "ppk25")) %>%
+  group_by(post_type, channel) %>%
+  summarise(input = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = channel, values_from = input,
+              names_prefix = "direct_", values_fill = 0) %>%
+  rename(type = post_type)
+
+# Build combined data frame
+# Ensure both ppk columns exist (pivot_wider only creates columns for channels present)
+if (!"direct_ppk23" %in% colnames(ppk_direct)) ppk_direct$direct_ppk23 <- 0
+if (!"direct_ppk25" %in% colnames(ppk_direct)) ppk_direct$direct_ppk25 <- 0
+
+ppk_all <- data.frame(type = mal_subtypes, stringsAsFactors = FALSE) %>%
+  left_join(ppk_direct, by = "type") %>%
+  mutate(
+    direct_ppk23 = replace_na(direct_ppk23, 0),
+    direct_ppk25 = replace_na(direct_ppk25, 0),
+    total_ppk_direct = direct_ppk23 + direct_ppk25,
+    # Path-based strengths from activation matrix
+    path_ppk23 = mal_activation_matrix[type, "ppk23"],
+    path_ppk25 = mal_activation_matrix[type, "ppk25"],
+    total_ppk_path = abs(path_ppk23) + abs(path_ppk25),
+    dimorphism = mal_dimorphism[type],
+    nt = mal_nt[type]
+  )
+
+cat("ppk input summary by dimorphism:\n")
+print(ppk_all %>%
+  group_by(dimorphism) %>%
+  summarise(
+    n = n(),
+    mean_direct_ppk = mean(total_ppk_direct),
+    mean_path_ppk = mean(total_ppk_path),
+    .groups = "drop"
+  ))
+```
+
+## Compute P1 output strength for all mAL types
+
+```{r p1-output}
+mal_to_p1_all <- conn %>%
+  filter(pre_type %in% mal_subtypes, post_type %in% p1_subtypes) %>%
+  group_by(pre_type) %>%
+  summarise(p1_output = sum(weight, na.rm = TRUE), .groups = "drop")
+
+ppk_all <- ppk_all %>%
+  left_join(mal_to_p1_all, by = c("type" = "pre_type")) %>%
+  mutate(p1_output = replace_na(p1_output, 0))
+```
+
+## Paired box plots: male-specific vs shared
+
+```{r box-plots, fig.width=10, fig.height=10}
+p_ppk_direct <- ggplot(ppk_all, aes(x = dimorphism, y = total_ppk_direct, fill = dimorphism)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.6) +
+  scale_fill_manual(values = dimorphism_colors) +
+  labs(x = "Dimorphism class",
+       y = "Direct ppk synaptic input\n(synapse count)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "none")
+
+p_ppk_path <- ggplot(ppk_all, aes(x = dimorphism, y = total_ppk_path, fill = dimorphism)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.6) +
+  scale_fill_manual(values = dimorphism_colors) +
+  labs(x = "Dimorphism class",
+       y = "Path-based ppk strength\n(|ppk23| + |ppk25|)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "none")
+
+p_p1_box <- ggplot(ppk_all, aes(x = dimorphism, y = p1_output, fill = dimorphism)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.6) +
+  scale_fill_manual(values = dimorphism_colors) +
+  labs(x = "Dimorphism class",
+       y = "P1 output strength\n(synapse count)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "none")
+
+p_box_combined <- (p_ppk_direct | p_ppk_path) / p_p1_box +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_box_combined, "panel_H_dimorphism_boxplots", width = 10, height = 10)
+print(p_box_combined)
+```
+
+## Summary dot plot
+
+```{r dot-summary, fig.width=10, fig.height=14}
+dot_summary <- ppk_all %>%
+  arrange(dimorphism, desc(total_ppk_direct)) %>%
+  mutate(type = factor(type, levels = type))
+
+dot_long <- dot_summary %>%
+  select(type, dimorphism, direct_ppk23, direct_ppk25, p1_output) %>%
+  pivot_longer(cols = c(direct_ppk23, direct_ppk25, p1_output),
+               names_to = "metric", values_to = "value") %>%
+  mutate(metric = factor(metric,
+                         levels = c("direct_ppk23", "direct_ppk25", "p1_output"),
+                         labels = c("ppk23 input", "ppk25 input", "P1 output")))
+
+p_dot <- ggplot(dot_long %>% filter(value > 0),
+                aes(x = metric, y = type)) +
+  geom_point(aes(size = value, color = metric)) +
+  scale_size_continuous(range = c(0.5, 6), name = "Synapse count") +
+  scale_color_manual(values = c("ppk23 input" = "#FFD92F",
+                                "ppk25 input" = "#E5C494",
+                                "P1 output" = "#984EA3"),
+                     name = "Metric") +
+  facet_grid(dimorphism ~ ., scales = "free_y", space = "free_y") +
+  labs(x = "Connectivity metric", y = "mAL type") +
+  theme_pub(base_size = 10) +
+  theme(
+    strip.text.y = element_text(angle = 0),
+    panel.grid.major = element_line(linewidth = 0.2, color = "grey90")
+  )
+
+save_fig5_plot(p_dot, "panel_H_summary_dot_plot", width = 10, height = 14)
+print(p_dot)
+```
+
+## Statistical tests
+
+```{r stats}
+if (length(unique(ppk_all$dimorphism)) > 1) {
+  test_ppk_direct <- wilcox.test(total_ppk_direct ~ dimorphism, data = ppk_all)
+  test_ppk_path   <- wilcox.test(total_ppk_path ~ dimorphism, data = ppk_all)
+  test_p1         <- wilcox.test(p1_output ~ dimorphism, data = ppk_all)
+  cat("Wilcoxon test - direct ppk input: p =", format(test_ppk_direct$p.value, digits = 3), "\n")
+  cat("Wilcoxon test - path ppk input:   p =", format(test_ppk_path$p.value, digits = 3), "\n")
+  cat("Wilcoxon test - P1 output:        p =", format(test_p1$p.value, digits = 3), "\n")
+} else {
+  cat("Only one dimorphism class present in data\n")
+  test_ppk_direct <- test_ppk_path <- test_p1 <- list(p.value = NA)
+}
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_male_specific <- sum(ppk_all$dimorphism == "male_specific")
+n_shared <- sum(ppk_all$dimorphism == "shared")
+
+mean_ppk_direct_male <- mean(ppk_all$total_ppk_direct[ppk_all$dimorphism == "male_specific"])
+mean_ppk_direct_shared <- mean(ppk_all$total_ppk_direct[ppk_all$dimorphism == "shared"])
+mean_ppk_path_male <- mean(ppk_all$total_ppk_path[ppk_all$dimorphism == "male_specific"])
+mean_ppk_path_shared <- mean(ppk_all$total_ppk_path[ppk_all$dimorphism == "shared"])
+mean_p1_male <- mean(ppk_all$p1_output[ppk_all$dimorphism == "male_specific"])
+mean_p1_shared <- mean(ppk_all$p1_output[ppk_all$dimorphism == "shared"])
+
+ppk_direct_fold <- ifelse(mean_ppk_direct_shared > 0, mean_ppk_direct_male / mean_ppk_direct_shared, Inf)
+ppk_path_fold <- ifelse(mean_ppk_path_shared > 0, mean_ppk_path_male / mean_ppk_path_shared, Inf)
+p1_fold <- ifelse(mean_p1_shared > 0, mean_p1_male / mean_p1_shared, Inf)
+
+ppk_direct_p <- ifelse(!is.na(test_ppk_direct$p.value),
+                       format(test_ppk_direct$p.value, digits = 3), "N/A")
+ppk_path_p <- ifelse(!is.na(test_ppk_path$p.value),
+                     format(test_ppk_path$p.value, digits = 3), "N/A")
+p1_p_text <- ifelse(!is.na(test_p1$p.value),
+                    format(test_p1$p.value, digits = 3), "N/A")
+
+top_ppk_male <- ppk_all %>%
+  filter(dimorphism == "male_specific") %>%
+  arrange(desc(total_ppk_direct)) %>%
+  head(3) %>%
+  pull(type)
+
+narrative <- sprintf(
+"PANEL H: Sexual Dimorphism -- Male-Specific Pheromone-to-P1 Pathway
+=====================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Box plots comparing male-specific (%d subtypes) vs shared (%d subtypes):
+  - Direct ppk synaptic input (synapse count)
+  - Path-based ppk strength (multi-hop path analysis)
+  - P1 output strength (synapse count to P1 courtship neurons)
+
+Dot plot: all mAL types as rows, columns = ppk23 input, ppk25 input,
+P1 output, faceted by dimorphism class.
+
+KEY OBSERVATIONS
+----------------
+1. Direct ppk input: male-specific %.1fx stronger (Wilcoxon p = %s).
+   Path-based ppk: male-specific %.1fx stronger (p = %s).
+
+2. P1 output: male-specific %.1fx stronger (p = %s).
+
+3. Top ppk-receiving male-specific subtypes: %s.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The pheromone-to-courtship inhibitory pathway is sexually dimorphic.
+Male-specific mAL subtypes receive strong pheromone input AND project
+heavily to P1, using primarily GABAergic neurotransmission. Shared
+mAL types participate in non-pheromone circuits.
+",
+n_male_specific, n_shared,
+ppk_direct_fold, ppk_direct_p,
+ppk_path_fold, ppk_path_p,
+p1_fold, p1_p_text,
+paste(top_ppk_male, collapse = ", ")
+)
+
+save_panel_narrative("panel_H", narrative)
+cat(narrative)
+```

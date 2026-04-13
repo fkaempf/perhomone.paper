@@ -1,0 +1,50 @@
+PANEL D: mAL-to-P1 Output Specificity -- Channel-Specific Gating
+===================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Top: A biclustered heatmap of direct synaptic weights from 16 mAL subtypes
+(rows) to 45 P1 courtship command neuron subtypes (columns). Color encodes
+signed synaptic weight: blue = inhibitory (GABAergic mAL output), white = no
+connection, red = excitatory (unclear NT subtypes). Both rows and columns are
+hierarchically clustered to reveal block-diagonal structure.
+
+Bottom: Stacked bar chart showing total inhibitory drive from mAL onto each
+P1 subtype, decomposed by mAL subtype.
+
+Also: Dot plot showing each mAL->P1 connection as a point sized by weight
+and colored by sign.
+
+KEY OBSERVATIONS
+----------------
+1. 15 of 16 mAL subtypes make direct synapses onto P1 neurons; 32 of 45
+   P1 subtypes receive mAL input.
+
+2. The connectivity is NOT uniform: mAL subtypes do not all inhibit the same
+   P1 neurons. Instead, different mAL subtypes preferentially target
+   different P1 subtypes.
+
+3. The strongest single connection is mAL_m1 -> P1_3c (723 synapses).
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+If all mAL subtypes uniformly inhibited all P1 neurons, then mAL would
+function as a simple ON/OFF gate for courtship. Instead, the block-diagonal
+structure reveals that mAL implements CHANNEL-SPECIFIC gating: each sensory
+stream (carried by a different mAL subtype) can independently modulate
+different P1 command neurons.
+
+This means the courtship decision is not binary (go/no-go) but graded --
+different P1 subtypes may be released from inhibition by different sensory
+combinations, potentially activating different aspects of courtship behavior.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel D closes the sensory-to-motor loop opened by Panel A. While Panel A
+shows that mAL subtypes receive different sensory inputs, Panel D shows that
+they also SEND different outputs to the courtship command layer. Together,
+they establish that the mAL population implements a labeled-line mapping
+from sensory channels to motor command channels. This is essential context
+for Panel H, which shows that this structured connectivity is sexually
+dimorphic.
+

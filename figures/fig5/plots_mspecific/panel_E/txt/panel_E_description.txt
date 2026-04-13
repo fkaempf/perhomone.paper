@@ -1,0 +1,16 @@
+
+Panel E: Excitatory and inhibitory paths create distinct ppk response profiles
+=================================================================================
+For each mAL subtype, the ppk23 and ppk25 path strengths decompose into
+excitatory and inhibitory components via different relay neuron pathways.
+
+Left:  Stacked bar chart showing excitatory (red) and inhibitory (blue)
+       path strength for ppk23 and ppk25 per mAL subtype.
+
+Right: Scatter of ppk23 E/I balance vs ppk25 E/I balance. Subtypes with
+       strong ppk23 inhibition use the GABAergic AN05B035 relay.
+
+Key finding: The sign reversal of ppk23 at certain subtypes is driven
+by stronger inhibitory than excitatory path strengths, reflecting the
+GABAergic sign-inverting relay through AN05B035.
+

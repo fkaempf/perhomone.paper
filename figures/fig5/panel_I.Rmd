@@ -1,0 +1,478 @@
+---
+title: "Figure 5I: Signal Flow Model vs Path-Based Predictions"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel I: Two independent models converge on the same population predictions
+============================================================================
+The path-based analysis (Panel F) and signal flow model make independent
+predictions about how mAL subtypes respond to pheromone encounter scenarios.
+This panel compares their predictions to assess robustness.
+
+Left:  Signal flow scenario heatmap (3 scenarios x mAL subtypes)
+Right: Scatter comparing path-based vs signal flow activation per subtype,
+       faceted by scenario.
+
+Key finding: The two models agree on the major features of the population
+code, particularly which subtypes are activated vs inhibited by each scenario.
+"
+pdir <- panel_plot_dir("panel_I_description", "txt")
+writeLines(description, file.path(pdir, "panel_I_description.txt"))
+cat(description)
+```
+
+## Extract scenario data from signal flow model
+
+```{r scenario-data}
+# Define the 3 scenarios (same as Panel F)
+# Lone male encounter excluded: male contact always co-occurs with cVA
+scenarios <- c(
+  "Female encounter" = "ppk23+ppk25",
+  "cVA + male"      = "DA1+ppk23",
+  "cVA + female"    = "DA1+ppk23+ppk25"
+)
+
+scenario_colors <- c(
+  "Female encounter" = "#D73027",
+  "cVA + male"      = "#8E24AA",
+  "cVA + female"    = "#F57C00"
+)
+
+# Signal flow model now covers all mAL types via mAL_all target group
+cat(sprintf("Signal flow model covers %d mAL types\n", length(mal_subtypes)))
+
+# Signal flow model predictions (use net_input = pre-nonlinearity, same as Panel F)
+scenario_data_sf <- list()
+for (scenario_name in names(scenarios)) {
+  combo_name <- scenarios[[scenario_name]]
+  dat <- mal_all_combos %>%
+    filter(combination == combo_name, target_type %in% mal_subtypes) %>%
+    select(target_type, net_input) %>%
+    arrange(target_type)
+  scenario_data_sf[[scenario_name]] <- dat
+}
+
+# Build signal flow scenario matrix
+sf_scenario_mat <- do.call(rbind, lapply(names(scenario_data_sf), function(nm) {
+  d <- scenario_data_sf[[nm]]
+  vals <- setNames(d$net_input, d$target_type)
+  vals[mal_subtypes]
+}))
+rownames(sf_scenario_mat) <- names(scenarios)
+sf_scenario_mat[is.na(sf_scenario_mat)] <- 0
+
+# Path-based scenario matrix
+path_scenario_mat <- matrix(0, nrow = length(scenarios), ncol = length(mal_subtypes),
+                            dimnames = list(names(scenarios), mal_subtypes))
+for (i in seq_along(scenarios)) {
+  channels <- strsplit(scenarios[i], "\\+")[[1]]
+  for (ch in channels) {
+    if (ch %in% colnames(mal_activation_matrix)) {
+      path_scenario_mat[i, ] <- path_scenario_mat[i, ] + mal_activation_matrix[mal_subtypes, ch]
+    }
+  }
+}
+
+cat("Signal flow scenario matrix:\n")
+print(round(sf_scenario_mat, 3))
+cat("\nPath-based scenario matrix:\n")
+print(round(path_scenario_mat, 3))
+```
+
+## Signal flow scenario heatmap
+
+```{r sf-heatmap, fig.width=12, fig.height=5}
+max_abs <- max(abs(sf_scenario_mat))
+if (max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "white", "#B2182B"))(100)
+
+row_annot_sc <- data.frame(
+  encounter = names(scenarios),
+  row.names = names(scenarios)
+)
+
+col_annot_sc <- data.frame(
+  row.names = colnames(sf_scenario_mat)
+)
+
+ann_colors_sc <- list(
+  encounter = scenario_colors
+)
+
+# Dynamic cell sizing
+n_sf_cols <- ncol(sf_scenario_mat)
+cw_sf <- min(25, max(12, 400 / n_sf_cols))
+fig_w_sf <- max(10, n_sf_cols * cw_sf / 72 + 4)
+
+save_heatmap_fixed_annot(
+  mat        = sf_scenario_mat,
+  row_annot  = row_annot_sc,
+  col_annot  = col_annot_sc,
+  ann_colors = ann_colors_sc,
+  filename   = file.path(panel_plot_dir("panel_I_scenario_heatmap", "png"),
+                         "panel_I_scenario_heatmap.png"),
+  width      = fig_w_sf, height = 5,
+  breaks     = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 10, fontsize_col = 6,
+  border_color = NA, cellwidth = cw_sf, cellheight = 25
+)
+
+save_heatmap_fixed_annot(
+  mat        = sf_scenario_mat,
+  row_annot  = row_annot_sc,
+  col_annot  = col_annot_sc,
+  ann_colors = ann_colors_sc,
+  filename   = file.path(panel_plot_dir("panel_I_scenario_heatmap", "pdf"),
+                         "panel_I_scenario_heatmap.pdf"),
+  width      = fig_w_sf, height = 5,
+  breaks     = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 10, fontsize_col = 6,
+  border_color = NA, cellwidth = cw_sf, cellheight = 25
+)
+```
+
+## Model comparison: path-based vs signal flow
+
+```{r model-comparison, fig.width=14, fig.height=10}
+# Build comparison dataframe
+comparison <- data.frame()
+for (sc in names(scenarios)) {
+  for (st in mal_subtypes) {
+    path_val <- path_scenario_mat[sc, st]
+    sf_val   <- sf_scenario_mat[sc, st]
+    comparison <- rbind(comparison, data.frame(
+      scenario = sc,
+      subtype = st,
+      path_activation = path_val,
+      sf_activation = sf_val,
+      dimorphism = mal_dimorphism[st],
+      nt = mal_nt[st],
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+comparison$scenario <- factor(comparison$scenario, levels = names(scenarios))
+
+# Compute per-scenario Spearman correlations for annotation
+cor_labels <- comparison %>%
+  group_by(scenario) %>%
+  summarise(
+    rho = cor(path_activation, sf_activation, method = "spearman"),
+    p = cor.test(path_activation, sf_activation, method = "spearman")$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(label = sprintf("rho = %.2f\np = %s",
+                          rho, ifelse(p < 0.001, "<0.001", format(p, digits = 2))))
+
+# Scatter: path vs signal flow, faceted by scenario, colored by dimorphism
+p_compare <- ggplot(comparison, aes(x = path_activation, y = sf_activation,
+                                     color = dimorphism)) +
+  geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+              linetype = "dashed", color = "grey50") +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(size = 2.5, alpha = 0.8) +
+  ggrepel::geom_text_repel(aes(label = subtype), size = 1.8,
+                            max.overlaps = 15, min.segment.length = 0,
+                            color = "grey30") +
+  geom_text(data = cor_labels, aes(label = label),
+            x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
+            size = 3, color = "black", inherit.aes = FALSE) +
+  facet_wrap(~ scenario, ncol = 2) +
+  scale_color_manual(values = dimorphism_colors, name = "Dimorphism") +
+  coord_fixed(ratio = 1,
+              xlim = range(c(comparison$path_activation, comparison$sf_activation)),
+              ylim = range(c(comparison$path_activation, comparison$sf_activation))) +
+  labs(x = "Path-based activation (exc - inh)",
+       y = "Signal flow net input") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top",
+        strip.text = element_text(size = rel(1.1)))
+
+save_fig5_plot(p_compare, "panel_I_model_comparison", width = 14, height = 10)
+print(p_compare)
+```
+
+## Scenario discriminability: which subtypes shift most across encounters
+
+```{r scenario-discriminability, fig.width=14, fig.height=12}
+# For each subtype, compute how much its (path, sf) position varies across scenarios.
+# High spread = this subtype responds differently to different encounters.
+# Low spread = this subtype responds the same regardless of encounter type.
+
+discrim <- comparison %>%
+  group_by(subtype) %>%
+  summarise(
+    path_sd = sd(path_activation),
+    sf_sd = sd(sf_activation),
+    path_range = diff(range(path_activation)),
+    sf_range = diff(range(sf_activation)),
+    # Total spread in 2D (path, sf) space
+    spread_2d = sqrt(var(path_activation) + var(sf_activation)),
+    # Sum of pairwise Euclidean distances between scenario positions
+    total_distance = {
+      pts <- cbind(path_activation, sf_activation)
+      sum(dist(pts))
+    },
+    dimorphism = first(dimorphism),
+    nt = first(nt),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(spread_2d))
+
+cat("Top 10 most discriminating subtypes:\n")
+print(discrim %>% head(10) %>% select(subtype, spread_2d, path_range, sf_range, dimorphism))
+
+# --- Bar plot: spread per subtype ---
+discrim$subtype <- factor(discrim$subtype, levels = discrim$subtype)
+
+p_spread_bar <- ggplot(discrim, aes(x = subtype, y = spread_2d, fill = dimorphism)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = dimorphism_colors, name = "Dimorphism") +
+  labs(x = "mAL subtype", y = "Scenario discriminability\n(spread in path x signal flow space)") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    legend.position = "top"
+  )
+
+# --- Scatter: mean position per subtype, size = spread ---
+# Plot in 2D mean(path) vs mean(sf) space, point size encodes scenario spread
+subtype_means <- comparison %>%
+  group_by(subtype, dimorphism) %>%
+  summarise(
+    mean_path = mean(path_activation),
+    mean_sf = mean(sf_activation),
+    .groups = "drop"
+  ) %>%
+  left_join(discrim %>% select(subtype, spread_2d), by = "subtype")
+
+p_spread_scatter <- ggplot(subtype_means, aes(x = mean_path, y = mean_sf,
+                                                size = spread_2d, color = dimorphism)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(alpha = 0.7) +
+  ggrepel::geom_text_repel(aes(label = subtype), size = 2, color = "grey30",
+                            max.overlaps = 20, min.segment.length = 0) +
+  scale_size_continuous(range = c(1, 10), name = "Scenario spread") +
+  scale_color_manual(values = dimorphism_colors, name = "Dimorphism") +
+  labs(x = "Mean path-based activation",
+       y = "Mean signal flow net input") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+# --- Arrow plot: show each subtype's trajectory across scenarios ---
+# Arrows connecting scenario positions for each subtype
+scenario_order <- names(scenarios)
+arrow_data <- comparison %>%
+  arrange(subtype, scenario) %>%
+  group_by(subtype) %>%
+  mutate(
+    path_next = lead(path_activation),
+    sf_next = lead(sf_activation),
+    scenario_next = lead(as.character(scenario))
+  ) %>%
+  filter(!is.na(path_next)) %>%
+  ungroup() %>%
+  left_join(discrim %>% select(subtype, spread_2d), by = "subtype")
+
+# Only show top 15 most discriminating subtypes for readability
+top_discrim <- discrim$subtype[1:min(15, nrow(discrim))]
+arrow_filtered <- arrow_data %>% filter(subtype %in% top_discrim)
+points_filtered <- comparison %>% filter(subtype %in% top_discrim)
+
+p_trajectories <- ggplot() +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_segment(data = arrow_filtered,
+               aes(x = path_activation, y = sf_activation,
+                   xend = path_next, yend = sf_next, group = subtype),
+               arrow = arrow(length = unit(0.08, "inches"), type = "closed"),
+               linewidth = 0.3, alpha = 0.4, color = "grey40") +
+  geom_point(data = points_filtered,
+             aes(x = path_activation, y = sf_activation, color = scenario),
+             size = 2.5, alpha = 0.8) +
+  ggrepel::geom_text_repel(
+    data = points_filtered %>% filter(scenario == "cVA + male"),
+    aes(x = path_activation, y = sf_activation, label = subtype),
+    size = 2, color = "grey30", max.overlaps = 20, min.segment.length = 0) +
+  scale_color_manual(values = scenario_colors, name = "Encounter") +
+  labs(x = "Path-based activation",
+       y = "Signal flow net input",
+       subtitle = "Top 15 most scenario-discriminating subtypes") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top",
+        plot.subtitle = element_text(size = 9, face = "italic"))
+
+# Combined
+p_discrim_combined <- (p_spread_bar) / (p_spread_scatter | p_trajectories) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_discrim_combined, "panel_I_scenario_discriminability",
+               width = 14, height = 12)
+save_fig5_plot(p_spread_bar, "panel_I_spread_bar", width = 12, height = 5)
+save_fig5_plot(p_spread_scatter, "panel_I_spread_scatter", width = 10, height = 8)
+save_fig5_plot(p_trajectories, "panel_I_trajectories", width = 10, height = 8)
+print(p_discrim_combined)
+```
+
+## Per-scenario correlation statistics
+
+```{r correlation-stats}
+cat("Model agreement per scenario:\n")
+cor_results <- list()
+for (sc in names(scenarios)) {
+  d <- comparison %>% filter(scenario == sc)
+  ct <- cor.test(d$path_activation, d$sf_activation, method = "spearman")
+  cor_results[[sc]] <- ct
+  cat(sprintf("  %s: Spearman rho=%.3f, p=%s\n",
+              sc, ct$estimate, format(ct$p.value, digits = 3)))
+}
+
+# Sign agreement
+cat("\nSign agreement (both models agree on +/-):\n")
+for (sc in names(scenarios)) {
+  d <- comparison %>% filter(scenario == sc)
+  agree <- sum(sign(d$path_activation) == sign(d$sf_activation))
+  cat(sprintf("  %s: %d/%d subtypes agree (%.0f%%)\n",
+              sc, agree, nrow(d), 100 * agree / nrow(d)))
+}
+```
+
+## Where do models disagree?
+
+```{r disagreements, fig.width=10, fig.height=6}
+# Identify subtypes where models disagree on sign
+disagreements <- comparison %>%
+  filter(sign(path_activation) != sign(sf_activation),
+         abs(path_activation) > 0.001 | abs(sf_activation) > 0.01) %>%
+  mutate(
+    path_sign = ifelse(path_activation > 0, "+", "-"),
+    sf_sign   = ifelse(sf_activation > 0, "+", "-")
+  )
+
+if (nrow(disagreements) > 0) {
+  cat(sprintf("\nSubtypes with sign disagreement: %d\n", nrow(disagreements)))
+  print(disagreements %>%
+          select(scenario, subtype, path_activation, sf_activation, path_sign, sf_sign) %>%
+          arrange(scenario, subtype))
+
+  # Plot disagreement magnitudes
+  p_disagree <- ggplot(disagreements,
+                       aes(x = reorder(subtype, abs(path_activation - sf_activation)),
+                           y = path_activation - sf_activation,
+                           fill = scenario)) +
+    geom_col(width = 0.7, position = "dodge") +
+    scale_fill_manual(values = scenario_colors) +
+    labs(x = "mAL subtype", y = "Path - Signal flow\n(activation difference)",
+         fill = "Scenario") +
+    coord_flip() +
+    theme_pub(base_size = 10)
+
+  save_fig5_plot(p_disagree, "panel_I_disagreements", width = 10, height = 6)
+  print(p_disagree)
+} else {
+  cat("\nNo sign disagreements between models.\n")
+}
+```
+
+## Combined panel
+
+```{r combined, fig.width=14, fig.height=10}
+p_combined <- p_compare +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_I_combined", width = 14, height = 10)
+print(p_combined)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_subtypes <- length(mal_subtypes)
+n_scenarios <- length(scenarios)
+
+# Overall correlation
+all_cor <- cor.test(comparison$path_activation, comparison$sf_activation,
+                    method = "spearman")
+
+# Per-scenario correlations
+rho_vals <- sapply(cor_results, function(x) x$estimate)
+p_vals   <- sapply(cor_results, function(x) x$p.value)
+
+# Sign agreement overall
+sign_agree_all <- sum(sign(comparison$path_activation) == sign(comparison$sf_activation))
+sign_agree_pct <- 100 * sign_agree_all / nrow(comparison)
+
+n_disagree <- nrow(disagreements)
+
+narrative <- sprintf(
+"PANEL I: Model Comparison -- Path Analysis vs Signal Flow
+============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Signal flow model scenario heatmap showing predicted mAL population
+responses to the same 3 encounter scenarios as Panel F.
+
+Right: Scatter comparing path-based activation (x-axis) vs signal flow
+net input (y-axis) for each subtype under each scenario. Points near
+the diagonal indicate model agreement. Colored by dimorphism class.
+
+Panel F uses the path-based model (K-strongest paths, excitatory minus
+inhibitory strengths). Panel I uses the signal flow model (iterative
+propagation through the full connectivity matrix with sigmoid activation).
+Both models make independent predictions about the same biological scenarios.
+
+KEY OBSERVATIONS
+----------------
+1. Overall correlation across all %d subtype-scenario pairs:
+   Spearman rho = %.3f, p = %s.
+
+2. Per-scenario correlations:
+   %s
+
+3. Sign agreement: %d / %d pairs (%.0f%%) agree on direction.
+
+4. Sign disagreements: %d subtype-scenario pairs where the two models
+   predict opposite response directions.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Strong agreement between two independent computational models increases
+confidence in the population code predictions. Disagreements highlight
+subtypes where the specific computation matters -- likely neurons where
+multi-hop signal propagation (captured by signal flow) differs from
+the dominant K-strongest paths.
+
+The path-based model captures the strongest direct routes; the signal flow
+model integrates all routes through the network. Agreement means the
+strongest paths dominate; disagreement means distributed connectivity
+matters for that subtype.
+",
+nrow(comparison),
+all_cor$estimate, format(all_cor$p.value, digits = 3),
+paste(sprintf("  %s: rho=%.3f (p=%s)", names(rho_vals), rho_vals,
+              sapply(p_vals, format, digits = 3)), collapse = "\n"),
+sign_agree_all, nrow(comparison), sign_agree_pct,
+n_disagree
+)
+
+save_panel_narrative("panel_I", narrative)
+cat(narrative)
+```

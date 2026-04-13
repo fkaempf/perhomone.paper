@@ -1,0 +1,13 @@
+
+Panel C: ppk23 pheromone pathways produce opposite effects at different mAL subtypes
+=====================================================================================
+Top: Paired bar chart showing ppk23 (gold) and ppk25 (tan) net path strength
+     per mAL subtype, ordered by ppk23 strength. ppk23 bars go NEGATIVE for
+     F-selective subtypes, revealing the GABAergic sign inversion through AN05B035.
+
+Bottom: Circuit diagram of two pathways:
+  - Direct: ppk23 -> AN09B017a-e -> broad-contact mAL (positive)
+  - Sign-inverted: ppk23 -> AN05B035 (GABA) -> AN09B017g -> F-selective mAL (negative)
+
+Data: Path strength (exc - inh) through K strongest connectome paths.
+

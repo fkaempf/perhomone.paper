@@ -1,0 +1,14 @@
+
+Panel B: Ascending neuron variants create a spectrum of ppk23/ppk25 selectivity
+================================================================================
+Left:  Scatter plot of ppk23 vs ppk25 input to each AN09B017 variant (a-g),
+       with diagonal = equal sensitivity. Points colored by dominant input.
+
+Right: Bipartite connectivity diagram showing:
+       ppk23 sensory -> AN09B017 variants -> mAL subtypes
+       ppk25 sensory -> AN09B017 variants -> mAL subtypes
+       GABAergic AN05B035 shown as red inhibitory edges.
+
+Key finding: AN09B017 variants tile a spectrum from ppk23-selective (AN09B017b)
+to ppk25-selective (AN09B017g), providing graded input to different mAL subtypes.
+

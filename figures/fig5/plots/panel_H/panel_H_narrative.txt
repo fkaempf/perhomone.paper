@@ -1,0 +1,29 @@
+PANEL H: Sexual Dimorphism -- Male-Specific Pheromone-to-P1 Pathway
+=====================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Box plots comparing male-specific (15 subtypes) vs shared (22 subtypes):
+  - Direct ppk synaptic input (synapse count)
+  - Path-based ppk strength (multi-hop path analysis)
+  - P1 output strength (synapse count to P1 courtship neurons)
+
+Dot plot: all mAL types as rows, columns = ppk23 input, ppk25 input,
+P1 output, faceted by dimorphism class.
+
+KEY OBSERVATIONS
+----------------
+1. Direct ppk input: male-specific Infx stronger (Wilcoxon p = N/A).
+   Path-based ppk: male-specific 7.5x stronger (p = 7.39e-07).
+
+2. P1 output: male-specific 23.2x stronger (p = 7.92e-06).
+
+3. Top ppk-receiving male-specific subtypes: mAL_m1, mAL_m10, mAL_m2a.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The pheromone-to-courtship inhibitory pathway is sexually dimorphic.
+Male-specific mAL subtypes receive strong pheromone input AND project
+heavily to P1, using primarily GABAergic neurotransmission. Shared
+mAL types participate in non-pheromone circuits.
+

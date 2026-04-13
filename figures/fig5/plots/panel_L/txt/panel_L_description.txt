@@ -1,0 +1,9 @@
+
+Panel L: Direct pheromone input to every mAL subtype
+=====================================================
+Scatter plot of ppk23 vs ppk25 input-normalized connectivity for every
+mAL subtype. Points colored by sexual dimorphism class.
+
+Key question: Do mAL subtypes segregate by pheromone channel input, and
+does this correlate with dimorphism?
+

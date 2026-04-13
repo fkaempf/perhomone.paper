@@ -1,0 +1,19 @@
+
+Panel G: Lateral inhibition shapes the mAL population code
+============================================================
+The mAL population is heavily interconnected: GABAergic subtypes inhibit
+each other, structuring the population response beyond what sensory inputs
+alone would predict.
+
+Top:    mAL-to-mAL signed connectivity heatmap (rows = pre, cols = post).
+        Rows/columns annotated by NT and dimorphism.
+
+Middle: Hub analysis -- bar charts of total lateral output (how much each
+        subtype inhibits others) and total lateral input received.
+
+Bottom: Cross-group targeting -- do dimorphism groups preferentially
+        inhibit within-group or between-group?
+
+Data source: Direct synaptic connectivity from the connectome (conn table),
+signed by presynaptic neurotransmitter identity.
+

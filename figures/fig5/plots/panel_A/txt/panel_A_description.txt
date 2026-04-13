@@ -1,0 +1,15 @@
+
+Panel A: Discrete mAL subtypes receive different sensory channels
+=========================================================================
+Diverging heatmap showing the effective sensory input profile for each mAL
+subtype, computed from K strongest connectome paths (excitatory - inhibitory
+path strength).
+
+Rows: mAL subtypes, hierarchically clustered by input profile similarity
+Columns: 7 sensory channels (DA1, VA1v, VA1d, auditory, visual, ppk23, ppk25)
+Color: Blue (inhibited) - White (zero) - Red (activated)
+
+Row annotations:
+  - Neurotransmitter: GABA (purple) / unclear (grey) / etc.
+  - Dimorphism: male_specific (orange) / shared (light blue)
+

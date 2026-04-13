@@ -1,0 +1,14 @@
+
+Panel D: Different mAL subtypes target different courtship command neurons
+==========================================================================
+Top:    Biclustered heatmap of mAL -> P1 synaptic weights showing
+        block-diagonal structure. Rows = mAL_m subtypes. Columns = P1 subtypes.
+        Color: Blue (inhibitory) - White (none) - Red (excitatory)
+
+Bottom: Summary bar chart of total inhibitory drive onto P1 from each
+        mAL subtype.
+
+Key finding: mAL subtypes do NOT uniformly inhibit all P1 neurons.
+Instead, different mAL subtypes project to different P1 subtypes,
+creating channel-specific gating of courtship command neurons.
+

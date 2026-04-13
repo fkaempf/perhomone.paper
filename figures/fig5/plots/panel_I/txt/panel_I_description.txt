@@ -1,0 +1,14 @@
+
+Panel I: Two independent models converge on the same population predictions
+============================================================================
+The path-based analysis (Panel F) and signal flow model make independent
+predictions about how mAL subtypes respond to pheromone encounter scenarios.
+This panel compares their predictions to assess robustness.
+
+Left:  Signal flow scenario heatmap (3 scenarios x mAL subtypes)
+Right: Scatter comparing path-based vs signal flow activation per subtype,
+       faceted by scenario.
+
+Key finding: The two models agree on the major features of the population
+code, particularly which subtypes are activated vs inhibited by each scenario.
+

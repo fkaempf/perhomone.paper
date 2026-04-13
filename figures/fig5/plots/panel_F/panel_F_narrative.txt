@@ -1,0 +1,37 @@
+PANEL F: Population Responses -- Distinct Encounter Signatures
+================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Top: Parallel coordinates showing each mAL subtype's predicted response
+under three encounter scenarios:
+  - Female encounter (red): ppk23 + ppk25 (contact with female)
+  - cVA + male (purple): DA1 + ppk23 (volatile + male contact)
+  - cVA + female (orange): DA1 + ppk23 + ppk25 (volatile + female contact)
+
+Note: lone male encounter (ppk23 alone) is excluded because male contact
+always co-occurs with cVA volatile pheromone in natural settings.
+
+Bottom: Difference profiles showing what changes between scenarios:
+  - cVA+female - cVA+male: the effect of adding ppk25 (sex discrimination with cVA)
+  - cVA+female - Female: the effect of adding cVA to female contact
+  - cVA+male - Female: pure cVA+male vs female contact contrast
+
+KEY OBSERVATIONS
+----------------
+1. 'cVA + female' activates the most subtypes (31); 'Female encounter' the fewest (26).
+
+2. Cosine similarity: female vs cVA+male = 0.977; female vs cVA+female = 0.996;
+   cVA+male vs cVA+female = 0.985.
+
+3. Subtypes gaining most from ppk25 addition (cVA+female vs cVA+male): mAL_m3c, mAL_m3a, mAL_m2a.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The mAL population does not report 'pheromone detected' but encodes
+encounter type through distinct population patterns. The cVA+female vs
+cVA+male difference reveals which subtypes carry the sex discrimination
+signal when volatile context is present. The cVA contrasts highlight
+DA1-responsive subtypes that shift the population code when volatile
+pheromone is added to contact signals.
+

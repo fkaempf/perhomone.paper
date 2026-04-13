@@ -1,0 +1,400 @@
+---
+title: "Figure 5J: ppk23 Response Group vs P1 Connectivity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel J: Male-inhibited and male-excited mAL subtypes target different P1 neurons
+==================================================================================
+mAL subtypes split by their ppk23 (male contact) response polarity show distinct
+patterns of downstream connectivity to P1 courtship command neurons, using
+input-normalized synaptic weights (fraction of each P1 neuron's total input).
+
+Top:    Heatmap of signed input-normalized mAL -> P1 weights, rows annotated by
+        ppk23 response group (inhibited vs excited) and NT.
+
+Middle: Grouped box plot comparing total P1 output between the two groups.
+
+Bottom: Per-P1 stacked bar chart showing input fraction from each group.
+"
+pdir <- panel_plot_dir("panel_J_description", "txt")
+writeLines(description, file.path(pdir, "panel_J_description.txt"))
+cat(description)
+```
+
+## Assign ppk23 response groups
+
+```{r ppk23-groups}
+# Split mAL subtypes by ppk23 response polarity (male encounter)
+ppk23_response <- mal_activation_matrix[mal_subtypes, "ppk23"]
+ppk23_group <- ifelse(ppk23_response < 0, "ppk23-inhibited", "ppk23-excited")
+
+ppk23_group_colors <- c(
+  "ppk23-inhibited" = "#E41A1C",
+  "ppk23-excited"   = "#377EB8"
+)
+
+cat("ppk23 response groups:\n")
+for (g in c("ppk23-inhibited", "ppk23-excited")) {
+  members <- names(ppk23_group[ppk23_group == g])
+  cat(sprintf("  %s (%d): %s\n", g, length(members), paste(members, collapse = ", ")))
+}
+```
+
+## Extract input-normalized mAL -> P1 connectivity
+
+```{r mal-p1-normed}
+# adj.matrix is post-normalized (input-normalized): adj.matrix[pre, post]
+# Values = fraction of postsynaptic neuron's total input from presynaptic type
+mal_p1_normed <- matrix(0, nrow = length(mal_subtypes), ncol = length(p1_subtypes),
+                        dimnames = list(mal_subtypes, p1_subtypes))
+
+# Extract from sparse matrix (check that types exist as dimnames)
+adj_rows <- rownames(adj.matrix)
+adj_cols <- colnames(adj.matrix)
+
+for (mal in mal_subtypes) {
+  for (p1 in p1_subtypes) {
+    if (mal %in% adj_rows && p1 %in% adj_cols) {
+      mal_p1_normed[mal, p1] <- adj.matrix[mal, p1]
+    }
+  }
+}
+
+cat("Input-normalized mAL -> P1 matrix (fraction of P1 input):\n")
+print(round(mal_p1_normed, 6))
+
+# Apply NT signs: GABAergic mAL output is inhibitory
+mal_p1_signed <- mal_p1_normed
+for (mal in rownames(mal_p1_signed)) {
+  nt <- mal_nt[mal]
+  if (!is.na(nt) && nt == "GABA") {
+    mal_p1_signed[mal, ] <- -abs(mal_p1_signed[mal, ])
+  }
+}
+
+cat("\nSigned input-normalized mAL -> P1 matrix:\n")
+print(round(mal_p1_signed, 6))
+```
+
+## Heatmap: mAL -> P1 by ppk23 group
+
+```{r heatmap, fig.width=12, fig.height=12}
+# Order rows: ppk23-inhibited first (sorted by ppk23 strength), then ppk23-excited
+row_order <- order(ppk23_group[mal_subtypes], ppk23_response[mal_subtypes])
+mat_ordered <- mal_p1_signed[mal_subtypes[row_order], ]
+
+# Row annotations
+row_annot <- data.frame(
+  ppk23_group      = ppk23_group[rownames(mat_ordered)],
+  neurotransmitter = mal_nt[rownames(mat_ordered)],
+  row.names        = rownames(mat_ordered)
+)
+
+ann_colors <- list(
+  ppk23_group      = ppk23_group_colors,
+  neurotransmitter = nt_colors
+)
+
+# Diverging palette
+max_abs <- max(abs(mat_ordered))
+if (max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100)
+
+# Find gap position between groups
+n_inhibited <- sum(ppk23_group[rownames(mat_ordered)] == "ppk23-inhibited")
+
+# Dynamic cell sizing
+n_p1 <- ncol(mat_ordered)
+n_mal <- nrow(mat_ordered)
+cw <- min(40, max(15, 400 / n_p1))
+ch <- min(20, max(10, 500 / n_mal))
+fig_w <- max(10, n_p1 * cw / 72 + 4)
+fig_h <- max(10, n_mal * ch / 72 + 3)
+
+save_heatmap_fixed_annot(
+  mat        = mat_ordered,
+  row_annot  = row_annot,
+  col_annot  = data.frame(row.names = colnames(mat_ordered)),
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_J_heatmap", "png"),
+                         "panel_J_heatmap.png"),
+  width      = fig_w, height = fig_h,
+  breaks     = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 8,
+  border_color = "grey90",
+  cellwidth = cw, cellheight = ch,
+  gaps_row = n_inhibited
+)
+
+save_heatmap_fixed_annot(
+  mat        = mat_ordered,
+  row_annot  = row_annot,
+  col_annot  = data.frame(row.names = colnames(mat_ordered)),
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_J_heatmap", "pdf"),
+                         "panel_J_heatmap.pdf"),
+  width      = fig_w, height = fig_h,
+  breaks     = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 8,
+  border_color = "grey90",
+  cellwidth = cw, cellheight = ch,
+  gaps_row = n_inhibited
+)
+```
+
+## Grouped box plot: total P1 output by ppk23 group
+
+```{r boxplot, fig.width=7, fig.height=6}
+# Total signed output to all P1 subtypes per mAL subtype
+total_p1 <- data.frame(
+  mAL_subtype = mal_subtypes,
+  total_p1_output = rowSums(abs(mal_p1_normed)),
+  total_p1_signed = rowSums(mal_p1_signed),
+  ppk23_group = ppk23_group[mal_subtypes],
+  ppk23_strength = ppk23_response[mal_subtypes],
+  stringsAsFactors = FALSE
+)
+
+p_box <- ggplot(total_p1, aes(x = ppk23_group, y = total_p1_output, fill = ppk23_group)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2.5, alpha = 0.7) +
+  scale_fill_manual(values = ppk23_group_colors) +
+  labs(x = "ppk23 response group",
+       y = "Total input-normalized P1 output\n(sum of |input fractions|)",
+       fill = "ppk23 group") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+save_fig5_plot(p_box, "panel_J_boxplot", width = 7, height = 6)
+print(p_box)
+```
+
+## Statistical test
+
+```{r stats}
+if (length(unique(total_p1$ppk23_group)) > 1) {
+  test_total <- wilcox.test(total_p1_output ~ ppk23_group, data = total_p1)
+  test_signed <- wilcox.test(total_p1_signed ~ ppk23_group, data = total_p1)
+  cat("Wilcoxon test - total |P1 output|: p =", format(test_total$p.value, digits = 3), "\n")
+  cat("Wilcoxon test - signed P1 output:  p =", format(test_signed$p.value, digits = 3), "\n")
+} else {
+  cat("Only one ppk23 group present -- skipping test\n")
+  test_total <- list(p.value = NA)
+  test_signed <- list(p.value = NA)
+}
+```
+
+## Per-P1 bar chart: predicted drive under encounter scenarios
+
+```{r per-p1-bars, fig.width=12, fig.height=6}
+# Define 3 encounter scenarios (same as Panel F)
+# Lone male encounter excluded: male contact always co-occurs with cVA
+scenarios <- c(
+  "Female encounter" = "ppk23+ppk25",
+  "cVA + male"      = "DA1+ppk23",
+  "cVA + female"    = "DA1+ppk23+ppk25"
+)
+
+scenario_colors <- c(
+  "Female encounter" = "#D73027",
+  "cVA + male"      = "#8E24AA",
+  "cVA + female"    = "#F57C00"
+)
+
+# Build mAL population response per scenario (from activation matrix)
+scenario_mat <- matrix(0, nrow = length(scenarios), ncol = length(mal_subtypes),
+                       dimnames = list(names(scenarios), mal_subtypes))
+for (i in seq_along(scenarios)) {
+  channels <- strsplit(scenarios[i], "\\+")[[1]]
+  for (ch in channels) {
+    if (ch %in% colnames(mal_activation_matrix)) {
+      scenario_mat[i, ] <- scenario_mat[i, ] + mal_activation_matrix[mal_subtypes, ch]
+    }
+  }
+}
+
+# For each P1 subtype and scenario, compute predicted drive:
+# drive = sum over mAL of (mAL response) * (mAL -> P1 signed weight)
+per_p1 <- data.frame()
+for (p1 in p1_subtypes) {
+  for (sc in names(scenarios)) {
+    drive <- sum(scenario_mat[sc, ] * mal_p1_signed[, p1])
+    per_p1 <- rbind(per_p1, data.frame(
+      P1 = p1, scenario = sc,
+      predicted_drive = drive,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+per_p1$scenario <- factor(per_p1$scenario, levels = names(scenarios))
+
+# Order P1 subtypes by male encounter drive
+p1_order <- per_p1 %>%
+  filter(scenario == "cVA + male") %>%
+  arrange(predicted_drive) %>%
+  pull(P1)
+per_p1$P1 <- factor(per_p1$P1, levels = p1_order)
+
+p_per_p1 <- ggplot(per_p1, aes(x = P1, y = predicted_drive, fill = scenario)) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.3) +
+  scale_fill_manual(values = scenario_colors) +
+  labs(x = "P1 subtype",
+       y = "Predicted mAL drive on P1\n(scenario activation x signed input fraction)",
+       fill = "Encounter scenario") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "top"
+  )
+
+save_fig5_plot(p_per_p1, "panel_J_per_p1_bars", width = 12, height = 6)
+print(p_per_p1)
+```
+
+## Continuous analysis: ppk23 strength vs P1 output
+
+```{r continuous-scatter, fig.width=8, fig.height=6}
+# Instead of just binary split, show the continuous relationship
+p_continuous <- ggplot(total_p1, aes(x = ppk23_strength, y = total_p1_output)) +
+  geom_vline(xintercept = 0, linewidth = 0.3, linetype = "dashed", color = "grey50") +
+  geom_point(aes(shape = ppk23_group), size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.5, color = "grey40",
+              linetype = "dashed") +
+  scale_shape_manual(values = c("ppk23-inhibited" = 16, "ppk23-excited" = 17),
+                     name = "ppk23 group") +
+  labs(x = "ppk23 net path strength",
+       y = "Total P1 input fraction\n(sum of |input fractions|)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+# Spearman correlation
+if (nrow(total_p1) > 3) {
+  cor_ppk23_p1 <- cor.test(total_p1$ppk23_strength, total_p1$total_p1_output,
+                            method = "spearman")
+  cat(sprintf("Spearman correlation (ppk23 strength vs P1 output): rho=%.3f, p=%.4f\n",
+              cor_ppk23_p1$estimate, cor_ppk23_p1$p.value))
+} else {
+  cor_ppk23_p1 <- list(estimate = NA, p.value = NA)
+}
+
+save_fig5_plot(p_continuous, "panel_J_continuous_scatter", width = 8, height = 6)
+print(p_continuous)
+```
+
+## Combined panel
+
+```{r combined, fig.width=14, fig.height=10}
+p_combined <- (p_box | p_continuous) / p_per_p1 +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_J_combined", width = 14, height = 10)
+print(p_combined)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_inhibited <- sum(ppk23_group == "ppk23-inhibited")
+n_excited <- sum(ppk23_group == "ppk23-excited")
+mean_p1_inh <- mean(total_p1$total_p1_output[total_p1$ppk23_group == "ppk23-inhibited"])
+mean_p1_exc <- mean(total_p1$total_p1_output[total_p1$ppk23_group == "ppk23-excited"])
+fold_diff <- ifelse(mean_p1_exc > 0, mean_p1_inh / mean_p1_exc, Inf)
+
+# Continuous correlation text
+cor_text <- if (!is.na(cor_ppk23_p1$estimate)) {
+  sprintf("rho=%.3f, p=%s", cor_ppk23_p1$estimate,
+          format(cor_ppk23_p1$p.value, digits = 3))
+} else {
+  "not computed"
+}
+
+# Which P1 subtypes get more input from each group
+p1_bias <- sapply(p1_subtypes, function(p1) {
+  inh_members <- names(ppk23_group[ppk23_group == "ppk23-inhibited"])
+  exc_members <- names(ppk23_group[ppk23_group == "ppk23-excited"])
+  inh_total <- sum(mal_p1_normed[inh_members, p1])
+  exc_total <- sum(mal_p1_normed[exc_members, p1])
+  ifelse(inh_total > exc_total, "ppk23-inhibited", "ppk23-excited")
+})
+
+p_text <- format(test_total$p.value, digits = 3)
+
+narrative <- sprintf(
+"PANEL J: ppk23 Response Group vs P1 Connectivity
+===================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+mAL subtypes are split into two groups based on their response to ppk23
+(male contact): ppk23-inhibited (%d subtypes, net negative path strength)
+and ppk23-excited (%d subtypes, net positive). This panel asks: do these
+two groups connect differently to downstream P1 courtship command neurons?
+
+Connectivity is measured as INPUT-NORMALIZED synaptic weights -- the fraction
+of each P1 neuron's total input that comes from each mAL subtype. This
+controls for differences in P1 neuron size and total synapse count.
+
+Top: Heatmap of signed input-normalized mAL -> P1 weights, with rows split
+by ppk23 response group and annotated by NT.
+
+Middle: Box plot comparing total P1 output between the two groups.
+
+Bottom: Per-P1 bar chart showing the total input fraction from each group.
+
+KEY OBSERVATIONS
+----------------
+1. ppk23-inhibited subtypes have mean total P1 output = %.6f;
+   ppk23-excited subtypes = %.6f (%.1fx difference).
+   Wilcoxon p = %s.
+
+2. Continuous relationship (ppk23 strength vs P1 output): %s.
+
+3. P1 subtype bias: %s
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+If ppk23-inhibited subtypes (which are suppressed during male contact)
+connect more strongly to P1, this creates a disinhibition mechanism:
+male pheromones suppress these mAL subtypes, releasing P1 from their
+inhibitory drive. Conversely, ppk23-excited subtypes (activated during
+male contact) would INCREASE P1 inhibition during male encounters.
+
+The differential targeting of P1 subtypes by the two groups means that
+male vs female contact could selectively release different P1 command
+neurons from inhibition, enabling sex-specific courtship responses.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel J connects the ppk23 sign reversal (Panel C) to the P1 output
+specificity (Panel D). While Panel C showed that subtypes differ in
+ppk23 polarity and Panel D showed they target different P1 neurons,
+Panel J tests whether these two properties are CORRELATED -- whether
+the subtypes that are inhibited by male contact are the same ones that
+project most heavily to specific P1 command neurons.
+",
+n_inhibited, n_excited,
+mean_p1_inh, mean_p1_exc, fold_diff, p_text,
+cor_text,
+paste(sprintf("  %s: biased toward %s", p1_subtypes, p1_bias), collapse = "\n")
+)
+
+save_panel_narrative("panel_J", narrative)
+cat(narrative)
+```

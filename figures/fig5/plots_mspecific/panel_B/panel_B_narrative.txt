@@ -1,0 +1,52 @@
+PANEL B: The AN09B017 Relay -- Ascending Neuron Selectivity Spectrum
+======================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Scatter plot of ppk23 vs ppk25 direct synaptic input (synapse count)
+to each of the 7 AN09B017 ascending neuron variants (a through g). Points
+are colored by dominant input: ppk23-biased (gold), ppk25-biased (tan), or
+balanced (grey). A diagonal line marks equal sensitivity.
+
+Right: Log2 ratio bar chart (ppk23/ppk25 input ratio) for each variant,
+quantifying the degree of selectivity.
+
+Additionally, a 3-layer bipartite network diagram shows the full
+ppk23/ppk25 sensory -> AN09B017 -> mAL connectivity architecture.
+
+KEY OBSERVATIONS
+----------------
+1. The 7 AN09B017 variants tile a selectivity spectrum: 5 are ppk23-biased,
+   1 are ppk25-biased, and 1 are balanced.
+
+2. AN09B017a receives the most ppk23 input; AN09B017g receives the most ppk25 input.
+
+3. AN09B017 variants collectively contact 16 mAL subtypes through 92
+   individual connections, distributing sensory information non-uniformly
+   across the mAL population.
+
+4. 7 connections from AN05B035 (GABAergic) to AN09B017 variants provide
+   sign-inverting inhibition, which is the circuit basis for the ppk23
+   sign reversal described in Panel C.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+AN09B017 is not a single relay neuron but a family of variants with graded
+ppk23/ppk25 selectivity. This means the ascending neuron layer does not
+simply forward pheromone signals -- it decomposes the signal into a spectrum
+of channel-specific streams. Each AN09B017 variant preferentially routes
+one pheromone channel's information to specific mAL subtypes downstream.
+
+The GABAergic AN05B035 sign-inverter adds a critical inhibitory branch:
+ppk23 signals reaching AN09B017g through this pathway arrive with flipped
+sign, creating the substrate for the F-selective mAL class.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel B explains HOW the sensory selectivity shown in Panel A is created.
+The AN09B017 relay layer is the circuit mechanism that maps continuous
+pheromone receptor activation into discrete mAL subtype channels. It sets
+up Panel C's sign-reversal finding by showing the AN05B035 inhibitory
+branch and connects to Panel G's mAL_m2a case study by showing which
+AN09B017 variants provide its excitatory input.
+

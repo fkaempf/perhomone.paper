@@ -1,0 +1,56 @@
+PANEL K: AN09B017 Output Specificity -- Relay-to-mAL Targeting
+=================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Heatmap: Input-normalized weights from each AN09B017 variant (+ AN05B035)
+to each mAL type. Values represent the fraction of each mAL neuron's total
+input that comes from each relay neuron. Rows clustered by output similarity;
+columns clustered by input similarity and annotated by dimorphism
+(male-specific vs shared).
+
+Entropy: Shannon entropy of each relay neuron's output distribution across
+mAL types. High entropy = broad targeting; low entropy = specific targeting.
+
+Dimorphism targeting: Stacked bar chart showing what fraction of each relay
+neuron's output goes to male-specific vs shared mAL types.
+
+Dot plot: Individual connections colored by relay input selectivity.
+
+KEY OBSERVATIONS
+----------------
+1. Most specific relay: AN09B017a (entropy target: 12 mAL types).
+   Most broad relay:    AN09B017d (16 mAL targets).
+
+2. Dimorphism bias: AN09B017a sends 100% of its output to male-specific mAL types;
+   AN05B035 sends 51% to shared mAL types.
+
+3. The mAL population includes 15 male-specific and 22 shared types.
+   Relay targeting may differ between these dimorphism classes.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Panel B showed that AN09B017 variants have different ppk23/ppk25 INPUT
+selectivity. This panel shows they also differ in OUTPUT specificity --
+each variant preferentially innervates different subsets of mAL types.
+
+Combined with the input selectivity spectrum, this creates a mapping:
+specific pheromone channels -> specific AN09B017 variants -> specific
+mAL types. The relay layer is not a simple pass-through but a
+selectivity-amplifying transform that routes pheromone information to
+distinct mAL subpopulations.
+
+AN05B035 (GABAergic sign-inverter) adds a qualitatively different
+output pattern: it specifically targets the mAL types that show ppk23
+sign reversal (Panel C), providing the inhibitory counterweight.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel K complements Panel B by completing the relay neuron story:
+- Panel B: relay INPUT selectivity (which pheromone channels drive each variant)
+- Panel K: relay OUTPUT specificity (which mAL types each variant targets)
+
+Together they show that the AN09B017 layer implements a labeled-line-like
+mapping from pheromone channels to mAL subpopulations, with AN05B035
+adding the sign-inverting branch.
+

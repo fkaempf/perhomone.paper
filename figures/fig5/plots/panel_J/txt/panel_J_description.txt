@@ -1,0 +1,14 @@
+
+Panel J: Male-inhibited and male-excited mAL subtypes target different P1 neurons
+==================================================================================
+mAL subtypes split by their ppk23 (male contact) response polarity show distinct
+patterns of downstream connectivity to P1 courtship command neurons, using
+input-normalized synaptic weights (fraction of each P1 neuron's total input).
+
+Top:    Heatmap of signed input-normalized mAL -> P1 weights, rows annotated by
+        ppk23 response group (inhibited vs excited) and NT.
+
+Middle: Grouped box plot comparing total P1 output between the two groups.
+
+Bottom: Per-P1 stacked bar chart showing input fraction from each group.
+

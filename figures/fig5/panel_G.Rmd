@@ -1,0 +1,510 @@
+---
+title: "Figure 5G: Lateral Inhibition Architecture within the mAL Population"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel G: Lateral inhibition shapes the mAL population code
+============================================================
+The mAL population is heavily interconnected: GABAergic subtypes inhibit
+each other, structuring the population response beyond what sensory inputs
+alone would predict.
+
+Top:    mAL-to-mAL signed connectivity heatmap (rows = pre, cols = post).
+        Rows/columns annotated by NT and dimorphism.
+
+Middle: Hub analysis -- bar charts of total lateral output (how much each
+        subtype inhibits others) and total lateral input received.
+
+Bottom: Cross-group targeting -- do dimorphism groups preferentially
+        inhibit within-group or between-group?
+
+Data source: Direct synaptic connectivity from the connectome (conn table),
+signed by presynaptic neurotransmitter identity.
+"
+pdir <- panel_plot_dir("panel_G_description", "txt")
+writeLines(description, file.path(pdir, "panel_G_description.txt"))
+cat(description)
+```
+
+## Build mAL-to-mAL lateral connectivity matrix
+
+```{r lateral-matrix}
+# All mAL -> mAL connections (excluding self)
+mal_lateral <- conn %>%
+  filter(pre_type %in% mal_subtypes, post_type %in% mal_subtypes,
+         pre_type != post_type) %>%
+  group_by(pre_type, post_type) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    from_nt = mal_nt[pre_type],
+    signed_weight = ifelse(from_nt == "GABA", -weight, weight)
+  )
+
+# Build signed connectivity matrix
+lateral_mat <- matrix(0, nrow = length(mal_subtypes), ncol = length(mal_subtypes),
+                      dimnames = list(mal_subtypes, mal_subtypes))
+
+for (i in seq_len(nrow(mal_lateral))) {
+  pre  <- mal_lateral$pre_type[i]
+  post <- mal_lateral$post_type[i]
+  if (pre %in% mal_subtypes && post %in% mal_subtypes) {
+    lateral_mat[pre, post] <- mal_lateral$signed_weight[i]
+  }
+}
+
+# Filter to types with any lateral connectivity
+has_lateral <- rowSums(abs(lateral_mat)) > 0 | colSums(abs(lateral_mat)) > 0
+lateral_active <- mal_subtypes[has_lateral]
+
+cat(sprintf("mAL types with lateral connections: %d / %d\n",
+            length(lateral_active), length(mal_subtypes)))
+cat(sprintf("Total lateral edges: %d\n", nrow(mal_lateral)))
+cat(sprintf("GABAergic edges: %d (%.0f%%)\n",
+            sum(mal_lateral$from_nt == "GABA"),
+            100 * mean(mal_lateral$from_nt == "GABA")))
+```
+
+## Lateral connectivity heatmap
+
+```{r lateral-heatmap, fig.width=12, fig.height=12}
+# Subset to active types
+lat_mat_active <- lateral_mat[lateral_active, lateral_active]
+
+# Annotations
+row_annot_lat <- data.frame(
+  neurotransmitter = mal_nt[lateral_active],
+  dimorphism       = mal_dimorphism[lateral_active],
+  row.names = lateral_active,
+  stringsAsFactors = FALSE
+)
+
+col_annot_lat <- data.frame(
+  dimorphism       = mal_dimorphism[lateral_active],
+  row.names = lateral_active,
+  stringsAsFactors = FALSE
+)
+
+ann_colors_lat <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors
+)
+
+max_abs <- max(abs(lat_mat_active))
+if (max_abs == 0) max_abs <- 1
+breaks_lat <- seq(-max_abs, max_abs, length.out = 101)
+colors_lat <- colorRampPalette(c("#2166AC", "white", "#B2182B"))(100)
+
+save_heatmap_fixed_annot(
+  mat        = lat_mat_active,
+  row_annot  = row_annot_lat,
+  col_annot  = col_annot_lat,
+  ann_colors = ann_colors_lat,
+  filename   = file.path(panel_plot_dir("panel_G_lateral_heatmap", "png"),
+                         "panel_G_lateral_heatmap.png"),
+  width = 12, height = 12,
+  breaks = breaks_lat, color = colors_lat,
+  cluster_rows = TRUE, cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 6,
+  border_color = NA, cellwidth = 14, cellheight = 14
+)
+
+save_heatmap_fixed_annot(
+  mat        = lat_mat_active,
+  row_annot  = row_annot_lat,
+  col_annot  = col_annot_lat,
+  ann_colors = ann_colors_lat,
+  filename   = file.path(panel_plot_dir("panel_G_lateral_heatmap", "pdf"),
+                         "panel_G_lateral_heatmap.pdf"),
+  width = 12, height = 12,
+  breaks = breaks_lat, color = colors_lat,
+  cluster_rows = TRUE, cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 6,
+  border_color = NA, cellwidth = 14, cellheight = 14
+)
+```
+
+## Hub analysis: per-neuron lateral connectivity (input-normalized, mean +/- SE)
+
+```{r hub-analysis, fig.width=12, fig.height=10}
+# --- Per-neuron analysis using individual neuron connections from conn ---
+
+# All individual mAL neurons
+mal_neurons <- mba %>%
+  filter(type %in% lateral_active) %>%
+  select(bodyid, type) %>%
+  distinct()
+cat(sprintf("Individual mAL neurons: %d across %d types\n",
+            nrow(mal_neurons), length(unique(mal_neurons$type))))
+
+gaba_types <- names(mal_nt)[mal_nt == "GABA"]
+
+# Total input to each individual neuron (from ALL sources, for normalization)
+total_input_per_neuron <- conn %>%
+  filter(post_id %in% mal_neurons$bodyid) %>%
+  group_by(post_id) %>%
+  summarise(total_input = sum(weight, na.rm = TRUE), .groups = "drop")
+
+# All lateral mAL-mAL connections at neuron level (excluding self-type)
+lateral_neuron <- conn %>%
+  filter(pre_type %in% lateral_active, post_type %in% lateral_active,
+         pre_type != post_type)
+
+# --- Per-neuron INHIBITORY INPUT (fraction of each neuron's total input from GABA mAL) ---
+lat_inh_input_per_neuron <- lateral_neuron %>%
+  filter(pre_type %in% gaba_types) %>%
+  group_by(post_id, post_type) %>%
+  summarise(lat_inh_synapses = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  left_join(total_input_per_neuron, by = "post_id") %>%
+  mutate(frac_inh_input = lat_inh_synapses / total_input)
+
+# Include neurons with ZERO lateral input
+input_per_neuron <- mal_neurons %>%
+  left_join(lat_inh_input_per_neuron,
+            by = c("bodyid" = "post_id", "type" = "post_type")) %>%
+  mutate(frac_inh_input = replace_na(frac_inh_input, 0))
+
+# Mean +/- SE per type
+input_summary <- input_per_neuron %>%
+  group_by(type) %>%
+  summarise(
+    mean_frac = mean(frac_inh_input),
+    se_frac = sd(frac_inh_input) / sqrt(n()),
+    n_neurons = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    nt = mal_nt[type],
+    dimorphism = mal_dimorphism[type]
+  )
+
+# --- Per-neuron INHIBITORY OUTPUT (input-normalized: each synapse / target's total input) ---
+# For each pre neuron, sum (its_synapses_to_target / target_total_input) across all mAL targets
+lat_inh_output_normed <- lateral_neuron %>%
+  filter(pre_type %in% gaba_types) %>%
+  left_join(total_input_per_neuron, by = c("post_id")) %>%
+  filter(!is.na(total_input), total_input > 0) %>%
+  mutate(normed_weight = weight / total_input) %>%
+  group_by(pre_id, pre_type) %>%
+  summarise(total_normed_inh_output = sum(normed_weight, na.rm = TRUE), .groups = "drop")
+
+# Include GABAergic neurons with ZERO lateral output
+gaba_neurons <- mal_neurons %>% filter(type %in% gaba_types)
+output_per_neuron <- gaba_neurons %>%
+  left_join(lat_inh_output_normed,
+            by = c("bodyid" = "pre_id", "type" = "pre_type")) %>%
+  mutate(total_normed_inh_output = replace_na(total_normed_inh_output, 0))
+
+# Mean +/- SE per type
+output_summary <- output_per_neuron %>%
+  group_by(type) %>%
+  summarise(
+    mean_frac = mean(total_normed_inh_output),
+    se_frac = sd(total_normed_inh_output) / sqrt(n()),
+    n_neurons = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    nt = mal_nt[type],
+    dimorphism = mal_dimorphism[type]
+  )
+
+# Also add non-GABA types with 0 output
+non_gaba_active <- setdiff(lateral_active, gaba_types)
+if (length(non_gaba_active) > 0) {
+  output_summary <- bind_rows(
+    output_summary,
+    data.frame(
+      type = non_gaba_active,
+      mean_frac = 0, se_frac = 0,
+      n_neurons = sapply(non_gaba_active, function(t) sum(mal_neurons$type == t)),
+      nt = mal_nt[non_gaba_active],
+      dimorphism = mal_dimorphism[non_gaba_active],
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+# Order by mean output (descending)
+hub_order <- output_summary %>% arrange(desc(mean_frac)) %>% pull(type)
+output_summary$type <- factor(output_summary$type, levels = hub_order)
+
+# Store for downstream use (narrative, scatter)
+hub_data <- output_summary %>%
+  select(type, nt, dimorphism) %>%
+  left_join(output_summary %>% select(type, total_output_inh = mean_frac), by = "type") %>%
+  mutate(total_input_inh = 0)  # placeholder, updated below after type-level input
+
+# --- Barplot: inhibitory output (mean +/- SE) ---
+p_output <- ggplot(output_summary, aes(x = type, y = mean_frac, fill = nt)) +
+  geom_col(width = 0.7) +
+  geom_errorbar(aes(ymin = pmax(mean_frac - se_frac, 0), ymax = mean_frac + se_frac),
+                width = 0.3, linewidth = 0.3) +
+  scale_fill_manual(values = nt_colors, name = "Neurotransmitter") +
+  labs(x = NULL,
+       y = "Inhibitory output to other mAL\n(mean fraction of target's input per neuron)") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    legend.position = "top"
+  )
+
+# --- Barplot: inhibitory input (type-level, one value per type) ---
+# Use adj.matrix directly: sum of input-normalized weights from GABAergic mAL types
+adj_rows <- rownames(adj.matrix)
+adj_cols <- colnames(adj.matrix)
+input_type_level <- data.frame(
+  type = lateral_active,
+  total_inh_input = sapply(lateral_active, function(post) {
+    gaba_pre <- intersect(gaba_types, setdiff(lateral_active, post))
+    gaba_pre <- gaba_pre[gaba_pre %in% adj_rows]
+    if (length(gaba_pre) > 0 && post %in% adj_cols) {
+      sum(adj.matrix[gaba_pre, post])
+    } else 0
+  }),
+  nt = mal_nt[lateral_active],
+  dimorphism = mal_dimorphism[lateral_active],
+  stringsAsFactors = FALSE
+)
+input_type_level$type <- factor(input_type_level$type, levels = hub_order)
+
+# Update hub_data with type-level input values
+hub_data$total_input_inh <- input_type_level$total_inh_input[
+  match(hub_data$type, input_type_level$type)]
+
+p_input <- ggplot(input_type_level, aes(x = type, y = total_inh_input, fill = nt)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = nt_colors, name = "Neurotransmitter") +
+  labs(x = "mAL subtype",
+       y = "Inhibitory input from other mAL\n(fraction of total input)") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    legend.position = "top"
+  )
+
+p_hub <- p_output / p_input + plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_hub, "panel_G_hub_analysis", width = 12, height = 10)
+print(p_hub)
+
+cat(sprintf("\nNeurons per type:\n"))
+for (t in hub_order) {
+  n <- sum(mal_neurons$type == t)
+  cat(sprintf("  %s: %d neurons\n", t, n))
+}
+```
+
+## Cross-group lateral targeting (by dimorphism)
+
+```{r cross-group, fig.width=10, fig.height=6}
+# For each pair of dimorphism groups, sum the inhibitory lateral weight
+# (only GABAergic connections = negative weights)
+group_lateral <- mal_lateral %>%
+  filter(from_nt == "GABA") %>%
+  mutate(
+    from_group = mal_dimorphism[pre_type],
+    to_group   = mal_dimorphism[post_type]
+  ) %>%
+  filter(!is.na(from_group), !is.na(to_group)) %>%
+  group_by(from_group, to_group) %>%
+  summarise(
+    total_weight = sum(weight, na.rm = TRUE),
+    n_edges = n(),
+    .groups = "drop"
+  )
+
+# Normalize by number of possible source types in each group
+group_sizes <- table(mal_dimorphism[lateral_active])
+group_lateral <- group_lateral %>%
+  mutate(
+    from_n = as.integer(group_sizes[from_group]),
+    to_n   = as.integer(group_sizes[to_group]),
+    # Per-source-type average
+    weight_per_source = total_weight / pmax(from_n, 1),
+    interaction = paste0(from_group, " -> ", to_group),
+    same_group = from_group == to_group
+  )
+
+p_cross <- ggplot(group_lateral,
+                  aes(x = to_group, y = from_group,
+                      fill = weight_per_source, size = n_edges)) +
+  geom_point(shape = 21, stroke = 0.5) +
+  scale_fill_gradient(low = "white", high = "#B2182B",
+                      name = "Inhibitory weight\n(per source type)") +
+  scale_size_continuous(range = c(2, 12), name = "Number of\nedges") +
+  labs(x = "Target group", y = "Source group (GABAergic)") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    panel.grid.major = element_line(linewidth = 0.3, color = "grey90")
+  )
+
+save_fig5_plot(p_cross, "panel_G_cross_group_targeting", width = 10, height = 6)
+print(p_cross)
+```
+
+## Lateral input vs sensory drive: does inhibition scale with activation?
+
+```{r inhibition-vs-drive, fig.width=10, fig.height=6}
+# Test whether subtypes that receive strong sensory input also receive
+# stronger lateral inhibition (competitive network structure)
+drive_inh <- hub_data %>%
+  mutate(
+    total_sensory = rowSums(abs(mal_activation_matrix[type, , drop = FALSE])),
+    ppk_drive = abs(mal_activation_matrix[type, "ppk23"]) +
+                abs(mal_activation_matrix[type, "ppk25"])
+  )
+
+p_drive <- ggplot(drive_inh, aes(x = ppk_drive, y = total_input_inh)) +
+  geom_point(aes(color = dimorphism, shape = dimorphism), size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.5, color = "grey40",
+              linetype = "dashed") +
+  scale_color_manual(values = dimorphism_colors, name = "Dimorphism") +
+  scale_shape_manual(values = c("male_specific" = 16, "shared" = 17),
+                     name = "Dimorphism") +
+  labs(x = "ppk sensory drive (|ppk23| + |ppk25|)",
+       y = "Lateral inhibitory input\n(fraction of total input)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+# Correlation test
+if (nrow(drive_inh) > 3) {
+  cor_test <- cor.test(drive_inh$ppk_drive, drive_inh$total_input_inh,
+                       method = "spearman")
+  cat(sprintf("Spearman correlation (ppk drive vs lateral input): rho=%.3f, p=%.4f\n",
+              cor_test$estimate, cor_test$p.value))
+}
+
+save_fig5_plot(p_drive, "panel_G_inhibition_vs_drive", width = 10, height = 6)
+print(p_drive)
+```
+
+## Combined panel
+
+```{r combined, fig.width=12, fig.height=12}
+p_combined <- (p_output / p_input / (p_cross | p_drive)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_G_combined", width = 12, height = 12)
+print(p_combined)
+```
+
+## Summary statistics
+
+```{r summary-stats}
+cat("\n=== Lateral connectivity summary ===\n")
+cat(sprintf("Total mAL-mAL edges: %d\n", nrow(mal_lateral)))
+cat(sprintf("GABAergic (inhibitory) edges: %d (%.0f%%)\n",
+            sum(mal_lateral$from_nt == "GABA"),
+            100 * mean(mal_lateral$from_nt == "GABA")))
+
+# Top lateral hubs
+cat("\nTop 5 inhibitory output hubs:\n")
+top_out <- hub_data %>% arrange(desc(total_output_inh)) %>% head(5)
+for (i in seq_len(nrow(top_out))) {
+  cat(sprintf("  %s: %.4f output, NT=%s\n",
+              top_out$type[i], top_out$total_output_inh[i],
+              top_out$nt[i]))
+}
+
+cat("\nTop 5 inhibitory input receivers:\n")
+top_in <- hub_data %>% arrange(desc(total_input_inh)) %>% head(5)
+for (i in seq_len(nrow(top_in))) {
+  cat(sprintf("  %s: %.4f input, dimorphism=%s\n",
+              top_in$type[i], top_in$total_input_inh[i],
+              top_in$dimorphism[i]))
+}
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_total_edges <- nrow(mal_lateral)
+n_gaba_edges  <- sum(mal_lateral$from_nt == "GABA")
+pct_gaba      <- 100 * n_gaba_edges / n_total_edges
+n_active      <- length(lateral_active)
+
+top3_out <- hub_data %>% arrange(desc(total_output_inh)) %>% head(3)
+top3_in  <- hub_data %>% arrange(desc(total_input_inh)) %>% head(3)
+
+# Cross-group summary
+within_group_wt <- sum(group_lateral$total_weight[group_lateral$same_group])
+between_group_wt <- sum(group_lateral$total_weight[!group_lateral$same_group])
+total_group_wt <- within_group_wt + between_group_wt
+
+# Correlation
+cor_text <- if (exists("cor_test") && !is.null(cor_test)) {
+  sprintf("rho=%.3f, p=%.4f", cor_test$estimate, cor_test$p.value)
+} else {
+  "not computed"
+}
+
+narrative <- sprintf(
+"PANEL G: Lateral Inhibition Architecture within the mAL Population
+=====================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Top: mAL-to-mAL signed connectivity heatmap showing all lateral connections
+between %d interconnected mAL subtypes. Blue = inhibitory (GABAergic source),
+red = excitatory (non-GABAergic source). Rows annotated by NT and dimorphism.
+
+Middle: Hub analysis bar charts:
+  a) Inhibitory output per subtype (how much each type suppresses others)
+  b) Inhibitory input per subtype (how much each type is suppressed)
+
+Bottom:
+  c) Cross-group targeting bubble plot: which dimorphism groups preferentially
+     inhibit which targets.
+  d) Scatter: ppk sensory drive vs lateral inhibitory input received.
+
+KEY OBSERVATIONS
+----------------
+1. The mAL lateral network is %d edges, %.0f%% GABAergic (inhibitory).
+
+2. Top inhibitory output hubs: %s.
+   These subtypes are the main shapers of population dynamics.
+
+3. Top inhibitory input receivers: %s.
+   These subtypes are most suppressed by lateral inhibition.
+
+4. Cross-group inhibition: within-group = %.0f%% vs between-group = %.0f%%
+   of total GABAergic lateral weight.
+
+5. ppk drive vs lateral inhibition: %s.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The mAL population is not a simple relay: GABAergic subtypes laterally
+inhibit each other, implementing a competitive network. This competition
+sharpens the population code -- subtypes with strong sensory drive
+suppress competitors, amplifying the contrast between encounter types.
+The cross-group targeting pattern reveals whether inhibition is primarily
+within-group (competition among same dimorphism type) or between-group
+(cross-dimorphism suppression).
+",
+n_active,
+n_total_edges, pct_gaba,
+paste(sprintf("%s (%.4f)", top3_out$type, top3_out$total_output_inh), collapse = ", "),
+paste(sprintf("%s (%.4f)", top3_in$type, top3_in$total_input_inh), collapse = ", "),
+100 * within_group_wt / max(total_group_wt, 1),
+100 * between_group_wt / max(total_group_wt, 1),
+cor_text
+)
+
+save_panel_narrative("panel_G", narrative)
+cat(narrative)
+```

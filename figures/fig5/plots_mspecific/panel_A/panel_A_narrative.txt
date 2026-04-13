@@ -1,0 +1,52 @@
+PANEL A: mAL Input Profiles -- Sensory Specialization Heatmap
+================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+A diverging heatmap displaying the net sensory input strength (excitatory minus
+inhibitory path strength) for each of the 16 mAL interneuron subtypes across
+7 sensory channels: three olfactory (DA1, VA1v, VA1d), one auditory, one
+visual, and two contact chemosensory (ppk23 and ppk25).
+
+Rows are hierarchically clustered (Ward's method on Euclidean distance) to
+reveal groups of subtypes with similar input profiles. Row annotations mark
+each subtype's neurotransmitter identity (12 GABAergic, 4 unclear) and dimorphism
+(male-specific vs shared). Column annotations mark the sensory modality group.
+
+KEY OBSERVATIONS
+----------------
+1. mAL subtypes are NOT uniformly driven by all sensory channels. The
+   clustering reveals distinct input profile groups.
+
+2. The strongest average channel is ppk25; the weakest is VA1d.
+
+3. 0 subtypes show NEGATIVE net ppk23 strength (), indicating that
+   inhibitory paths from ppk23 sensory neurons dominate over excitatory
+   paths at these neurons -- the signature of the GABAergic sign-inverting
+   relay through AN05B035 (detailed in Panel C).
+
+4. 16 subtypes show positive ppk23 strength (mAL_m1, mAL_m10, mAL_m11, mAL_m2a, mAL_m2b, mAL_m3a, mAL_m3b, mAL_m3c, mAL_m4, mAL_m5a, mAL_m5b, mAL_m5c, mAL_m6, mAL_m7, mAL_m8, mAL_m9), receiving ppk23
+   input through excitatory relay pathways.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The mAL interneuron population, classically treated as a single cell type
+that uniformly inhibits P1 courtship command neurons, is in fact a
+heterogeneous ensemble of at least 16 functionally distinct subtypes.
+Each subtype samples a different combination of sensory modalities, meaning
+the mAL population can encode WHICH sensory channels are active, not merely
+WHETHER pheromone contact has occurred.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel A is the anchor panel for Figure 5. It establishes the central claim:
+mAL subtypes are sensory-specialized. All subsequent panels elaborate on
+specific aspects of this diversity:
+  - Panel B: How relay neurons create the selectivity spectrum
+  - Panel C: Why ppk23 is sign-inverted at some subtypes
+  - Panel D: How subtypes differentially target P1 command neurons
+  - Panel E: The excitatory/inhibitory path balance underlying these profiles
+  - Panels F/I: How this diversity creates distinct population codes
+  - Panel G: A case study of convergent excitation/inhibition at mAL_m2a
+  - Panel H: Sexual dimorphism of the pheromone pathway
+

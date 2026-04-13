@@ -1,0 +1,43 @@
+PANEL G: Lateral Inhibition Architecture within the mAL Population
+=====================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Top: mAL-to-mAL signed connectivity heatmap showing all lateral connections
+between 34 interconnected mAL subtypes. Blue = inhibitory (GABAergic source),
+red = excitatory (non-GABAergic source). Rows annotated by NT and dimorphism.
+
+Middle: Hub analysis bar charts:
+  a) Inhibitory output per subtype (how much each type suppresses others)
+  b) Inhibitory input per subtype (how much each type is suppressed)
+
+Bottom:
+  c) Cross-group targeting bubble plot: which dimorphism groups preferentially
+     inhibit which targets.
+  d) Scatter: ppk sensory drive vs lateral inhibitory input received.
+
+KEY OBSERVATIONS
+----------------
+1. The mAL lateral network is 157 edges, 75% GABAergic (inhibitory).
+
+2. Top inhibitory output hubs: mAL4H (0.5402), mAL_m1 (0.3345), mAL_m5a (0.2150).
+   These subtypes are the main shapers of population dynamics.
+
+3. Top inhibitory input receivers: mAL_m5b (0.2626), mAL_m5c (0.2451), mAL_m2b (0.2371).
+   These subtypes are most suppressed by lateral inhibition.
+
+4. Cross-group inhibition: within-group = 94% vs between-group = 6%
+   of total GABAergic lateral weight.
+
+5. ppk drive vs lateral inhibition: rho=0.062, p=0.7288.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The mAL population is not a simple relay: GABAergic subtypes laterally
+inhibit each other, implementing a competitive network. This competition
+sharpens the population code -- subtypes with strong sensory drive
+suppress competitors, amplifying the contrast between encounter types.
+The cross-group targeting pattern reveals whether inhibition is primarily
+within-group (competition among same dimorphism type) or between-group
+(cross-dimorphism suppression).
+

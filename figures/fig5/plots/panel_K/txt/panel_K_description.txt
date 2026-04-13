@@ -1,0 +1,16 @@
+
+Panel K: AN09B017 relay subtypes differentially target mAL types
+===================================================================
+Panel B showed that AN09B017 variants receive a spectrum of ppk23/ppk25
+input. This panel asks the complementary question: do they also show
+specificity in their OUTPUT to mAL types?
+
+Top:    Heatmap of input-normalized AN09B017 -> mAL weights (fraction of
+        each mAL type's total input from each AN09B017 variant).
+
+Middle: AN09B017 output entropy -- how broadly each variant distributes
+        its connections across mAL types.
+
+Bottom: Per-dimorphism-class breakdown -- do AN09B017 variants
+        preferentially target male-specific vs shared mAL types?
+

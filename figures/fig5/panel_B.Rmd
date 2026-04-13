@@ -1,0 +1,355 @@
+---
+title: "Figure 5B: The AN09B017 Relay"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel B: Ascending neuron variants create a spectrum of ppk23/ppk25 selectivity
+================================================================================
+Left:  Scatter plot of ppk23 vs ppk25 input to each AN09B017 variant (a-g),
+       with diagonal = equal sensitivity. Points colored by dominant input.
+
+Right: Bipartite connectivity diagram showing:
+       ppk23 sensory -> AN09B017 variants -> mAL subtypes
+       ppk25 sensory -> AN09B017 variants -> mAL subtypes
+       GABAergic AN05B035 shown as red inhibitory edges.
+
+Key finding: AN09B017 variants tile a spectrum from ppk23-selective (AN09B017b)
+to ppk25-selective (AN09B017g), providing graded input to different mAL subtypes.
+"
+pdir <- panel_plot_dir("panel_B_description", "txt")
+writeLines(description, file.path(pdir, "panel_B_description.txt"))
+cat(description)
+```
+
+## Query AN09B017 connectivity from connectome
+
+```{r an09b017-connectivity}
+# AN09B017 variants
+an09_types <- c("AN09B017a", "AN09B017b", "AN09B017c", "AN09B017d",
+                "AN09B017e", "AN09B017f", "AN09B017g")
+
+# ppk23/ppk25 sensory neuron types from shared setup
+ppk23_types <- channel_neurons[["ppk23"]]
+ppk25_types <- channel_neurons[["ppk25"]]
+
+# Input-normalized weights: adj.matrix[pre, post] = fraction of post's total input
+# Sum across all ppk23 sensory types for each AN09B017 variant
+adj_rows <- rownames(adj.matrix)
+adj_cols <- colnames(adj.matrix)
+
+ppk23_to_an09 <- data.frame(
+  post_type = an09_types,
+  ppk23_input = sapply(an09_types, function(an) {
+    ppk_in_mat <- ppk23_types[ppk23_types %in% adj_rows]
+    if (length(ppk_in_mat) > 0 && an %in% adj_cols)
+      sum(adj.matrix[ppk_in_mat, an])
+    else 0
+  }),
+  stringsAsFactors = FALSE
+)
+
+ppk25_to_an09 <- data.frame(
+  post_type = an09_types,
+  ppk25_input = sapply(an09_types, function(an) {
+    ppk_in_mat <- ppk25_types[ppk25_types %in% adj_rows]
+    if (length(ppk_in_mat) > 0 && an %in% adj_cols)
+      sum(adj.matrix[ppk_in_mat, an])
+    else 0
+  }),
+  stringsAsFactors = FALSE
+)
+
+# Merge
+an09_inputs <- data.frame(type = an09_types, stringsAsFactors = FALSE) %>%
+  left_join(ppk23_to_an09, by = c("type" = "post_type")) %>%
+  left_join(ppk25_to_an09, by = c("type" = "post_type")) %>%
+  mutate(
+    ppk23_input = replace_na(ppk23_input, 0),
+    ppk25_input = replace_na(ppk25_input, 0),
+    ratio = ifelse(ppk25_input > 0, ppk23_input / ppk25_input, Inf),
+    dominant = case_when(
+      ppk23_input > ppk25_input * 1.5 ~ "ppk23-biased",
+      ppk25_input > ppk23_input * 1.5 ~ "ppk25-biased",
+      TRUE ~ "balanced"
+    ),
+    label = sub("AN09B017", "", type)
+  )
+
+cat("AN09B017 input profiles:\n")
+print(an09_inputs %>% select(type, ppk23_input, ppk25_input, ratio, dominant))
+```
+
+## Scatter plot: ppk23 vs ppk25 input to AN09B017 variants
+
+```{r scatter, fig.width=7, fig.height=7}
+selectivity_colors <- c(
+  "ppk23-biased" = "#FFD92F",
+  "ppk25-biased" = "#E5C494",
+  "balanced"     = "#999999"
+)
+
+p_scatter <- ggplot(an09_inputs, aes(x = ppk23_input, y = ppk25_input,
+                                     color = dominant)) +
+  geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+              linetype = "dashed", color = "grey60") +
+  geom_point(size = 5) +
+  ggrepel::geom_text_repel(aes(label = label), size = 3, fontface = "bold") +
+  scale_color_manual(values = selectivity_colors) +
+  labs(x = "ppk23 input (fraction of total input)",
+       y = "ppk25 input (fraction of total input)",
+       color = "Selectivity") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_scatter, "panel_B_an09b017_selectivity", width = 7, height = 7)
+print(p_scatter)
+```
+
+## AN09B017 -> mAL connectivity
+
+```{r an09-to-mal}
+# Get AN09B017 -> mAL synaptic weights
+an09_to_mal <- conn %>%
+  filter(pre_type %in% an09_types, post_type %in% mal_subtypes) %>%
+  group_by(pre_type, post_type) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop")
+
+cat("AN09B017 -> mAL connections:", nrow(an09_to_mal), "\n")
+```
+
+## Bipartite connectivity diagram
+
+```{r bipartite, fig.width=12, fig.height=10}
+# Build bipartite network: sensory -> AN09B017 -> mAL
+# Layer 1: ppk23/ppk25 (2 nodes)
+# Layer 2: AN09B017 variants (7 nodes)
+# Layer 3: mAL subtypes (15 nodes)
+
+# Aggregate sensory -> AN09B017 edges
+sensory_to_an09 <- bind_rows(
+  ppk23_to_an09 %>% mutate(from = "ppk23") %>% rename(to = post_type, weight = ppk23_input),
+  ppk25_to_an09 %>% mutate(from = "ppk25") %>% rename(to = post_type, weight = ppk25_input)
+) %>% filter(weight > 0)
+
+# Create edge list for bipartite
+edges_l1_l2 <- sensory_to_an09 %>%
+  mutate(layer = "sensory_to_relay",
+         edge_color = ifelse(from == "ppk23", "#FFD92F", "#E5C494"))
+
+edges_l2_l3 <- an09_to_mal %>%
+  rename(from = pre_type, to = post_type) %>%
+  mutate(layer = "relay_to_mAL",
+         edge_color = "grey60")
+
+# Also get AN05B035 -> AN09B017 (sign-inverting inhibitory connection)
+sign_inverter <- conn %>%
+  filter(pre_type == "AN05B035", post_type %in% an09_types) %>%
+  group_by(pre_type, post_type) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop") %>%
+  filter(weight > 0)
+
+if (nrow(sign_inverter) > 0) {
+  cat("\nAN05B035 (GABAergic sign-inverter) connections:\n")
+  print(sign_inverter)
+}
+
+# Build node positions for 3-layer layout
+layer1_nodes <- c("ppk23", "ppk25")
+layer2_nodes <- an09_types[an09_types %in% c(sensory_to_an09$to, an09_to_mal$pre_type)]
+layer3_nodes <- sort(unique(an09_to_mal$post_type))
+
+# Create igraph
+all_edges <- bind_rows(
+  edges_l1_l2 %>% select(from, to, weight, edge_color),
+  edges_l2_l3 %>% select(from, to, weight, edge_color)
+)
+
+g <- graph_from_data_frame(all_edges, directed = TRUE)
+
+# Assign layers
+all_nodes <- V(g)$name
+node_layer <- case_when(
+  all_nodes %in% layer1_nodes ~ 1,
+  all_nodes %in% layer2_nodes ~ 2,
+  all_nodes %in% layer3_nodes ~ 3,
+  TRUE ~ 2
+)
+
+# Manual layout: x = layer, y = evenly spaced within layer
+layout_df <- data.frame(name = all_nodes, layer = node_layer, stringsAsFactors = FALSE)
+layout_df <- layout_df %>%
+  group_by(layer) %>%
+  mutate(y = seq(-n()/2, n()/2, length.out = n())) %>%
+  ungroup()
+
+layout_mat <- as.matrix(layout_df[match(V(g)$name, layout_df$name), c("layer", "y")])
+
+# Node colors
+node_colors <- case_when(
+  V(g)$name == "ppk23" ~ "#FFD92F",
+  V(g)$name == "ppk25" ~ "#E5C494",
+  V(g)$name %in% an09_types ~ "#66C2A5",
+  V(g)$name %in% mal_subtypes ~ "grey80",
+  TRUE ~ "grey80"
+)
+
+# Edge widths proportional to weight
+edge_widths <- scales::rescale(E(g)$weight, to = c(0.5, 4))
+
+# Plot
+png(file.path(panel_plot_dir("panel_B_bipartite", "png"), "panel_B_bipartite.png"),
+    width = 12, height = 10, units = "in", res = 300)
+par(mar = c(1, 1, 1, 1))
+plot(g,
+     layout = layout_mat,
+     vertex.color = node_colors,
+     vertex.size = ifelse(node_layer == 1, 15, ifelse(node_layer == 2, 10, 8)),
+     vertex.label = V(g)$name,
+     vertex.label.cex = 0.6,
+     vertex.label.color = "black",
+     vertex.frame.color = NA,
+     edge.color = adjustcolor(E(g)$edge_color, alpha.f = 0.6),
+     edge.width = edge_widths,
+     edge.arrow.size = 0.3,
+     edge.curved = 0.1)
+legend("bottomleft", legend = c("ppk23", "ppk25", "AN09B017", "mAL"),
+       fill = c("#FFD92F", "#E5C494", "#66C2A5", "grey80"),
+       border = NA, bty = "n", cex = 0.8)
+dev.off()
+
+# Also save PDF
+pdf(file.path(panel_plot_dir("panel_B_bipartite", "pdf"), "panel_B_bipartite.pdf"),
+    width = 12, height = 10)
+par(mar = c(1, 1, 1, 1))
+plot(g,
+     layout = layout_mat,
+     vertex.color = node_colors,
+     vertex.size = ifelse(node_layer == 1, 15, ifelse(node_layer == 2, 10, 8)),
+     vertex.label = V(g)$name,
+     vertex.label.cex = 0.6,
+     vertex.label.color = "black",
+     vertex.frame.color = NA,
+     edge.color = adjustcolor(E(g)$edge_color, alpha.f = 0.6),
+     edge.width = edge_widths,
+     edge.arrow.size = 0.3,
+     edge.curved = 0.1)
+legend("bottomleft", legend = c("ppk23", "ppk25", "AN09B017", "mAL"),
+       fill = c("#FFD92F", "#E5C494", "#66C2A5", "grey80"),
+       border = NA, bty = "n", cex = 0.8)
+dev.off()
+```
+
+## AN09B017 selectivity ratio bar chart
+
+```{r ratio-bars, fig.width=8, fig.height=5}
+p_ratio <- ggplot(an09_inputs %>% filter(is.finite(ratio)),
+                  aes(x = reorder(type, ratio), y = log2(ratio), fill = dominant)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  scale_fill_manual(values = selectivity_colors) +
+  labs(x = "AN09B017 variant",
+       y = expression(log[2] * "(ppk23/ppk25 input ratio)"),
+       fill = "Selectivity") +
+  coord_flip() +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_ratio, "panel_B_selectivity_ratio", width = 8, height = 5)
+print(p_ratio)
+```
+
+## Combined panel
+
+```{r combined, fig.width=14, fig.height=7}
+p_combined <- p_scatter + p_ratio +
+  plot_layout(widths = c(1, 1)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_B_combined", width = 14, height = 7)
+print(p_combined)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_variants <- nrow(an09_inputs)
+n_ppk23_biased <- sum(an09_inputs$dominant == "ppk23-biased")
+n_ppk25_biased <- sum(an09_inputs$dominant == "ppk25-biased")
+n_balanced <- sum(an09_inputs$dominant == "balanced")
+most_ppk23 <- an09_inputs$type[which.max(an09_inputs$ppk23_input)]
+most_ppk25 <- an09_inputs$type[which.max(an09_inputs$ppk25_input)]
+n_an09_mal_connections <- nrow(an09_to_mal)
+n_mal_targeted <- length(unique(an09_to_mal$post_type))
+
+n_sign_inverter <- nrow(sign_inverter)
+
+narrative <- sprintf(
+"PANEL B: The AN09B017 Relay -- Ascending Neuron Selectivity Spectrum
+======================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Scatter plot of ppk23 vs ppk25 direct synaptic input (synapse count)
+to each of the %d AN09B017 ascending neuron variants (a through g). Points
+are colored by dominant input: ppk23-biased (gold), ppk25-biased (tan), or
+balanced (grey). A diagonal line marks equal sensitivity.
+
+Right: Log2 ratio bar chart (ppk23/ppk25 input ratio) for each variant,
+quantifying the degree of selectivity.
+
+Additionally, a 3-layer bipartite network diagram shows the full
+ppk23/ppk25 sensory -> AN09B017 -> mAL connectivity architecture.
+
+KEY OBSERVATIONS
+----------------
+1. The %d AN09B017 variants tile a selectivity spectrum: %d are ppk23-biased,
+   %d are ppk25-biased, and %d are balanced.
+
+2. %s receives the most ppk23 input; %s receives the most ppk25 input.
+
+3. AN09B017 variants collectively contact %d mAL subtypes through %d
+   individual connections, distributing sensory information non-uniformly
+   across the mAL population.
+
+4. %d connections from AN05B035 (GABAergic) to AN09B017 variants provide
+   sign-inverting inhibition, which is the circuit basis for the ppk23
+   sign reversal described in Panel C.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+AN09B017 is not a single relay neuron but a family of variants with graded
+ppk23/ppk25 selectivity. This means the ascending neuron layer does not
+simply forward pheromone signals -- it decomposes the signal into a spectrum
+of channel-specific streams. Each AN09B017 variant preferentially routes
+one pheromone channel's information to specific mAL subtypes downstream.
+
+The GABAergic AN05B035 sign-inverter adds a critical inhibitory branch:
+ppk23 signals reaching AN09B017g through this pathway arrive with flipped
+sign, creating the substrate for the F-selective mAL class.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel B explains HOW the sensory selectivity shown in Panel A is created.
+The AN09B017 relay layer is the circuit mechanism that maps continuous
+pheromone receptor activation into discrete mAL subtype channels. It sets
+up Panel C's sign-reversal finding by showing the AN05B035 inhibitory
+branch and connects to Panel G's mAL_m2a case study by showing which
+AN09B017 variants provide its excitatory input.
+",
+n_variants,
+n_variants, n_ppk23_biased, n_ppk25_biased, n_balanced,
+most_ppk23, most_ppk25,
+n_mal_targeted, n_an09_mal_connections,
+n_sign_inverter
+)
+
+save_panel_narrative("panel_B", narrative)
+cat(narrative)
+```

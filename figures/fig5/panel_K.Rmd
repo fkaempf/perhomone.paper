@@ -1,0 +1,463 @@
+---
+title: "Figure 5K: AN09B017 Subtype Specificity on mAL Types"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel K: AN09B017 relay subtypes differentially target mAL types
+===================================================================
+Panel B showed that AN09B017 variants receive a spectrum of ppk23/ppk25
+input. This panel asks the complementary question: do they also show
+specificity in their OUTPUT to mAL types?
+
+Top:    Heatmap of input-normalized AN09B017 -> mAL weights (fraction of
+        each mAL type's total input from each AN09B017 variant).
+
+Middle: AN09B017 output entropy -- how broadly each variant distributes
+        its connections across mAL types.
+
+Bottom: Per-dimorphism-class breakdown -- do AN09B017 variants
+        preferentially target male-specific vs shared mAL types?
+"
+pdir <- panel_plot_dir("panel_K_description", "txt")
+writeLines(description, file.path(pdir, "panel_K_description.txt"))
+cat(description)
+```
+
+## Define AN09B017 subtypes
+
+```{r an09-types}
+an09_types <- c("AN09B017a", "AN09B017b", "AN09B017c", "AN09B017d",
+                "AN09B017e", "AN09B017f", "AN09B017g")
+
+# Keep only those present in the adjacency matrix
+an09_in_adj <- an09_types[an09_types %in% rownames(adj.matrix)]
+cat("AN09B017 subtypes in adj.matrix:", length(an09_in_adj), "/", length(an09_types), "\n")
+cat(" ", paste(an09_in_adj, collapse = ", "), "\n")
+
+# mAL types present in adj.matrix
+mal_in_adj <- mal_subtypes[mal_subtypes %in% colnames(adj.matrix)]
+cat("mAL types in adj.matrix:", length(mal_in_adj), "/", length(mal_subtypes), "\n")
+```
+
+## Extract input-normalized AN09B017 -> mAL connectivity
+
+```{r an09-mal-normed}
+# adj.matrix is post-normalized (input-normalized): adj.matrix[pre, post]
+# Values = fraction of postsynaptic neuron's total input from presynaptic type
+an09_mal_normed <- matrix(0, nrow = length(an09_in_adj), ncol = length(mal_in_adj),
+                          dimnames = list(an09_in_adj, mal_in_adj))
+
+for (a in an09_in_adj) {
+  for (m in mal_in_adj) {
+    an09_mal_normed[a, m] <- adj.matrix[a, m]
+  }
+}
+
+cat("Input-normalized AN09B017 -> mAL matrix:\n")
+cat(sprintf("  Non-zero entries: %d / %d\n",
+            sum(an09_mal_normed > 0), length(an09_mal_normed)))
+cat(sprintf("  Range: [%.6f, %.6f]\n", min(an09_mal_normed), max(an09_mal_normed)))
+
+# Also extract raw synapse counts from conn
+an09_mal_raw <- conn %>%
+  filter(pre_type %in% an09_in_adj, post_type %in% mal_in_adj) %>%
+  group_by(pre_type, post_type) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = "drop")
+
+cat(sprintf("  Raw connections: %d edges\n", nrow(an09_mal_raw)))
+```
+
+## Also include AN05B035 -> mAL
+
+```{r an05b035}
+# Check if AN05B035 is in the adjacency matrix
+has_an05 <- "AN05B035" %in% rownames(adj.matrix)
+cat("AN05B035 in adj.matrix:", has_an05, "\n")
+
+if (has_an05) {
+  an05_mal_normed <- sapply(mal_in_adj, function(m) adj.matrix["AN05B035", m])
+  cat(sprintf("AN05B035 -> mAL non-zero: %d / %d\n",
+              sum(an05_mal_normed > 0), length(an05_mal_normed)))
+
+  # Combine into full relay matrix
+  relay_types <- c(an09_in_adj, "AN05B035")
+  relay_mal_normed <- rbind(an09_mal_normed, AN05B035 = an05_mal_normed)
+} else {
+  relay_types <- an09_in_adj
+  relay_mal_normed <- an09_mal_normed
+}
+```
+
+## Heatmap: relay -> mAL input fractions
+
+```{r heatmap, fig.width=12, fig.height=8}
+# Row annotations: relay type properties
+# Look up neurotransmitter from mba: consensus_nt first, then predicted_nt
+relay_nt <- sapply(relay_types, function(t) {
+  rows <- mba %>% filter(type == t)
+  # Try consensus_nt
+  nt_val <- rows %>%
+    filter(!is.na(consensus_nt), consensus_nt != "") %>%
+    pull(consensus_nt) %>%
+    table() %>% sort(decreasing = TRUE) %>% names()
+  if (length(nt_val) > 0) return(normalize_nt(nt_val[1]))
+  # Fallback to predicted_nt
+  if ("predicted_nt" %in% colnames(rows)) {
+    nt_val <- rows %>%
+      filter(!is.na(predicted_nt), predicted_nt != "") %>%
+      pull(predicted_nt) %>%
+      table() %>% sort(decreasing = TRUE) %>% names()
+    if (length(nt_val) > 0) return(normalize_nt(nt_val[1]))
+  }
+  return("unknown")
+})
+
+# Get ppk23/ppk25 selectivity for AN09B017 from conn
+ppk23_types <- channel_neurons[["ppk23"]]
+ppk25_types <- channel_neurons[["ppk25"]]
+
+relay_selectivity <- sapply(relay_types, function(t) {
+  if (t == "AN05B035") return("sign_inverter")
+  ppk23_in <- sum(conn$weight[conn$pre_type %in% ppk23_types & conn$post_type == t], na.rm = TRUE)
+  ppk25_in <- sum(conn$weight[conn$pre_type %in% ppk25_types & conn$post_type == t], na.rm = TRUE)
+  if (ppk23_in > ppk25_in * 1.5) return("ppk23_biased")
+  if (ppk25_in > ppk23_in * 1.5) return("ppk25_biased")
+  return("balanced")
+})
+
+row_annot <- data.frame(
+  neurotransmitter = relay_nt,
+  input_selectivity = relay_selectivity,
+  row.names = relay_types
+)
+
+# Column annotations: mAL dimorphism
+col_annot <- data.frame(
+  dimorphism = mal_dimorphism[mal_in_adj],
+  row.names = mal_in_adj
+)
+
+selectivity_colors <- c(
+  "ppk23_biased"  = "#FFD92F",
+  "ppk25_biased"  = "#E5C494",
+  "balanced"      = "#999999",
+  "sign_inverter" = "#E41A1C"
+)
+
+# Use nt_colors from setup.R, subset to values present in relay_nt
+relay_nt_colors <- nt_colors[intersect(names(nt_colors), unique(relay_nt))]
+
+ann_colors <- list(
+  neurotransmitter  = relay_nt_colors,
+  input_selectivity = selectivity_colors,
+  dimorphism        = dimorphism_colors
+)
+
+# Diverging palette (all values are positive for input-normalized)
+max_val <- max(relay_mal_normed)
+if (max_val == 0) max_val <- 1
+breaks <- seq(0, max_val, length.out = 101)
+colors <- colorRampPalette(c("white", "#FEE5D9", "#FCAE91", "#FB6A4A",
+                              "#DE2D26", "#A50F15"))(100)
+
+save_heatmap_fixed_annot(
+  mat        = relay_mal_normed,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_K_heatmap", "png"),
+                         "panel_K_heatmap.png"),
+  width      = 12, height = 8,
+  breaks     = breaks, color = colors,
+  cluster_rows = TRUE, cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 8, fontsize_col = 6,
+  border_color = "grey90",
+  cellwidth = 18, cellheight = 25
+)
+
+save_heatmap_fixed_annot(
+  mat        = relay_mal_normed,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_K_heatmap", "pdf"),
+                         "panel_K_heatmap.pdf"),
+  width      = 12, height = 8,
+  breaks     = breaks, color = colors,
+  cluster_rows = TRUE, cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 8, fontsize_col = 6,
+  border_color = "grey90",
+  cellwidth = 18, cellheight = 25
+)
+```
+
+## Output entropy: how broadly does each AN09B017 variant target mAL?
+
+```{r entropy, fig.width=8, fig.height=6}
+# Shannon entropy of each relay neuron's output distribution across mAL types
+relay_entropy <- data.frame(
+  relay = relay_types,
+  entropy = apply(relay_mal_normed, 1, shannon_entropy),
+  n_targets = apply(relay_mal_normed > 0, 1, sum),
+  total_output = rowSums(relay_mal_normed),
+  selectivity = relay_selectivity,
+  stringsAsFactors = FALSE
+)
+
+# Max possible entropy = log2(n mAL types)
+max_entropy <- log2(length(mal_in_adj))
+relay_entropy$normalized_entropy <- relay_entropy$entropy / max_entropy
+
+cat("Relay output entropy:\n")
+print(relay_entropy %>% arrange(entropy))
+
+p_entropy <- ggplot(relay_entropy, aes(x = reorder(relay, entropy),
+                                        y = entropy, fill = selectivity)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = max_entropy, linewidth = 0.3,
+             linetype = "dashed", color = "grey50") +
+  annotate("text", x = 0.5, y = max_entropy + 0.1,
+           label = "uniform", hjust = 0, size = 3, color = "grey50") +
+  scale_fill_manual(values = selectivity_colors) +
+  labs(x = "Relay neuron", y = "Output entropy (bits)",
+       fill = "Input selectivity") +
+  coord_flip() +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_entropy, "panel_K_output_entropy", width = 8, height = 6)
+print(p_entropy)
+```
+
+## Per-dimorphism-class targeting (stacked)
+
+```{r per-class, fig.width=10, fig.height=6}
+# For each relay neuron, sum input fractions going to male-specific vs shared mAL
+dim_targeting_stacked <- data.frame()
+for (r in relay_types) {
+  for (dc in c("male_specific", "shared")) {
+    members <- mal_in_adj[mal_dimorphism[mal_in_adj] == dc]
+    if (length(members) == 0) next
+    total_to_class <- sum(relay_mal_normed[r, members])
+    n_in_class <- length(members)
+    dim_targeting_stacked <- rbind(dim_targeting_stacked, data.frame(
+      relay = r,
+      dimorphism = dc,
+      total_input_fraction = total_to_class,
+      n_targets_in_class = sum(relay_mal_normed[r, members] > 0),
+      n_in_class = n_in_class,
+      mean_per_target = total_to_class / n_in_class,
+      selectivity = relay_selectivity[r],
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Normalized version: fraction of each relay's output going to each dimorphism class
+dim_targeting_norm <- dim_targeting_stacked %>%
+  group_by(relay) %>%
+  mutate(fraction_of_output = total_input_fraction / sum(total_input_fraction)) %>%
+  ungroup()
+
+p_dim_norm <- ggplot(dim_targeting_norm,
+                     aes(x = relay, y = fraction_of_output, fill = dimorphism)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = dimorphism_colors) +
+  labs(x = "Relay neuron",
+       y = "Fraction of relay output to class",
+       fill = "mAL dimorphism") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "top"
+  )
+
+save_fig5_plot(p_dim_norm, "panel_K_dimorphism_targeting_normalized", width = 10, height = 6)
+print(p_dim_norm)
+```
+
+## Per-dimorphism-class targeting
+
+```{r per-dimorphism, fig.width=10, fig.height=6}
+# For each relay neuron, sum input fractions going to male-specific vs shared mAL
+dim_targeting <- data.frame()
+for (r in relay_types) {
+  for (dc in c("male_specific", "shared")) {
+    members <- mal_in_adj[mal_dimorphism[mal_in_adj] == dc]
+    if (length(members) == 0) next
+    total_to_class <- sum(relay_mal_normed[r, members])
+    dim_targeting <- rbind(dim_targeting, data.frame(
+      relay = r,
+      dimorphism = dc,
+      total_input_fraction = total_to_class,
+      n_targets = sum(relay_mal_normed[r, members] > 0),
+      n_in_class = length(members),
+      selectivity = relay_selectivity[r],
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+if (nrow(dim_targeting) > 0 && length(unique(dim_targeting$dimorphism)) > 1) {
+  p_dim <- ggplot(dim_targeting,
+                  aes(x = relay, y = total_input_fraction, fill = dimorphism)) +
+    geom_col(position = "dodge", width = 0.7) +
+    scale_fill_manual(values = dimorphism_colors) +
+    labs(x = "Relay neuron",
+         y = "Total input fraction to class",
+         fill = "mAL dimorphism") +
+    theme_pub(base_size = 10) +
+    theme(
+      axis.text.x = element_text(angle = 30, hjust = 1),
+      legend.position = "top"
+    )
+
+  save_fig5_plot(p_dim, "panel_K_dimorphism_targeting", width = 10, height = 6)
+  print(p_dim)
+}
+```
+
+## Dot plot: individual AN09B017 -> mAL connections
+
+```{r dot-plot, fig.width=14, fig.height=8}
+dot_data <- as.data.frame(relay_mal_normed) %>%
+  rownames_to_column("relay") %>%
+  pivot_longer(-relay, names_to = "mAL_type", values_to = "input_fraction") %>%
+  filter(input_fraction > 0) %>%
+  mutate(
+    selectivity = relay_selectivity[relay],
+    dimorphism = mal_dimorphism[mAL_type]
+  )
+
+p_dot <- ggplot(dot_data, aes(x = mAL_type, y = relay)) +
+  geom_point(aes(size = input_fraction, color = selectivity)) +
+  scale_size_continuous(range = c(1, 8), name = "Input fraction") +
+  scale_color_manual(values = selectivity_colors, name = "Relay selectivity") +
+  labs(x = "mAL type", y = "Relay neuron") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    panel.grid.major = element_line(linewidth = 0.2, color = "grey90")
+  )
+
+save_fig5_plot(p_dot, "panel_K_dot_plot", width = 14, height = 8)
+print(p_dot)
+```
+
+## Combined panel
+
+```{r combined, fig.width=14, fig.height=6}
+p_combined <- p_entropy + p_dim_norm +
+  plot_layout(widths = c(1, 1.2)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_K_combined", width = 14, height = 6)
+print(p_combined)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+# Summary stats
+most_specific <- relay_entropy$relay[which.min(relay_entropy$entropy)]
+most_broad <- relay_entropy$relay[which.max(relay_entropy$entropy)]
+most_specific_targets <- relay_entropy$n_targets[which.min(relay_entropy$entropy)]
+most_broad_targets <- relay_entropy$n_targets[which.max(relay_entropy$entropy)]
+
+# Which relay targets most male_specific?
+male_fracs <- dim_targeting_norm %>%
+  filter(dimorphism == "male_specific") %>%
+  arrange(desc(fraction_of_output))
+top_male_relay <- male_fracs$relay[1]
+top_male_frac <- male_fracs$fraction_of_output[1]
+
+# Which relay targets most shared?
+shared_fracs <- dim_targeting_norm %>%
+  filter(dimorphism == "shared") %>%
+  arrange(desc(fraction_of_output))
+top_shared_relay <- shared_fracs$relay[1]
+top_shared_frac <- shared_fracs$fraction_of_output[1]
+
+n_shared_mal <- sum(mal_dimorphism[mal_in_adj] == "shared")
+n_male_mal <- sum(mal_dimorphism[mal_in_adj] == "male_specific")
+
+narrative <- sprintf(
+"PANEL K: AN09B017 Output Specificity -- Relay-to-mAL Targeting
+=================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Heatmap: Input-normalized weights from each AN09B017 variant (+ AN05B035)
+to each mAL type. Values represent the fraction of each mAL neuron's total
+input that comes from each relay neuron. Rows clustered by output similarity;
+columns clustered by input similarity and annotated by dimorphism
+(male-specific vs shared).
+
+Entropy: Shannon entropy of each relay neuron's output distribution across
+mAL types. High entropy = broad targeting; low entropy = specific targeting.
+
+Dimorphism targeting: Stacked bar chart showing what fraction of each relay
+neuron's output goes to male-specific vs shared mAL types.
+
+Dot plot: Individual connections colored by relay input selectivity.
+
+KEY OBSERVATIONS
+----------------
+1. Most specific relay: %s (entropy target: %d mAL types).
+   Most broad relay:    %s (%d mAL targets).
+
+2. Dimorphism bias: %s sends %.0f%% of its output to male-specific mAL types;
+   %s sends %.0f%% to shared mAL types.
+
+3. The mAL population includes %d male-specific and %d shared types.
+   Relay targeting may differ between these dimorphism classes.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Panel B showed that AN09B017 variants have different ppk23/ppk25 INPUT
+selectivity. This panel shows they also differ in OUTPUT specificity --
+each variant preferentially innervates different subsets of mAL types.
+
+Combined with the input selectivity spectrum, this creates a mapping:
+specific pheromone channels -> specific AN09B017 variants -> specific
+mAL types. The relay layer is not a simple pass-through but a
+selectivity-amplifying transform that routes pheromone information to
+distinct mAL subpopulations.
+
+AN05B035 (GABAergic sign-inverter) adds a qualitatively different
+output pattern: it specifically targets the mAL types that show ppk23
+sign reversal (Panel C), providing the inhibitory counterweight.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel K complements Panel B by completing the relay neuron story:
+- Panel B: relay INPUT selectivity (which pheromone channels drive each variant)
+- Panel K: relay OUTPUT specificity (which mAL types each variant targets)
+
+Together they show that the AN09B017 layer implements a labeled-line-like
+mapping from pheromone channels to mAL subpopulations, with AN05B035
+adding the sign-inverting branch.
+",
+most_specific, most_specific_targets,
+most_broad, most_broad_targets,
+top_male_relay, top_male_frac * 100,
+top_shared_relay, top_shared_frac * 100,
+n_male_mal, n_shared_mal
+)
+
+save_panel_narrative("panel_K", narrative)
+cat(narrative)
+```

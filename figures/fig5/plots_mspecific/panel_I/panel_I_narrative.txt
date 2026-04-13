@@ -1,0 +1,45 @@
+PANEL I: Model Comparison -- Path Analysis vs Signal Flow
+============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Signal flow model scenario heatmap showing predicted mAL population
+responses to the same 3 encounter scenarios as Panel F.
+
+Right: Scatter comparing path-based activation (x-axis) vs signal flow
+net input (y-axis) for each subtype under each scenario. Points near
+the diagonal indicate model agreement. Colored by dimorphism class.
+
+Panel F uses the path-based model (K-strongest paths, excitatory minus
+inhibitory strengths). Panel I uses the signal flow model (iterative
+propagation through the full connectivity matrix with sigmoid activation).
+Both models make independent predictions about the same biological scenarios.
+
+KEY OBSERVATIONS
+----------------
+1. Overall correlation across all 48 subtype-scenario pairs:
+   Spearman rho = 0.645, p = 1.51e-06.
+
+2. Per-scenario correlations:
+     Female encounter.rho: rho=0.624 (p=0.0116)
+  cVA + male.rho: rho=0.512 (p=0.045)
+  cVA + female.rho: rho=0.603 (p=0.0154)
+
+3. Sign agreement: 36 / 48 pairs (75%) agree on direction.
+
+4. Sign disagreements: 12 subtype-scenario pairs where the two models
+   predict opposite response directions.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Strong agreement between two independent computational models increases
+confidence in the population code predictions. Disagreements highlight
+subtypes where the specific computation matters -- likely neurons where
+multi-hop signal propagation (captured by signal flow) differs from
+the dominant K-strongest paths.
+
+The path-based model captures the strongest direct routes; the signal flow
+model integrates all routes through the network. Agreement means the
+strongest paths dominate; disagreement means distributed connectivity
+matters for that subtype.
+

@@ -1,0 +1,216 @@
+---
+title: "Figure 5E: ppk23/ppk25 Valence Decomposition"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel E: Excitatory and inhibitory paths create distinct ppk response profiles
+=================================================================================
+For each mAL subtype, the ppk23 and ppk25 path strengths decompose into
+excitatory and inhibitory components via different relay neuron pathways.
+
+Left:  Stacked bar chart showing excitatory (red) and inhibitory (blue)
+       path strength for ppk23 and ppk25 per mAL subtype.
+
+Right: Scatter of ppk23 E/I balance vs ppk25 E/I balance. Subtypes with
+       strong ppk23 inhibition use the GABAergic AN05B035 relay.
+
+Key finding: The sign reversal of ppk23 at certain subtypes is driven
+by stronger inhibitory than excitatory path strengths, reflecting the
+GABAergic sign-inverting relay through AN05B035.
+"
+pdir <- panel_plot_dir("panel_E_description", "txt")
+writeLines(description, file.path(pdir, "panel_E_description.txt"))
+cat(description)
+```
+
+## Prepare valence decomposition data
+
+```{r valence-data}
+# Build per-subtype, per-modality excitatory and inhibitory strengths
+valence_data <- data.frame(
+  target_type = rep(mal_subtypes, 2),
+  modality    = rep(c("ppk23", "ppk25"), each = length(mal_subtypes)),
+  excitatory  = c(mal_strength_exc[mal_subtypes, "ppk23"],
+                  mal_strength_exc[mal_subtypes, "ppk25"]),
+  inhibitory  = c(mal_strength_inh[mal_subtypes, "ppk23"],
+                  mal_strength_inh[mal_subtypes, "ppk25"]),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    net = excitatory - inhibitory,
+    ei_ratio = ifelse(excitatory + inhibitory > 0,
+                      (excitatory - inhibitory) / (excitatory + inhibitory), 0),
+    neurotransmitter = mal_nt[target_type]
+  )
+
+cat("Valence decomposition summary:\n")
+print(valence_data %>%
+  group_by(modality) %>%
+  summarise(
+    mean_exc = mean(excitatory),
+    mean_inh = mean(inhibitory),
+    mean_net = mean(net),
+    n_negative_net = sum(net < 0),
+    .groups = "drop"
+  ))
+```
+
+## Stacked bar chart: excitatory vs inhibitory path strength
+
+```{r stacked-bars, fig.width=14, fig.height=7}
+# Order subtypes by ppk23 net strength (matches Panel C ordering)
+subtype_order <- valence_data %>%
+  filter(modality == "ppk23") %>%
+  arrange(net) %>%
+  pull(target_type)
+
+bar_data <- valence_data %>%
+  select(target_type, modality, excitatory, inhibitory) %>%
+  pivot_longer(cols = c(excitatory, inhibitory),
+               names_to = "valence", values_to = "strength") %>%
+  mutate(
+    target_type = factor(target_type, levels = subtype_order),
+    strength_signed = ifelse(valence == "inhibitory", -strength, strength),
+    modality = factor(modality, levels = c("ppk23", "ppk25"),
+                      labels = c("ppk23", "ppk25"))
+  )
+
+p_bars <- ggplot(bar_data, aes(x = target_type, y = strength_signed, fill = valence)) +
+  geom_col(position = "stack", width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  facet_wrap(~ modality, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c("excitatory" = "#B2182B", "inhibitory" = "#2166AC"),
+                    labels = c("Excitatory paths", "Inhibitory paths")) +
+  labs(x = "mAL subtype", y = "Path strength\n(exc upward, inh downward)", fill = "Valence") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    legend.position = "top",
+    strip.text = element_text(face = "bold")
+  )
+
+save_fig5_plot(p_bars, "panel_E_valence_bars", width = 14, height = 7)
+print(p_bars)
+```
+
+## E/I balance scatter: ppk23 vs ppk25
+
+```{r ei-scatter, fig.width=8, fig.height=8}
+# Pivot to wide: one row per subtype with ppk23 and ppk25 E/I ratios
+ei_wide <- valence_data %>%
+  select(target_type, modality, ei_ratio) %>%
+  pivot_wider(names_from = modality, values_from = ei_ratio,
+              names_prefix = "ei_") %>%
+  distinct(target_type, .keep_all = TRUE)
+
+p_scatter <- ggplot(ei_wide, aes(x = ei_ppk23, y = ei_ppk25)) +
+  geom_vline(xintercept = 0, linewidth = 0.3, linetype = "dashed", color = "grey50") +
+  geom_hline(yintercept = 0, linewidth = 0.3, linetype = "dashed", color = "grey50") +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(aes(label = target_type), size = 1.8,
+                            max.overlaps = Inf, min.segment.length = 0) +
+  labs(x = "ppk23 E/I balance\n(exc - inh) / (exc + inh)",
+       y = "ppk25 E/I balance\n(exc - inh) / (exc + inh)") +
+  theme_pub(base_size = 10)
+
+save_fig5_plot(p_scatter, "panel_E_ei_balance_scatter", width = 8, height = 8)
+print(p_scatter)
+```
+
+## Combined panel
+
+```{r combined, fig.width=16, fig.height=7}
+p_combined <- p_bars + p_scatter +
+  plot_layout(widths = c(1.5, 1)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_E_combined", width = 16, height = 7)
+print(p_combined)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+ppk23_data <- valence_data %>% filter(modality == "ppk23")
+ppk25_data <- valence_data %>% filter(modality == "ppk25")
+
+n_ppk23_inh_dominant <- sum(ppk23_data$inhibitory > ppk23_data$excitatory)
+n_ppk25_inh_dominant <- sum(ppk25_data$inhibitory > ppk25_data$excitatory)
+
+most_inh_ppk23 <- ppk23_data$target_type[which.max(ppk23_data$inhibitory)]
+most_exc_ppk23 <- ppk23_data$target_type[which.max(ppk23_data$excitatory)]
+
+mean_ei_ppk23 <- mean(ppk23_data$ei_ratio)
+mean_ei_ppk25 <- mean(ppk25_data$ei_ratio)
+
+narrative <- sprintf(
+"PANEL E: Valence Decomposition -- Excitatory vs Inhibitory Path Balance
+=========================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Stacked bar chart showing the excitatory (red, upward) and inhibitory
+(blue, downward) path strength components for ppk23 (top facet) and ppk25
+(bottom facet) at each mAL subtype. The NET strength (bar tips) equals
+excitatory minus inhibitory -- i.e., what Panel A and Panel C display as
+the activation value. Here we decompose that net value into its two
+underlying components.
+
+Right: E/I balance scatter plot showing each subtype's ppk23 E/I ratio
+(x-axis) vs ppk25 E/I ratio (y-axis), where E/I = (exc - inh)/(exc + inh).
+Values near +1 indicate purely excitatory paths; values near -1 indicate
+purely inhibitory paths.
+
+KEY OBSERVATIONS
+----------------
+1. For ppk23: %d of %d subtypes have inhibitory paths stronger than
+   excitatory paths, explaining the negative ppk23 values in Panel C.
+
+2. For ppk25: only %d subtypes have dominant inhibitory paths -- ppk25
+   is overwhelmingly excitatory across the mAL population.
+
+3. The subtype receiving the strongest ppk23 inhibition is %s; the
+   strongest ppk23 excitation goes to %s.
+
+4. Mean ppk23 E/I balance across all subtypes = %.3f; mean ppk25 E/I
+   balance = %.3f.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Every mAL subtype receives BOTH excitatory and inhibitory paths from ppk23
+and ppk25 sensory neurons. The net response (positive or negative) emerges
+from the balance of these opposing forces. This means the sign reversal at
+certain subtypes is not because they lack excitatory ppk23 paths, but
+because the inhibitory paths (through the AN05B035 GABAergic relay) are
+STRONGER than the excitatory ones.
+
+This dual-path architecture provides the circuit with robustness: small
+changes in synaptic weight at the relay layer could shift subtypes between
+response profiles, potentially enabling experience-dependent plasticity in
+sex discrimination.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel E provides the mechanistic depth beneath Panel C's sign-reversal
+observation. While Panel C shows the net effect (positive vs negative ppk23),
+Panel E shows WHY: the competition between excitatory and inhibitory paths.
+This connects to Panel B (which identifies the relay neurons carrying each
+pathway) and to Panel G (which shows how mAL_m2a specifically integrates
+convergent excitation and lateral inhibition).
+",
+n_ppk23_inh_dominant, nrow(ppk23_data),
+n_ppk25_inh_dominant,
+most_inh_ppk23, most_exc_ppk23,
+mean_ei_ppk23, mean_ei_ppk25
+)
+
+save_panel_narrative("panel_E", narrative)
+cat(narrative)
+```

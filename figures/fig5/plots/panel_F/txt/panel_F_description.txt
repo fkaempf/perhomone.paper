@@ -1,0 +1,16 @@
+
+Panel F: The connectome predicts distinct population-level signatures
+=====================================================================
+3 biologically relevant encounter scenarios produce distinct mAL population
+response patterns, computed from path strengths:
+
+1. Female encounter:   ppk23 + ppk25 (contact with female fly)
+2. cVA + male:         DA1 + ppk23 (olfactory + contact with male)
+3. cVA + female:       DA1 + ppk23 + ppk25 (olfactory + contact with female)
+
+Note: lone male encounter (ppk23 alone) is excluded because male contact
+always co-occurs with cVA volatile pheromone.
+
+Left:  Parallel coordinates plot (mAL subtypes as axes, 4 colored lines)
+Right: Difference profiles between scenario pairs
+

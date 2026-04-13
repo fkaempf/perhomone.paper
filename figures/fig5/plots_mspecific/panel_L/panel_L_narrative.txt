@@ -1,0 +1,31 @@
+PANEL L: ppk23 vs ppk25 Selectivity — mAL and P1
+===================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Three scatter plots comparing ppk23 vs ppk25 drive to mAL and P1 subtypes:
+1) Path-based net drive (exc - inh path strength) for mAL subtypes
+2) Signal flow model net input for mAL subtypes
+3) Signal flow model net input for P1 courtship command neurons
+
+KEY OBSERVATIONS
+----------------
+1. Path-based mAL: of 16 subtypes, 16 receive detectable ppk input.
+   Selectivity: 3 ppk23-biased, 6 ppk25-biased, 7 balanced, 0 none.
+
+2. Signal flow mAL: 16 / 16 subtypes show detectable ppk drive.
+   Models largely agree on which subtypes are ppk-responsive.
+
+3. Signal flow P1: 45 / 45 P1 subtypes receive detectable ppk drive.
+   P1 subtypes show how pheromone signals reach courtship command neurons
+   after propagating through the network (including via mAL).
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+Pheromone drive is not uniform across mAL or P1 populations. ppk23 and
+ppk25 channels produce distinct selectivity patterns. The signal flow
+model captures multi-hop propagation including network-level interactions,
+while path-based analysis traces explicit anatomical routes. Agreement
+between models validates the biological signal. P1 subtypes receiving
+asymmetric ppk23/ppk25 drive may gate sex-specific courtship behaviors.
+

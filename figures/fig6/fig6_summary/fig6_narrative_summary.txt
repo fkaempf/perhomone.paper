@@ -1,0 +1,671 @@
+Figure 6 — Multimodal Sensory Integration in the Male Drosophila Courtship Circuit
+====================================================================================
+Narrative summary and key takeaways
+
+
+THE QUESTION
+------------
+Male courtship in Drosophila requires the fly to evaluate multiple sensory
+cues simultaneously: pheromones detected by olfactory receptor neurons
+(three glomerular channels: DA1, VA1v, VA1d), courtship song detected by
+auditory neurons (JO-B), visual motion detected by lobula columnar neurons
+(LC10), and contact chemosensory cues detected by gustatory-like neurons
+expressing ppk23 and ppk25. That is seven distinct sensory channels.
+
+How does the male brain wire these channels together so that the right
+combination of cues activates courtship command neurons — and does the
+wiring merely pool information, or does it actively compute over
+combinations?
+
+
+THE CIRCUIT
+-----------
+Using the male CNS connectome we traced all synaptic paths (up to 3-4
+hops) from each of the seven sensory populations to four groups of
+downstream decision neurons:
+
+  - aSP-f    8 unique target neuron types, 12,400 paths traced
+  - aSP-g    5 unique target neuron types,  7,750 paths traced
+  - vAB3    13 unique target neuron types, 247,000 paths evaluated
+  - PPN1    13 unique target neuron types, 247,000 paths evaluated
+
+  Total: 36 unique target neuron types across all sets.
+
+The circuit has a characteristic three-layer architecture:
+
+  Sensory neurons  -->  2nd-order relay/interneurons  -->  3rd-order targets
+
+Between the sensory layer and the targets sit hundreds of intermediate
+neuron types that appear in paths from one or more modalities. These are
+not passive relays; they are where integration happens.
+
+
+==============================================================================
+PART I: THE WIRING — WHO GETS WHAT, AND WITH WHAT SIGN (Panels A-C)
+==============================================================================
+
+Panel A: Circuit schematic.
+  Seven modalities converging through 2nd-order relays onto 3rd-order
+  targets. The diagram lays out the basic feed-forward architecture:
+  olfactory (DA1, VA1v, VA1d) sensory neurons connect through labeled-line
+  projection neurons; auditory (JO-B) and visual (LC10) route through
+  their own relays; ppk23/ppk25 contact neurons reach targets through
+  leg-nerve projection neurons (LgLG1a, LgLG1b, LgLG5-8 families) and
+  antennal interneurons (AN09B017, AN05B series).
+
+Panel B: Modality composition heatmap — "Who gets what."
+  Rows = target neurons, columns = 7 modalities, color = total path
+  strength (column-normalized so each modality's maximum = 1).
+
+  Not all modalities contribute equally in absolute terms. Across all
+  36 targets, mean path strengths per modality are:
+
+    ppk23    0.058     (strongest — dominates 21 of 36 targets)
+    ppk25    0.056
+    DA1      0.030
+    VA1v     0.010
+    VA1d     0.005
+    visual   0.003
+    auditory 0.001     (weakest overall)
+
+  Contact channels (ppk23+ppk25) carry roughly 70% of total path
+  strength across all targets. DA1 carries ~19%. VA1v and VA1d together
+  ~9%. Auditory and visual are comparatively minor contributors in raw
+  strength, though they reach nearly every target at lower levels.
+
+  But column-normalization reveals that every modality has its own
+  pattern of relative targeting: even auditory, the weakest channel in
+  absolute terms, shows structure — it targets some neurons more than
+  others, and this pattern is not random.
+
+Panel C: Excitatory/inhibitory valence heatmap — "With what sign."
+  Same structure as Panel B, but split into excitatory and inhibitory
+  contributions, then combined as a diverging net-valence map.
+
+  Modalities differ dramatically in their E/I balance:
+
+  Predominantly excitatory (>70% excitatory):
+    DA1       ~89% excitatory across all targets
+    visual    ~79% excitatory
+    ppk23     ~63% excitatory
+    ppk25     ~66% excitatory
+
+  Predominantly inhibitory:
+    VA1v      ~80% inhibitory (!) — the VA1v pheromone channel reaches
+              targets primarily through inhibitory paths
+    VA1d      ~50/50 excitatory/inhibitory overall
+
+  The VA1v result is striking: this glomerulus, activated by fly odors
+  including pheromones, delivers mostly inhibition to courtship targets.
+  At aSP-f targets: 84% of VA1v path strength is inhibitory. At aSP-g:
+  87% inhibitory. This is not a minor effect — VA1v is the 2nd strongest
+  olfactory input to aSP-f targets (18% of total strength) and nearly
+  all of it arrives as inhibition.
+
+  VA1d is balanced (~50/50) but this varies sharply by target set:
+  at aSP-f targets it is 73% excitatory, at PPN1 targets it is 80%
+  inhibitory. The same glomerulus flips valence depending on which
+  downstream population it reaches.
+
+  These E/I signatures mean the circuit doesn't just deliver "how much"
+  of each modality — it delivers "how much excitation" and "how much
+  inhibition" separately, enabling signed computation downstream.
+
+
+==============================================================================
+PART II: HOW MULTIMODAL ARE THE TARGETS? (Panel D)
+==============================================================================
+
+Shannon entropy and lifetime sparseness quantify how broadly each target
+samples across the seven modalities.
+
+  Across all 36 targets:
+    Median entropy:              1.60 bits (of 2.81 maximum)
+    Mean entropy:                1.72 bits
+    Range:                       1.21 – 2.49 bits
+    Median effective modalities: 3.0 (= 2^entropy)
+    Median breadth:              4 modalities (>5% of max input)
+    Median dominance:            48% of input from top modality
+
+  No target receives input from only one modality. The least multimodal
+  neurons (e.g., mAL_m1, H=1.34; AVLP606, H=1.21) still receive non-
+  trivial input from 2-3 channels. The most multimodal (LH006m, H=2.49;
+  SLP160, H=2.46; AVLP753m, H=2.40) sample broadly from 5-6 modalities
+  with no single modality exceeding ~30% of total input.
+
+  The distributions differ by target set:
+
+    aSP-f:  median H = 2.23, breadth = 6. The most multimodal set.
+            Dominant modality: DA1 (4/8 neurons), but with 41% dominance
+            — meaning even in DA1-dominated neurons, 59% of input comes
+            from other channels.
+
+    aSP-g:  median H = 1.70, breadth = 4.
+            Dominant modality: ppk23 (all 5 neurons). Contact channels
+            dominate but not exclusively — olfactory channels contribute
+            a non-trivial minority.
+
+    vAB3:   median H = 1.55, breadth = 4. Mixed dominance: ppk23 (7/13),
+            ppk25 (4/13), DA1 (2/13).
+
+    PPN1:   median H = 1.45, breadth = 3. The most concentrated set.
+            ppk23 dominates 9/13 targets, ppk25 dominates 3/13.
+
+  The key observation: aSP-f targets are the most broadly multimodal,
+  integrating olfactory, contact, visual and other inputs. PPN1 targets
+  are the most narrowly focused on contact channels. aSP-g and vAB3 are
+  intermediate. This means different output populations are wired to
+  sample different widths of the sensory space.
+
+
+==============================================================================
+PART III: WHICH MODALITIES CO-TRAVEL? (Panel E)
+==============================================================================
+
+This is the core modularity question: when two modalities co-target the
+same neurons, they have the opportunity to interact. Modalities that
+rarely co-target will remain functionally independent regardless of
+circuit depth.
+
+Four complementary metrics reveal the co-targeting structure:
+
+PEARSON CORRELATION of modality strength vectors across all 36 targets:
+
+              DA1   VA1v   VA1d   aud   vis   ppk23  ppk25
+  DA1        1.00   0.76   0.48  -0.11  0.13   0.09   0.24
+  VA1v       0.76   1.00   0.51  -0.11  0.31  -0.08   0.05
+  VA1d       0.48   0.51   1.00  -0.08  0.12  -0.06   0.03
+  auditory  -0.11  -0.11  -0.08   1.00 -0.14   0.04   0.09
+  visual     0.13   0.31   0.12  -0.14  1.00  -0.05   0.00
+  ppk23      0.09  -0.08  -0.06   0.04 -0.05   1.00   0.96
+  ppk25      0.24   0.05   0.03   0.09  0.00   0.96   1.00
+
+Three modality blocs emerge:
+
+  1. THE OLFACTORY TRIO (DA1, VA1v, VA1d)
+     Strongly correlated: DA1-VA1v r = 0.76, DA1-VA1d r = 0.48,
+     VA1v-VA1d r = 0.51. These three pheromone channels co-target the
+     same neurons — they travel together through the circuit.
+
+     Spearman (rank-based) correlations are even stronger: DA1-VA1v
+     rho = 0.92, VA1v-VA1d rho = 0.85, DA1-VA1d rho = 0.81.
+
+     This isn't because they share sensory neurons (they are distinct
+     glomeruli) — it is because the circuit routes them through
+     overlapping downstream intermediates. DA1_lPN (the DA1 projection
+     neuron) is the single strongest intermediate node overall (total
+     strength 0.85) and carries 94% DA1 signal, but also 4% VA1v and
+     3% VA1d. M_lvPNm45 is similar (91% DA1, 4% VA1v, 3% VA1d).
+     VA1v_vPN carries 90% VA1v but also 7% DA1. VA1d_adPN carries 88%
+     VA1d but also 6% VA1v and 6% DA1.
+
+     The olfactory trio shares intermediate neurons because their
+     labeled-line projection neurons project to overlapping lateral horn
+     and AVLP targets. By the time signal reaches layer 3, the three
+     olfactory channels are partially mixed.
+
+  2. THE CONTACT PAIR (ppk23, ppk25)
+     The tightest correlation in the dataset: Pearson r = 0.96, Spearman
+     rho = 0.98. These two channels are nearly interchangeable in their
+     targeting pattern — they reach the same neurons with almost
+     identical relative strengths.
+
+     They are also anticorrelated or uncorrelated with the olfactory
+     trio: ppk23-DA1 r = 0.09, ppk23-VA1v r = -0.08, ppk25-VA1d
+     r = 0.03. Contact and olfactory channels target different neurons.
+
+     Despite their tight co-targeting, ppk23 and ppk25 are NOT
+     identical. They enter the circuit through different sensory neuron
+     families (ppk23: LgLG1a, LgLG6, LgLG7, WG4; ppk25: LgLG1b,
+     LgLG5, LgLG8, WG3) and these route through the AN09B017 family
+     with different relative weights. AN09B017a is ppk23-preferring
+     (66% ppk23), AN09B017g is ppk25-preferring (72% ppk25), and
+     AN09B017f is roughly balanced (45%/55%). This creates the diversity
+     that later enables different interaction signs at different targets.
+
+  3. AUDITORY AND VISUAL: THE LONERS
+     Auditory is weakly anticorrelated with everything: r = -0.11 with
+     DA1, -0.11 with VA1v, -0.08 with VA1d, -0.14 with visual, +0.04
+     with ppk23, +0.09 with ppk25. It is the most independent channel.
+
+     Visual is weakly positive with VA1v (r = 0.31) and weakly negative
+     or uncorrelated with everything else. It routes through the largest
+     number of unique intermediate neurons (3,701 — vs ~1,400 for
+     olfactory and contact channels) but at low per-path strength.
+
+     Despite their independence, auditory and visual do reach 34 of 36
+     targets (all 7 modalities appear at the most multimodal neurons).
+     They are present but at low amplitude.
+
+CO-ROUTING THROUGH SHARED INTERMEDIATES (Jaccard similarity):
+
+  Which modality pairs physically share the same relay neurons?
+
+              DA1   VA1v   VA1d   aud   vis   ppk23  ppk25
+  DA1        1.00   0.60   0.59  0.25  0.25   0.34   0.34
+  VA1v       0.60   1.00   0.72  0.27  0.25   0.35   0.36
+  VA1d       0.59   0.72   1.00  0.25  0.25   0.34   0.35
+  auditory   0.25   0.27   0.25  1.00  0.18   0.27   0.28
+  visual     0.25   0.25   0.25  0.18  1.00   0.25   0.24
+  ppk23      0.34   0.35   0.34  0.27  0.25   1.00   0.75
+  ppk25      0.34   0.36   0.35  0.28  0.24   0.75   1.00
+
+  The same three blocs are visible. The olfactory trio shares 60-72%
+  of intermediate neurons with each other. ppk23 and ppk25 share 75%.
+  Cross-bloc sharing is 25-36% — present but lower.
+
+  The number of shared intermediate neurons:
+    DA1-VA1v: 1,096 shared intermediates
+    DA1-VA1d: 1,114
+    VA1v-VA1d: 1,243 (highest olfactory pair — these two share the
+               most relay infrastructure)
+    ppk23-ppk25: 1,185
+    DA1-ppk23: 722 (cross-bloc)
+    Auditory-visual: 721 (the two loners share surprisingly many
+               intermediates with each other — but at low total strength)
+
+MODALITY CORRELATIONS DIFFER BY TARGET SET:
+
+  The co-targeting structure is not uniform — it shifts depending on
+  which targets you examine:
+
+  At aSP-f targets: DA1-ppk25 r = 0.82, DA1-ppk23 r = 0.57 — the
+  olfactory and contact channels are POSITIVELY correlated here. Also
+  auditory-visual r = 0.62 — these two loners co-target aSP-f neurons.
+
+  At aSP-g targets: VA1v-visual r = 0.69, ppk23-visual r = 0.79 —
+  visual joins the contact cluster. DA1-VA1v r = 0.85 — olfactory
+  trio remains tight. Auditory is anticorrelated with olfactory
+  (auditory-VA1d r = -0.94).
+
+  At vAB3 targets: olfactory and contact are anticorrelated or
+  uncorrelated (ppk23-VA1v r = -0.30, ppk23-DA1 r = 0.02). The two
+  blocs target different vAB3 neurons.
+
+  At PPN1 targets: all three olfactory channels plus visual are
+  strongly positively correlated (DA1-VA1d r = 0.93, VA1v-visual
+  r = 0.85). Contact channels correlate with each other (r = 0.92)
+  but not with olfactory.
+
+  These target-set-specific patterns mean the circuit implements
+  different co-targeting logic at different output populations.
+
+
+==============================================================================
+PART IV: HOW MANY ROUTES? PATH DIVERSITY (Panel F)
+==============================================================================
+
+For each (target, modality) pair we rank paths by strength and count how
+many paths are needed to accumulate 80% of total strength. Concentrated
+routing = few paths carry most of the signal; distributed routing = signal
+spreads across many parallel paths.
+
+  Median paths to 80% by modality (across all targets):
+    DA1       44
+    VA1v      87
+    VA1d     136
+    ppk23    120
+    ppk25    116
+    auditory 338
+    visual   686
+
+  DA1 is the most concentrated: a few strong projection neurons (DA1_lPN,
+  M_lvPNm45) carry the bulk of the signal. At aSP-f targets, the median
+  is just 6.5 paths to 80% — nearly all DA1 input arrives through a tiny
+  handful of routes.
+
+  Visual is the most distributed: median 686 paths needed, reflecting its
+  routing through >3,700 unique intermediate neurons at low per-path
+  strength. This is not "noise" — it represents massively parallel,
+  redundant routing that makes visual input robust to loss of any single
+  path.
+
+  Auditory is intermediate in total strength but also quite distributed
+  (338 paths), reflecting its weak but broad connectivity.
+
+  Path diversity varies by target set:
+
+                DA1    VA1d   VA1v   aud    ppk23  ppk25  visual
+    aSP-f       6.5    13     17     28.5   116.5  91.5    65.5
+    aSP-g      27      28     11     28     104    131      88
+    vAB3       77     264    134    405     336    221     899
+    PPN1      215     236    190    379      73     52    1612
+
+  At aSP-f targets, DA1 funnels through just ~7 paths — these are the
+  classic labeled-line olfactory projection neurons. At PPN1 targets,
+  DA1 needs ~215 paths — the routing is far more distributed.
+
+  The contrast between concentrated (aSP-f) and distributed (PPN1/vAB3)
+  routing reveals a design principle: aSP-f is wired for high-fidelity,
+  few-path input from olfaction; vAB3/PPN1 are wired for low-fidelity,
+  many-path input that is more robust but noisier.
+
+
+==============================================================================
+PART V: WHERE INTEGRATION HAPPENS — THE HUBS (Panels G-H)
+==============================================================================
+
+We parsed all paths, extracted every intermediate node (positions 2
+through N-1), and scored each by total path strength and modality
+breadth.
+
+THE ALL-7-MODALITY HUB NEURONS (appear in paths from every channel):
+
+  Rank  Neuron         Strength   Dominant     Profile
+  ────  ─────────────  ─────────  ──────────── ─────────────────────────
+   1    DA1_lPN        0.852      DA1 (94%)    Olfactory labeled-line
+   2    AN09B017g      0.804      ppk25 (72%)  Contact-biased hub
+   3    AN09B017f      0.745      ppk25 (55%)  Contact-biased hub
+   4    AN09B017e      0.484      ppk23 (58%)  Contact-biased hub
+   5    AN09B017a      0.361      ppk23 (66%)  Contact-biased hub
+   6    M_lvPNm45      0.279      DA1 (91%)    Olfactory labeled-line
+   7    AN09B017b      0.265      ppk23 (73%)  Contact-biased hub
+   8    LH008m         0.183      DA1 (73%)    Olfactory-biased integrator
+   9    mAL_m1         0.164      ppk23 (56%)  GABAergic convergence hub
+  10    mAL_m3c        0.097      ppk23 (47%)  GABAergic convergence hub
+  11    SIP101m        0.086      —             Broad integrator
+  12    mAL_m5a        0.071      ppk23 (52%)  GABAergic convergence hub
+  13    P1_3c          0.066      ppk25 (47%)  Known courtship neuron
+
+  All 7 AN09B017 family members reach paths from every modality, but
+  their modality profiles are very different:
+
+    AN09B017a:  66% ppk23, 34% ppk25  (ppk23-preferring)
+    AN09B017b:  73% ppk23, 27% ppk25  (strongly ppk23-preferring)
+    AN09B017d:  60% ppk23, 40% ppk25
+    AN09B017e:  58% ppk23, 40% ppk25 + 1% DA1
+    AN09B017f:  45% ppk23, 55% ppk25  (weakly ppk25-preferring)
+    AN09B017g:  28% ppk23, 72% ppk25  (strongly ppk25-preferring)
+
+  Despite being classified as "7-modality" hubs, the AN09B017 neurons
+  carry overwhelmingly contact-channel signal (>95% from ppk23+ppk25).
+  Their "all-7" status reflects the fact that olfactory, auditory, and
+  visual signals also pass through them, but at very low relative
+  strength. Their primary computational role is as contact-channel
+  relay/splitters.
+
+  The olfactory-biased hubs (DA1_lPN, M_lvPNm45, VA1v_vPN, VA1d_adPN)
+  are the classic labeled-line projection neurons — they carry 88-94%
+  of signal from a single glomerulus but also pick up small amounts of
+  other modalities via recurrent connections.
+
+  The genuine multimodal integrators — neurons where no single modality
+  exceeds ~50% — are:
+
+    P1_3c:    8% DA1, 3% VA1v, 40% ppk23, 47% ppk25, 1% vis, 0.2% aud
+    LH008m:   73% DA1, 12% VA1v, 3% VA1d, 9% ppk25, 3% ppk23
+    mAL_m3c:  15% DA1, 47% ppk23, 37% ppk25
+
+  LH008m is notable: it is the highest-ranking node that carries
+  substantial olfactory (DA1 + VA1v = 85%) AND contact (ppk23 + ppk25
+  = 12%) input. It is a genuine cross-bloc integrator, one of the
+  rare points where olfactory and contact streams physically converge
+  at the intermediate layer.
+
+THE GABAergic SIGN-INVERTING HUBS:
+
+  mAL_m1 (strength 0.164, all 7 modalities, 56% ppk23):
+    Receives excitatory convergent input from AN09B017 family, then
+    delivers GABAergic inhibition downstream. All 121 presynaptic
+    partners feed it excitatory AN09B017 signal; it inverts this to
+    inhibition when projecting to targets like LH008m, mAL_m2a.
+
+  mAL_m3c, mAL_m5a, mAL_m4, mAL_m5c:
+    Same role — receive multimodal excitatory input, deliver inhibition.
+    Together with mAL_m1, these create a battery of sign-inverting hubs
+    that give downstream targets access to "negative copies" of the
+    sensory signals.
+
+  AN05B035 (strength 0.316, 6 modalities, 57% ppk23):
+    GABAergic interneuron that provides strong inhibition to AN09B017g
+    (weight -0.22). This is the key node that makes AN09B017g carry
+    ppk23 signal with NEGATIVE sign — AN05B035 receives ppk23 sensory
+    input and inhibits AN09B017g, so AN09B017g's ppk23 activation is
+    actually negative (-0.038 at step 2). This is the origin of
+    push-pull topology in the contact system.
+
+
+==============================================================================
+PART VI: aSP-f vs aSP-g — TWO POPULATIONS, TWO SENSORY WORLDS (Panels I-J)
+==============================================================================
+
+aSP-f and aSP-g are both male-specific courtship command neurons, but
+the connectome reveals they sample completely different slices of the
+sensory input space.
+
+  Modality composition (% of total path strength):
+
+                aSP-f     aSP-g
+    DA1         49.5%      9.2%     (5.4x stronger at aSP-f)
+    VA1v        18.1%      2.5%     (7.2x stronger at aSP-f)
+    VA1d         9.3%      0.7%     (13x stronger at aSP-f)
+    ppk23        7.2%     45.9%     (6.4x stronger at aSP-g)
+    ppk25       10.9%     39.7%     (3.6x stronger at aSP-g)
+    visual       4.6%      1.4%     (3.3x stronger at aSP-f)
+    auditory     0.3%      0.6%     (comparable)
+
+    Olfactory total:   76.9%    12.4%
+    Contact total:     18.1%    85.7%
+
+  aSP-f is an olfactory-dominated integrator: three-quarters of its
+  input is pheromonal (DA1 + VA1v + VA1d). Contact, visual, and
+  auditory channels provide the remaining quarter.
+
+  aSP-g is a contact-dominated integrator: 86% of its input comes from
+  ppk23 and ppk25. Olfaction provides ~12%, visual and auditory ~2%.
+
+  This is a dramatic segregation. Despite being downstream targets in
+  the "same" courtship circuit, aSP-f and aSP-g live in different
+  sensory worlds. aSP-f is primarily asking "what does the fly smell?"
+  while aSP-g is primarily asking "what is the fly touching?"
+
+  The E/I valence patterns differ too:
+
+    At aSP-f targets:
+      DA1 is 93% excitatory — strongly drives aSP-f.
+      VA1v is 84% inhibitory — actively suppresses aSP-f.
+      VA1d is 73% excitatory.
+      ppk25 is 78% excitatory; ppk23 is 55%/45% balanced.
+      Visual is 94% excitatory.
+
+    At aSP-g targets:
+      DA1 is 84% excitatory (weaker but still excitatory).
+      VA1v is 87% inhibitory (same sign as at aSP-f).
+      VA1d is 62% inhibitory (flipped vs aSP-f where it is excitatory).
+      ppk23 is 58%/42% balanced; ppk25 is 60%/40%.
+      Auditory is 77% excitatory.
+
+  VA1v is consistently inhibitory at both target populations — it is
+  a "braking" channel that suppresses courtship targets regardless of
+  which population. The excitatory DA1 and inhibitory VA1v create an
+  opponent olfactory motif: DA1 (cVA-activated) pushes toward courtship,
+  VA1v (broadly fly-odor-activated) pulls away. This opponent coding
+  may help distinguish conspecific female pheromone from non-specific
+  fly odors.
+
+
+==============================================================================
+PART VII: INTEGRATION BUILDS WITH CIRCUIT DEPTH (Panel K)
+==============================================================================
+
+Assigning each neuron in a path a circuit order (1 = sensory, 2 = first
+relay, 3 = second relay, etc.) and computing modality breadth at each
+layer reveals progressive convergence:
+
+  Layer 1 (sensory neurons): Unimodal by definition.
+  Layer 2 (first-order relays): Mostly unimodal. Olfactory projection
+    neurons carry one glomerulus. Contact relay neurons (LgLG family)
+    carry one ppk channel. Cross-modal mixing is minimal.
+  Layer 3 (second-order relays): Increasing multimodality. ~3-4 modalities
+    per neuron. The olfactory trio begins to merge here (DA1+VA1v+VA1d
+    co-target the same layer-3 neurons). Contact channels merge with
+    each other but remain largely separate from olfactory.
+  Layer 4+ (targets): Most neurons receive 4-6 modalities. True cross-
+    bloc integration (olfactory + contact + visual) emerges here.
+
+  The convergence is NOT a step function — it builds gradually. And the
+  MODULE STRUCTURE persists: even at layer 4, olfactory channels are
+  more correlated with each other than with contact channels. The
+  circuit preserves within-bloc correlations while allowing cross-bloc
+  conjunctions only at the deepest layers.
+
+
+==============================================================================
+PART VIII: COMBINATORIAL SIGNAL FLOW — THE PUNCHLINE (Panels L-Q)
+==============================================================================
+
+Everything above describes the wiring. The combinatorial signal flow
+analysis asks: does this wiring actually produce nonlinear computation?
+
+Method: Propagate signal through the signed connectome using saturating
+activation functions. Test all 127 combinations of 7 channels (singles,
+pairs, triplets, ..., all 7 together). Compute interaction scores:
+
+    R_ij = A(i+j) - A(i) - A(j)
+  Positive R_ij = synergy (super-additive: combined > sum of singles)
+  Negative R_ij = opposition (sub-additive: combined < sum of singles)
+
+The deep investigation focused on the ppk23 x ppk25 pair because these
+two contact channels have the highest co-targeting correlation (r = 0.96)
+yet show dramatically different interaction signs at different targets.
+
+Key destructive targets (R_ij < 0):
+  LH006m (R ~ -0.26), LH003m, AVLP700m (-0.30), AVLP704m (-0.26),
+  mAL_m3c, and ALL PPN1 downstream targets (uniformly destructive).
+
+Key super-additive targets (R_ij > 0):
+  LH008m (+0.18), LH001m, AVLP750m (+0.17), mAL_m2a (+0.23),
+  AVLP728m (+0.08).
+
+FOUR MECHANISMS determine the interaction sign:
+
+1. CEILING SATURATION (destructive, R_ij < 0)
+   Both ppk23 and ppk25 deliver same-sign excitatory drive. Combined
+   input overshoots the linear regime.
+   Examples: LH006m, AVLP700m, AVLP704m, all PPN1 targets.
+
+2. FLOOR SATURATION (super-additive, R_ij > 0)
+   Both channels deliver same-sign inhibitory drive. Sublinear
+   inhibition.
+   Example: AVLP750m (ppk23 = -0.009, ppk25 = -0.003, both inhibit).
+
+3. PUSH-PULL (super-additive, R_ij > 0)
+   Channels deliver opposite-sign drives: one excites, one inhibits.
+   The inhibitory channel rescues the excitatory one from saturation.
+   Examples: LH008m (ppk23 inhibits via AN09B017g -> mAL_m1 path,
+   ppk25 excites via AN09B017g direct), mAL_m2a.
+
+4. UPSTREAM SATURATION (destructive despite push-pull topology)
+   Intermediary neurons are themselves co-saturated. Their R_ij is
+   already negative, and this upstream compression propagates downstream.
+   Examples: mAL_m1, mAL_m9, AVLP727m, AVLP743m.
+
+The interaction sign is robust across all tested nonlinearities (ReLU,
+leaky ReLU, sigmoid at various betas). Sign concordance >80%.
+
+The qualitative interaction landscape is a property of the wiring, not
+an artifact of the model.
+
+
+==============================================================================
+KEY TAKEAWAYS
+==============================================================================
+
+1. The courtship circuit is genuinely multimodal, not pheromone-dominated.
+   Across all 36 targets, the median neuron receives input from 4
+   modalities and no modality exceeds 48% of total input. Even the
+   narrowest targets (PPN1 downstream) sample from 3+ channels.
+
+2. Two dominant sensory blocs emerge: olfactory (DA1-VA1v-VA1d) and
+   contact (ppk23-ppk25). These travel through the circuit in parallel
+   modules. Within each bloc, channels are tightly correlated
+   (olfactory: rho = 0.81-0.92; contact: r = 0.96). Between blocs,
+   correlations are near zero or negative. Auditory and visual route
+   independently at low strength but broad coverage.
+
+3. VA1v is a "braking" pheromone channel. Despite being olfactory, 80%+
+   of VA1v path strength is inhibitory at courtship targets. Together
+   with the excitatory DA1 channel, this creates opponent olfactory
+   coding: DA1 drives courtship, VA1v suppresses it.
+
+4. aSP-f and aSP-g sample different sensory worlds. aSP-f is 77%
+   olfactory, 18% contact. aSP-g is 86% contact, 12% olfactory. They
+   are not redundant command neurons — they evaluate different aspects
+   of the multimodal scene.
+
+5. Modality co-targeting is target-set-specific. Olfactory and contact
+   channels are positively correlated at aSP-f targets but uncorrelated
+   or anticorrelated at vAB3 targets. The same circuit implements
+   different co-targeting logic for different output populations.
+
+6. The AN09B017 projection neuron family is a contact-channel
+   splitter/router. Seven variants carry ppk23 and ppk25 with different
+   ratios (from 73% ppk23 at AN09B017b to 72% ppk25 at AN09B017g),
+   creating sign-diversified copies available to downstream targets.
+   They also carry trace olfactory and other signals, linking them to
+   all 7 modalities.
+
+7. mAL inhibitory neurons are confirmed as central sign-inverting
+   hubs. GABAergic mAL neurons (m1, m3c, m4, m5a, m5c) receive
+   multimodal excitatory convergence and deliver inhibition downstream,
+   enabling push-pull integration motifs.
+
+8. Path diversity reveals routing strategies. DA1 funnels through ~7
+   paths at aSP-f (high-fidelity labeled-line). Visual distributes
+   across ~686 paths (low per-path strength, high redundancy). Contact
+   channels are intermediate (~116 paths). Different modalities use
+   different routing strategies to reach the same targets.
+
+9. Integration builds progressively with circuit depth. Layer 2 neurons
+   are mostly unimodal. Layer 3 merges within-bloc modalities (the
+   olfactory trio converges). Layer 4+ enables cross-bloc integration.
+   The circuit is not a single mixing step — it is a staged pipeline.
+
+10. The circuit computes, not just converges. Combinatorial signal flow
+    reveals genuine nonlinear interactions: specific modality pairs are
+    synergistic (push-pull de-saturation), others are destructive
+    (ceiling saturation), and the pattern is target-specific and robust
+    across model variants. Different output populations extract
+    different nonlinear features from the same sensory input space.
+
+
+==============================================================================
+WHAT WE HAVE LEARNED
+==============================================================================
+
+The traditional view casts the male courtship circuit as a pheromone-
+driven labeled-line system: cVA -> DA1 ORNs -> projection neurons ->
+P1/aSP-f/aSP-g command neurons -> courtship. This analysis reveals that
+picture is at best one subplot.
+
+The courtship circuit is a structured multimodal integration device. It
+receives seven parallel sensory streams organized into two major blocs
+(olfactory and contact) plus two independent channels (auditory, visual).
+These streams are kept modular through the first relay layers, preserving
+within-bloc correlations. They are progressively merged at deeper layers
+through a compact set of intermediate hubs — the AN09B017 contact-channel
+splitters, the mAL sign-inverting interneurons, the labeled-line
+olfactory projection neurons — that actively reshape, split, and invert
+signals before delivering them to targets.
+
+Different output populations sample different slices of this sensory
+space. aSP-f is olfactory-dominated and broadly multimodal. aSP-g is
+contact-dominated and narrower. PPN1 downstream is the most contact-
+focused and shows uniformly destructive (sub-additive) interactions.
+vAB3 downstream is the most heterogeneous, with individual targets
+spanning the full range from strongly synergistic to strongly opposed.
+
+The excitatory/inhibitory architecture is not decoration — it is
+computational infrastructure. VA1v's predominantly inhibitory routing
+creates an olfactory opponent channel. The mAL neurons' sign inversion
+enables push-pull motifs. The AN09B017 family's channel-preference
+diversity enables different targets to receive the same contact signals
+with different signs. These wiring features produce genuine nonlinear
+interactions that are robust to the specific choice of activation
+function.
+
+The picture that emerges is one of a circuit that has been shaped by
+evolution to do more than sum up sensory evidence. It selectively
+amplifies specific combinations of cues, suppresses others, and routes
+different multimodal features to different output populations — a
+structured computational device for courtship decision-making.

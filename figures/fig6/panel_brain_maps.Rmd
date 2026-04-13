@@ -1,0 +1,1347 @@
+---
+title: "Figure 6: Brain-Space Integration Maps"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = "center", fig.width = 10, fig.height = 8
+)
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
+library(nat.ggplot)
+library(nat)
+```
+
+## Overview
+
+These panels map multisensory integration metrics onto brain space,
+revealing WHERE convergence of sensory modalities happens anatomically.
+Using post-synaptic coordinates from neuprint, each neuron's spatial
+footprint is colored by the number of modalities it integrates, its
+entropy, or its hub score. Hexagonal binning ("voxelization") aggregates
+this information into a spatial heatmap across the brain.
+
+## 1. Rotation matrices and 2D projection
+
+```{r projection-helpers}
+# Dorsal view: x (mediolateral) vs -z (anterior up)
+top_rot <- structure(
+  c(1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 1),
+  dim = c(4L, 4L)
+)
+
+# Anterior view: x (mediolateral) vs -y (dorsoventral)
+anterior_rot <- structure(
+  c(1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1),
+  dim = c(4L, 4L)
+)
+
+project_to_2d <- function(x, y, z, rot = top_rot) {
+  pts <- cbind(x, y, z, 1)
+  proj <- pts %*% rot
+  data.frame(px = proj[, 1], py = proj[, 2])
+}
+```
+
+## 2. Compute integration metrics from path data
+
+```{r integration-metrics}
+sensory_regex <- paste(
+  c("^ORN_DA1", "^ORN_VA1v", "^ORN_VA1d",
+    "^JO-B", "^LC10", "^ppk23", "^ppk25"),
+  collapse = "|"
+)
+
+# Parse intermediate nodes from all paths
+intermediates_clean <- paths.all %>%
+  filter(!is.na(path), !is.na(strength), strength > 0) %>%
+  rowwise() %>%
+  mutate(nodes = list(strsplit(path, " -> ", fixed = TRUE)[[1]])) %>%
+  ungroup() %>%
+  filter(lengths(nodes) >= 3) %>%
+  mutate(intermediates = purrr::map(nodes, ~ .x[2:(length(.x) - 1)])) %>%
+  select(path, start, end, modality, strength, valence, intermediates) %>%
+  tidyr::unnest(intermediates) %>%
+  rename(intermediate = intermediates) %>%
+  filter(!grepl(sensory_regex, intermediate),
+         !grepl("^AN09B017|^AN05B102", intermediate))
+
+# Per-modality strength per neuron
+inter_mod <- intermediates_clean %>%
+  group_by(intermediate, modality) %>%
+  summarise(mod_strength = sum(strength, na.rm = TRUE), .groups = "drop")
+
+# Lifetime sparseness (Rolls & Tovee 1995): 0 = broad, 1 = selective
+# n_total = total possible modalities; missing ones padded with 0
+lifetime_sparseness <- function(r, n_total = 7L) {
+  r <- r[r >= 0]
+  r <- c(r, rep(0, max(0, n_total - length(r))))
+  n <- length(r)
+  if (n <= 1 || sum(r^2) == 0) return(0)
+  (1 - (sum(r) / n)^2 / (sum(r^2) / n)) / (1 - 1 / n)
+}
+
+# Summary metrics per neuron
+inter_metrics <- inter_mod %>%
+  group_by(intermediate) %>%
+  summarise(
+    n_modalities    = n_distinct(modality),
+    total_strength  = sum(mod_strength),
+    entropy         = shannon_entropy(mod_strength),
+    sparseness      = lifetime_sparseness(mod_strength),
+    .groups = "drop"
+  )
+
+# Source / target diversity
+inter_div <- intermediates_clean %>%
+  group_by(intermediate) %>%
+  summarise(
+    source_diversity = n_distinct(start),
+    target_diversity = n_distinct(end),
+    .groups = "drop"
+  )
+
+inter_metrics <- inter_metrics %>%
+  left_join(inter_div, by = "intermediate") %>%
+  mutate(
+    hub_score = entropy * sqrt(source_diversity * target_diversity),
+    convergence_ratio = log2(
+      pmax(source_diversity, 1) / pmax(target_diversity, 1)
+    )
+  )
+
+# Dominant modality
+inter_metrics <- inter_metrics %>%
+  left_join(
+    inter_mod %>%
+      group_by(intermediate) %>%
+      slice_max(mod_strength, n = 1, with_ties = FALSE) %>%
+      select(intermediate, dominant_modality = modality),
+    by = "intermediate"
+  ) %>%
+  arrange(desc(total_strength))
+
+# Circuit order assignment
+node_orders <- paths.all %>%
+  filter(!is.na(path), !is.na(strength), strength > 0) %>%
+  rowwise() %>%
+  mutate(nodes_list = list(strsplit(path, " -> ", fixed = TRUE)[[1]])) %>%
+  ungroup() %>%
+  mutate(path_id = row_number()) %>%
+  tidyr::unnest_longer(nodes_list, indices_to = "position") %>%
+  rename(node = nodes_list) %>%
+  filter(!grepl(sensory_regex, node), position >= 2) %>%
+  group_by(node) %>%
+  summarise(
+    median_order = median(position),
+    min_order    = min(position),
+    .groups = "drop"
+  )
+
+inter_metrics <- inter_metrics %>%
+  left_join(node_orders, by = c("intermediate" = "node"))
+
+message(sprintf("%d unique intermediate neuron types with metrics",
+                nrow(inter_metrics)))
+```
+
+## 3. Fetch and cache synapse spatial data
+
+```{r fetch-synapses}
+synapse_cache <- file.path(feather_dir, "brain_map_synapses.feather")
+n_top_types <- 200
+
+syn_data <- NULL
+if (file.exists(synapse_cache)) {
+  syn_data <- read_feather(synapse_cache)
+  if (!"type" %in% names(syn_data) || nrow(syn_data) == 0) {
+    message("Removing invalid cache (missing 'type' column or empty).")
+    file.remove(synapse_cache)
+    syn_data <- NULL
+  } else {
+    message(sprintf("Loaded cached: %d synapse records, %d types.",
+                    nrow(syn_data), n_distinct(syn_data$type)))
+  }
+}
+
+if (is.null(syn_data)) {
+  top_types <- inter_metrics %>%
+    slice_head(n = n_top_types) %>%
+    pull(intermediate)
+
+  # One body per type per hemisphere for bilateral symmetry
+  type_body <- mba %>%
+    filter(type %in% top_types, soma_side %in% c("L", "R")) %>%
+    group_by(type, soma_side) %>%
+    slice_head(n = 1) %>%
+    ungroup() %>%
+    select(type, bodyid, soma_side)
+
+  message(sprintf("Fetching post-synaptic sites for %d types...",
+                  nrow(type_body)))
+
+  syn_list <- vector("list", nrow(type_body))
+  for (i in seq_len(nrow(type_body))) {
+    tryCatch({
+      s <- neuprintr::neuprint_get_synapses(type_body$bodyid[i],
+                                              dataset = "male-cns:v0.9")
+      s_post <- s[s$prepost == 1, , drop = FALSE]
+      if (nrow(s_post) > 0) {
+        syn_list[[i]] <- data.frame(
+          type   = type_body$type[i],
+          bodyid = type_body$bodyid[i],
+          x = s_post$x, y = s_post$y, z = s_post$z
+        )
+      }
+    }, error = function(e) {
+      message(sprintf("  [%d] Failed %s: %s",
+                      i, type_body$type[i], conditionMessage(e)))
+    })
+    if (i %% 50 == 0)
+      message(sprintf("  Progress: %d / %d", i, nrow(type_body)))
+  }
+
+  syn_data <- bind_rows(syn_list)
+  if (nrow(syn_data) == 0 || !"type" %in% names(syn_data)) {
+    stop("No synapse data retrieved — check neuprint connection and body IDs.")
+  }
+  write_feather(syn_data, synapse_cache)
+  message(sprintf("Cached %d synapse records for %d types.",
+                  nrow(syn_data), n_distinct(syn_data$type)))
+}
+```
+
+## 4. Prepare plot data
+
+```{r prepare-plot-data}
+# Neuprint returns coords in 8nm voxel units; malecns.surf is in nanometers
+syn_data <- syn_data %>%
+  mutate(x = x * 8, y = y * 8, z = z * 8)
+
+# Join metrics to synapse positions
+syn_plot <- syn_data %>%
+  left_join(inter_metrics, by = c("type" = "intermediate")) %>%
+  filter(!is.na(n_modalities))
+
+# Project to 2D — dorsal
+proj_d <- project_to_2d(syn_plot$x, syn_plot$y, syn_plot$z, top_rot)
+syn_plot$px_d <- proj_d$px
+syn_plot$py_d <- proj_d$py
+
+# Project to 2D — anterior
+proj_a <- project_to_2d(syn_plot$x, syn_plot$y, syn_plot$z, anterior_rot)
+syn_plot$px_a <- proj_a$px
+syn_plot$py_a <- proj_a$py
+
+# Centroids for point-based plots
+centroids <- syn_data %>%
+  group_by(type) %>%
+  summarise(cx = mean(x), cy = mean(y), cz = mean(z),
+            n_syn = n(), .groups = "drop") %>%
+  left_join(inter_metrics, by = c("type" = "intermediate")) %>%
+  filter(!is.na(n_modalities))
+
+cp_d <- project_to_2d(centroids$cx, centroids$cy, centroids$cz, top_rot)
+centroids$px_d <- cp_d$px;  centroids$py_d <- cp_d$py
+cp_a <- project_to_2d(centroids$cx, centroids$cy, centroids$cz, anterior_rot)
+centroids$px_a <- cp_a$px;  centroids$py_a <- cp_a$py
+
+# Brain outline (convex hull of mesh vertices)
+brain_verts <- as.matrix(malecns::malecns.surf$Vertices[, c("X", "Y", "Z")])
+bv_d <- project_to_2d(brain_verts[, 1], brain_verts[, 2], brain_verts[, 3],
+                       top_rot)
+hull_d <- bv_d[c(chull(bv_d$px, bv_d$py), chull(bv_d$px, bv_d$py)[1]), ]
+
+bv_a <- project_to_2d(brain_verts[, 1], brain_verts[, 2], brain_verts[, 3],
+                       anterior_rot)
+hull_a <- bv_a[c(chull(bv_a$px, bv_a$py), chull(bv_a$px, bv_a$py)[1]), ]
+
+message(sprintf("Plot data ready: %d synapses, %d centroids",
+                nrow(syn_plot), nrow(centroids)))
+```
+
+## 5. Voxelized Integration Density — Dorsal View
+
+```{r density-dorsal, fig.width=10, fig.height=9}
+p_dens_d <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_d, y = py_d, z = n_modalities),
+    fun = "mean", bins = 55, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "magma", name = "Mean #\nmodalities",
+    limits = c(1, 7), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm")
+  ) +
+  theme_transparent()
+
+print(p_dens_d)
+
+pdir_png <- file.path(fig6_dir, "plots", "panel_brain_maps", "png")
+pdir_pdf <- file.path(fig6_dir, "plots", "panel_brain_maps", "pdf")
+dir.create(pdir_png, recursive = TRUE, showWarnings = FALSE)
+dir.create(pdir_pdf, recursive = TRUE, showWarnings = FALSE)
+
+# Transparent background for all brain map plots
+theme_transparent <- theme(
+  plot.background  = element_rect(fill = "transparent", color = NA),
+  panel.background = element_rect(fill = "transparent", color = NA),
+  legend.background = element_rect(fill = "transparent", color = NA),
+  legend.key        = element_rect(fill = "transparent", color = NA)
+)
+
+ggsave(file.path(pdir_png, "brain_integration_density_dorsal.png"),
+       p_dens_d, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_integration_density_dorsal.pdf"),
+       p_dens_d, width = 10, height = 9)
+```
+
+## 6. Voxelized Integration Density — Anterior View
+
+```{r density-anterior, fig.width=9, fig.height=8}
+p_dens_a <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_a, y = py_a, z = n_modalities),
+    fun = "mean", bins = 45, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "magma", name = "Mean #\nmodalities",
+    limits = c(1, 7), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm")
+  ) +
+  theme_transparent()
+
+print(p_dens_a)
+ggsave(file.path(pdir_png, "brain_integration_density_anterior.png"),
+       p_dens_a, width = 9, height = 8, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_integration_density_anterior.pdf"),
+       p_dens_a, width = 9, height = 8)
+```
+
+## 7. Voxelized Entropy Map — Dorsal View
+
+```{r entropy-density, fig.width=10, fig.height=9}
+p_ent <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_d, y = py_d, z = entropy),
+    fun = "mean", bins = 100, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "inferno", name = "Mean\nentropy\n(bits)",
+    limits = c(0, log2(7)), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(1.2, "cm")) +
+  theme_transparent()
+
+print(p_ent)
+ggsave(file.path(pdir_png, "brain_entropy_density_dorsal.png"),
+       p_ent, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_entropy_density_dorsal.pdf"),
+       p_ent, width = 10, height = 9)
+
+
+p_ent <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_a, y = py_a, z = entropy),
+    fun = "mean", bins = 100, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "inferno", name = "Mean\nentropy\n(bits)",
+    limits = c(0, log2(7)), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(1.2, "cm")) +
+  theme_transparent()
+
+print(p_ent)
+ggsave(file.path(pdir_png, "brain_entropy_density_anterior.png"),
+       p_ent, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_entropy_density_anterior.pdf"),
+       p_ent, width = 10, height = 9)
+```
+
+## 7b. Lifetime Sparseness Map — Dorsal View
+
+Lifetime sparseness (Rolls & Tovee 1995) measures how selectively a
+neuron responds across modalities. Values near 1 indicate unimodal
+specialists; values near 0 indicate broad integrators.
+
+```{r sparseness-density, fig.width=10, fig.height=9}
+p_sparse <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_d, y = py_d, z = sparseness),
+    fun = "mean", bins = 100, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "mako", name = "Mean\nlifetime\nsparseness",
+    limits = c(0, 1), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(1.2, "cm")) +
+  theme_transparent()
+
+print(p_sparse)
+ggsave(file.path(pdir_png, "brain_sparseness_density_dorsal.png"),
+       p_sparse, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_sparseness_density_dorsal.pdf"),
+       p_sparse, width = 10, height = 9)
+
+
+p_sparse <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_a, y = py_a, z = sparseness),
+    fun = "mean", bins = 100, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "mako", name = "Mean\nlifetime\nsparseness",
+    limits = c(0, 1), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(1.2, "cm")) +
+  theme_transparent()
+
+print(p_sparse)
+ggsave(file.path(pdir_png, "brain_sparseness_density_anterior.png"),
+       p_sparse, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_sparseness_density_anterior.pdf"),
+       p_sparse, width = 10, height = 9)
+```
+## 6. Voxelized Integration Density — Anterior View
+
+```{r density-anterior, fig.width=9, fig.height=8}
+p_sparse <- ggplot() +
+  stat_summary_hex(
+    data = syn_plot,
+    aes(x = px_d, y = py_d, z = sparseness),
+    fun = "mean", bins = 100, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "mako", name = "Mean\nlifetime\nsparseness",
+    limits = c(0, 1), oob = scales::squish
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(1.2, "cm")) +
+  theme_transparent()
+
+print(p_dens_a)
+ggsave(file.path(pdir_png, "brain_integration_density_anterior.png"),
+       p_dens_a, width = 9, height = 8, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_integration_density_anterior.pdf"),
+       p_dens_a, width = 9, height = 8)
+```
+
+
+
+## 8. Modality Territory Maps
+
+Each sensory modality has a spatial footprint — the set of neurons
+carrying its signal through the brain. Overlapping footprints indicate
+integration zones.
+
+```{r modality-territories, fig.width=14, fig.height=10}
+# Add modality info: expand syn_data by modality membership
+syn_mod_long <- syn_data %>%
+  left_join(
+    inter_mod %>% select(intermediate, modality, mod_strength),
+    by = c("type" = "intermediate")
+  ) %>%
+  filter(!is.na(modality))
+
+proj_mod <- project_to_2d(syn_mod_long$x, syn_mod_long$y, syn_mod_long$z,
+                           top_rot)
+syn_mod_long$px <- proj_mod$px
+syn_mod_long$py <- proj_mod$py
+proj_mod_a <- project_to_2d(syn_mod_long$x, syn_mod_long$y, syn_mod_long$z,
+                              anterior_rot)
+syn_mod_long$px_a <- proj_mod_a$px
+syn_mod_long$py_a <- proj_mod_a$py
+syn_mod_long$modality <- factor(syn_mod_long$modality, levels = modality_order)
+
+p_terr <- ggplot() +
+  stat_density_2d_filled(
+    data = syn_mod_long,
+    aes(x = px, y = py),
+    bins = 8, alpha = 0.7,
+    contour_var = "density"
+  ) +
+  scale_fill_brewer(palette = "YlOrRd", guide = "none") +
+  facet_wrap(~ modality, nrow = 2) +
+  coord_fixed() +
+  theme_void(base_size = 11) +
+  theme(
+    strip.text = element_text(size = 12, face = "bold", color = "grey20")
+  ) +
+  theme_transparent()
+
+print(p_terr)
+ggsave(file.path(pdir_png, "brain_modality_territories_dorsal.png"),
+       p_terr, width = 14, height = 10, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_modality_territories_dorsal.pdf"),
+       p_terr, width = 14, height = 10)
+```
+
+### Modality territories — overlaid contours
+
+```{r modality-contours-overlay, fig.width=10, fig.height=9}
+p_overlap <- ggplot()
+
+for (mod in modality_order) {
+  mod_data <- syn_mod_long %>% filter(modality == mod)
+  if (nrow(mod_data) > 50) {
+    p_overlap <- p_overlap +
+      stat_density_2d(
+        data = mod_data,
+        aes(x = px, y = py),
+        color = modality_colors[mod],
+        linewidth = 0.6, alpha = 0.8,
+        bins = 5
+      )
+  }
+}
+
+p_overlap <- p_overlap +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  # Manual legend
+  annotate("text", x = -Inf, y = -Inf, label = "", hjust = 0, vjust = 0)
+
+# Build a manual legend using colored text
+legend_df <- data.frame(
+  mod = modality_order,
+  col = unname(modality_colors[modality_order]),
+  stringsAsFactors = FALSE
+)
+
+p_overlap <- p_overlap +
+  geom_point(
+    data = data.frame(
+      px = rep(min(syn_mod_long$px, na.rm = TRUE) - 2000, 7),
+      py = seq(
+        from = max(syn_mod_long$py, na.rm = TRUE),
+        by = -2500,
+        length.out = 7
+      ),
+      mod = modality_order
+    ),
+    aes(x = px, y = py, color = mod), size = 3, shape = 15
+  ) +
+  geom_text(
+    data = data.frame(
+      px = rep(min(syn_mod_long$px, na.rm = TRUE) + 500, 7),
+      py = seq(
+        from = max(syn_mod_long$py, na.rm = TRUE),
+        by = -2500,
+        length.out = 7
+      ),
+      mod = modality_order
+    ),
+    aes(x = px, y = py, label = mod), hjust = 0, size = 3.5, color = "grey30"
+  ) +
+  scale_color_manual(values = modality_colors, guide = "none") +
+  theme_transparent()
+
+print(p_overlap)
+ggsave(file.path(pdir_png, "brain_modality_overlap_contours.png"),
+       p_overlap, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_modality_overlap_contours.pdf"),
+       p_overlap, width = 10, height = 9)
+```
+
+### Modality territories — overlaid contours (anterior)
+
+```{r modality-contours-overlay-anterior, fig.width=10, fig.height=9}
+p_overlap_a <- ggplot()
+
+for (mod in modality_order) {
+  mod_data <- syn_mod_long %>% filter(modality == mod)
+  if (nrow(mod_data) > 50) {
+    p_overlap_a <- p_overlap_a +
+      stat_density_2d(
+        data = mod_data,
+        aes(x = px_a, y = py_a),
+        color = modality_colors[mod],
+        linewidth = 0.6, alpha = 0.8,
+        bins = 5
+      )
+  }
+}
+
+p_overlap_a <- p_overlap_a +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  geom_point(
+    data = data.frame(
+      px_a = rep(min(syn_mod_long$px_a, na.rm = TRUE) - 2000, 7),
+      py_a = seq(
+        from = max(syn_mod_long$py_a, na.rm = TRUE),
+        by = -2500,
+        length.out = 7
+      ),
+      mod = modality_order
+    ),
+    aes(x = px_a, y = py_a, color = mod), size = 3, shape = 15
+  ) +
+  geom_text(
+    data = data.frame(
+      px_a = rep(min(syn_mod_long$px_a, na.rm = TRUE) + 500, 7),
+      py_a = seq(
+        from = max(syn_mod_long$py_a, na.rm = TRUE),
+        by = -2500,
+        length.out = 7
+      ),
+      mod = modality_order
+    ),
+    aes(x = px_a, y = py_a, label = mod), hjust = 0, size = 3.5, color = "grey30"
+  ) +
+  scale_color_manual(values = modality_colors, guide = "none") +
+  theme_transparent()
+
+print(p_overlap_a)
+ggsave(file.path(pdir_png, "brain_modality_overlap_contours_anterior.png"),
+       p_overlap_a, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_modality_overlap_contours_anterior.pdf"),
+       p_overlap_a, width = 10, height = 9)
+```
+
+## 9. Top Hub Neurons in Brain Space
+
+```{r hub-neurons-brain, fig.width=11, fig.height=9}
+top_hubs <- centroids %>%
+  filter(!is.na(hub_score)) %>%
+  arrange(desc(hub_score)) %>%
+  slice_head(n = 40)
+
+top_labeled <- top_hubs %>% slice_head(n = 15)
+
+p_hubs <- ggplot() +
+  geom_point(
+    data = centroids %>% filter(!is.na(hub_score)),
+    aes(x = px_d, y = py_d),
+    color = "grey85", size = 0.4, alpha = 0.5
+  ) +
+  geom_point(
+    data = top_hubs,
+    aes(x = px_d, y = py_d, fill = n_modalities, size = hub_score),
+    shape = 21, color = "grey30", stroke = 0.3, alpha = 0.85
+  ) +
+  ggrepel::geom_text_repel(
+    data = top_labeled,
+    aes(x = px_d, y = py_d, label = type),
+    size = 2.8, color = "grey20",
+    segment.color = "grey60", segment.size = 0.25,
+    max.overlaps = 20, box.padding = 0.5
+  ) +
+  scale_fill_viridis_c(
+    option = "inferno", name = "# modalities",
+    limits = c(1, 7), breaks = 1:7
+  ) +
+  scale_size_continuous(
+    name = "Hub score", range = c(2, 12),
+    breaks = scales::pretty_breaks(4)
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(0.8, "cm")
+  ) +
+  theme_transparent()
+
+print(p_hubs)
+ggsave(file.path(pdir_png, "brain_hub_neurons_dorsal.png"),
+       p_hubs, width = 11, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_hub_neurons_dorsal.pdf"),
+       p_hubs, width = 11, height = 9)
+```
+
+### Hub neurons — colored by dominant modality
+
+```{r hub-neurons-modality, fig.width=11, fig.height=9}
+p_hubs_mod <- ggplot() +
+  geom_point(
+    data = centroids %>% filter(!is.na(hub_score)),
+    aes(x = px_d, y = py_d),
+    color = "grey85", size = 0.4, alpha = 0.5
+  ) +
+  geom_point(
+    data = top_hubs,
+    aes(x = px_d, y = py_d, color = dominant_modality, size = hub_score),
+    alpha = 0.85
+  ) +
+  ggrepel::geom_text_repel(
+    data = top_labeled,
+    aes(x = px_d, y = py_d, label = type),
+    size = 2.8, color = "grey20",
+    segment.color = "grey60", segment.size = 0.25,
+    max.overlaps = 20, box.padding = 0.5
+  ) +
+  scale_color_manual(values = modality_colors, name = "Dominant\nmodality") +
+  scale_size_continuous(
+    name = "Hub score", range = c(2, 12),
+    breaks = scales::pretty_breaks(4)
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(0.6, "cm")
+  ) +
+  theme_transparent()
+
+print(p_hubs_mod)
+ggsave(file.path(pdir_png, "brain_hub_neurons_by_modality.png"),
+       p_hubs_mod, width = 11, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_hub_neurons_by_modality.pdf"),
+       p_hubs_mod, width = 11, height = 9)
+```
+
+## 9c. Key Target Neurons in Brain Context
+
+The six key target neurons from the figure are shown in color against
+a gray backdrop of all other synaptic sites.
+
+```{r key-targets-context, fig.width=12, fig.height=10}
+featured_types <- c("LH006m", "aSP-g3Am", "AVLP743m", "DNp103", "LH004m", "AVLP597")
+
+# Fetch synapse data for any featured neurons missing from the cache
+missing_types <- setdiff(featured_types, unique(syn_data$type))
+if (length(missing_types) > 0) {
+  message(sprintf("Fetching synapses for %d missing types: %s",
+                  length(missing_types), paste(missing_types, collapse = ", ")))
+  miss_body <- mba %>%
+    filter(type %in% missing_types, soma_side %in% c("L", "R")) %>%
+    group_by(type, soma_side) %>%
+    slice_head(n = 1) %>%
+    ungroup() %>%
+    select(type, bodyid)
+
+  miss_list <- vector("list", nrow(miss_body))
+  for (i in seq_len(nrow(miss_body))) {
+    tryCatch({
+      s <- neuprintr::neuprint_get_synapses(miss_body$bodyid[i],
+                                              dataset = "male-cns:v0.9")
+      s_post <- s[s$prepost == 1, , drop = FALSE]
+      if (nrow(s_post) > 0) {
+        miss_list[[i]] <- data.frame(
+          type = miss_body$type[i], bodyid = miss_body$bodyid[i],
+          x = s_post$x * 8, y = s_post$y * 8, z = s_post$z * 8
+        )
+      }
+    }, error = function(e) {
+      message(sprintf("  Failed %s: %s", miss_body$type[i], conditionMessage(e)))
+    })
+  }
+  syn_extra <- bind_rows(miss_list)
+  if (nrow(syn_extra) > 0) syn_data <- bind_rows(syn_data, syn_extra)
+}
+
+# Compute modality profile for featured neurons from paths
+# (they appear as intermediates AND/OR as targets)
+featured_mod <- intermediates_clean %>%
+  filter(intermediate %in% featured_types) %>%
+  group_by(intermediate, modality) %>%
+  summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  group_by(intermediate) %>%
+  slice_max(s, n = 1, with_ties = FALSE) %>%
+  select(type = intermediate, dominant_modality = modality)
+
+# For targets that don't appear as intermediates, get from path endpoints
+target_mod <- paths.all %>%
+  filter(end %in% featured_types, !is.na(strength), strength > 0) %>%
+  group_by(end, modality) %>%
+  summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  group_by(end) %>%
+  slice_max(s, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(type = end, dominant_modality = modality) %>%
+  filter(!type %in% featured_mod$type)
+
+featured_info <- bind_rows(featured_mod, target_mod) %>%
+  filter(type %in% featured_types)
+
+# All synapse positions as gray background (brain only)
+brain_z_max <- 350000
+syn_bg <- syn_data %>%
+  filter(z < brain_z_max) %>%
+  mutate(
+    px_d = project_to_2d(x, y, z, top_rot)$px,
+    py_d = project_to_2d(x, y, z, top_rot)$py,
+    px_a = project_to_2d(x, y, z, anterior_rot)$px,
+    py_a = project_to_2d(x, y, z, anterior_rot)$py
+  )
+
+# Synapses for featured neurons
+syn_feat <- syn_bg %>%
+  filter(type %in% featured_types) %>%
+  left_join(featured_info, by = "type")
+
+# Centroids for labels (both projections)
+feat_centroids <- syn_feat %>%
+  group_by(type, dominant_modality) %>%
+  summarise(
+    px_d = mean(px_d), py_d = mean(py_d),
+    px_a = mean(px_a), py_a = mean(py_a),
+    n_syn = n(), .groups = "drop"
+  ) %>%
+  left_join(featured_info, by = c("type", "dominant_modality"))
+
+# Map label colors to dominant modality
+feat_centroids$label_color <- modality_colors[feat_centroids$dominant_modality]
+feat_centroids$label_color[is.na(feat_centroids$label_color)] <- "grey40"
+
+# --- Dorsal view ---
+p_targets_d <- ggplot() +
+  geom_point(
+    data = syn_bg, aes(x = px_d, y = py_d),
+    color = "grey85", size = 0.05, alpha = 0.15
+  ) +
+  geom_point(
+    data = syn_feat, aes(x = px_d, y = py_d, color = dominant_modality),
+    size = 0.3, alpha = 0.5
+  ) +
+  geom_point(
+    data = feat_centroids, aes(x = px_d, y = py_d),
+    shape = 3, size = 5, stroke = 1.2, color = "white"
+  ) +
+  ggrepel::geom_text_repel(
+    data = feat_centroids,
+    aes(x = px_d, y = py_d, label = type, color = dominant_modality),
+    size = 3.5, fontface = "bold.italic",
+    segment.color = "grey50", segment.size = 0.3,
+    max.overlaps = 30, box.padding = 0.8,
+    bg.color = "white", bg.r = 0.12
+  ) +
+  scale_color_manual(values = modality_colors, name = "Dominant\nmodality") +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(0.6, "cm")) +
+  theme_transparent()
+
+print(p_targets_d)
+ggsave(file.path(pdir_png, "brain_key_targets_context.png"),
+       p_targets_d, width = 12, height = 10, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_key_targets_context.pdf"),
+       p_targets_d, width = 12, height = 10)
+
+# --- Anterior view ---
+p_targets_a <- ggplot() +
+  geom_point(
+    data = syn_bg, aes(x = px_a, y = py_a),
+    color = "grey85", size = 0.05, alpha = 0.15
+  ) +
+  geom_point(
+    data = syn_feat, aes(x = px_a, y = py_a, color = dominant_modality),
+    size = 0.3, alpha = 0.5
+  ) +
+  geom_point(
+    data = feat_centroids, aes(x = px_a, y = py_a),
+    shape = 3, size = 5, stroke = 1.2, color = "white"
+  ) +
+  ggrepel::geom_text_repel(
+    data = feat_centroids,
+    aes(x = px_a, y = py_a, label = type, color = dominant_modality),
+    size = 3.5, fontface = "bold.italic",
+    segment.color = "grey50", segment.size = 0.3,
+    max.overlaps = 30, box.padding = 0.8,
+    bg.color = "white", bg.r = 0.12
+  ) +
+  scale_color_manual(values = modality_colors, name = "Dominant\nmodality") +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right", legend.key.height = unit(0.6, "cm")) +
+  theme_transparent()
+
+print(p_targets_a)
+ggsave(file.path(pdir_png, "brain_key_targets_context_anterior.png"),
+       p_targets_a, width = 12, height = 10, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_key_targets_context_anterior.pdf"),
+       p_targets_a, width = 12, height = 10)
+```
+
+## 10. E/I Balance per Modality
+
+For each sensory modality, what fraction of signal arriving at each
+brain location is excitatory vs inhibitory? Blue = excitatory-dominated,
+red = inhibitory-dominated.
+
+```{r ei-balance-per-modality, fig.width=16, fig.height=8}
+# Per neuron × modality: excitatory fraction
+ei_mod <- intermediates_clean %>%
+  group_by(intermediate, modality, valence) %>%
+  summarise(s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = valence, values_from = s, values_fill = 0) %>%
+  mutate(
+    total = excitatory + inhibitory,
+    ei_frac = (excitatory - inhibitory) / pmax(total, 1e-12)
+  )
+
+# Join to synapse positions (brain-only: z < 350000 nm after 8x scaling)
+brain_z_max <- 350000
+syn_ei_mod <- syn_data %>%
+  filter(z < brain_z_max) %>%
+  inner_join(ei_mod %>% select(intermediate, modality, ei_frac),
+             by = c("type" = "intermediate")) %>%
+  mutate(modality = factor(modality, levels = modality_order))
+
+proj_ei <- project_to_2d(syn_ei_mod$x, syn_ei_mod$y, syn_ei_mod$z, top_rot)
+syn_ei_mod$px <- proj_ei$px
+syn_ei_mod$py <- proj_ei$py
+
+p_ei_mod <- ggplot() +
+  stat_summary_hex(
+    data = syn_ei_mod,
+    aes(x = px, y = py, z = ei_frac),
+    fun = "mean", bins = 60, alpha = 0.9
+  ) +
+  scale_fill_gradient2(
+    low = "#B2182B", mid = "grey95", high = "#2166AC",
+    midpoint = 0, limits = c(-1, 1),
+    name = "E/I balance\n(exc - inh)"
+  ) +
+  facet_wrap(~ modality, nrow = 2) +
+  coord_fixed() +
+  theme_void(base_size = 11) +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm")
+  ) +
+  theme_transparent()
+
+print(p_ei_mod)
+ggsave(file.path(pdir_png, "brain_ei_balance_per_modality.png"),
+       p_ei_mod, width = 16, height = 8, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_ei_balance_per_modality.pdf"),
+       p_ei_mod, width = 16, height = 8)
+```
+
+## 11. Pairwise Modality Co-occurrence Grid
+
+Where do pairs of modalities spatially co-occur in the brain?
+Each panel shows the density of neurons that carry signal from
+both modalities of a given pair — revealing specific integration
+zones for specific sensory combinations.
+
+```{r modality-cooccurrence-grid, fig.width=18, fig.height=18}
+# Neurons present in each modality
+mod_membership <- inter_mod %>%
+  select(intermediate, modality) %>%
+  distinct()
+
+# Full matrix of modality pairs (both directions for symmetric grid)
+brain_z_max <- 350000
+syn_brain <- syn_data %>% filter(z < brain_z_max)
+proj_brain <- project_to_2d(syn_brain$x, syn_brain$y, syn_brain$z, top_rot)
+syn_brain$px <- proj_brain$px
+syn_brain$py <- proj_brain$py
+
+# Build all ordered pairs (i, j) where i != j
+mod_pairs_full <- expand.grid(
+  mod1 = modality_order, mod2 = modality_order,
+  stringsAsFactors = FALSE
+) %>% filter(mod1 != mod2)
+
+pair_syn_list <- lapply(seq_len(nrow(mod_pairs_full)), function(k) {
+  m1 <- mod_pairs_full$mod1[k]
+  m2 <- mod_pairs_full$mod2[k]
+  neurons_a <- mod_membership %>% filter(modality == m1) %>% pull(intermediate)
+  neurons_b <- mod_membership %>% filter(modality == m2) %>% pull(intermediate)
+  shared <- intersect(neurons_a, neurons_b)
+  if (length(shared) == 0) return(NULL)
+
+  syn_brain %>%
+    filter(type %in% shared) %>%
+    mutate(mod1 = m1, mod2 = m2)
+})
+
+pair_syn <- bind_rows(pair_syn_list)
+
+pair_syn$mod1 <- factor(pair_syn$mod1, levels = modality_order)
+pair_syn$mod2 <- factor(pair_syn$mod2, levels = modality_order)
+
+p_cooc <- ggplot(pair_syn, aes(x = px, y = py)) +
+  stat_density_2d_filled(bins = 5, alpha = 0.8, contour_var = "density") +
+  scale_fill_viridis_d(option = "magma", guide = "none") +
+  facet_grid(mod2 ~ mod1, switch = "y") +
+  coord_fixed() +
+  theme_void(base_size = 10) +
+  theme(
+    strip.text = element_text(size = 10, face = "bold"),
+    strip.text.y.left = element_text(angle = 0, hjust = 1)
+  ) +
+  theme_transparent()
+
+print(p_cooc)
+ggsave(file.path(pdir_png, "brain_modality_cooccurrence_grid.png"),
+       p_cooc, width = 18, height = 18, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_modality_cooccurrence_grid.pdf"),
+       p_cooc, width = 18, height = 18)
+```
+
+## 12. Signal Flow Gradient — Sensory to Motor
+
+Neurons colored by their median circuit order: early positions
+(close to sensory input) in cool tones, late positions (close to
+motor output / targets) in warm tones. Shows the spatial trajectory
+of information processing through the brain.
+
+```{r signal-flow-gradient, fig.width=10, fig.height=9}
+# Join circuit order to synapse positions (brain only)
+syn_flow <- syn_data %>%
+  filter(z < brain_z_max) %>%
+  left_join(
+    inter_metrics %>% select(intermediate, min_order),
+    by = c("type" = "intermediate")
+  ) %>%
+  filter(!is.na(min_order))
+
+proj_flow <- project_to_2d(syn_flow$x, syn_flow$y, syn_flow$z, top_rot)
+syn_flow$px <- proj_flow$px
+syn_flow$py <- proj_flow$py
+
+p_flow <- ggplot() +
+  stat_summary_hex(
+    data = syn_flow,
+    aes(x = px, y = py, z = min_order),
+    fun = "mean", bins = 80, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "plasma", name = "Min\ncircuit\norder",
+    breaks = 2:6
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm")
+  ) +
+  theme_transparent()
+
+print(p_flow)
+ggsave(file.path(pdir_png, "brain_signal_flow_gradient.png"),
+       p_flow, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_signal_flow_gradient.pdf"),
+       p_flow, width = 10, height = 9)
+```
+
+### Signal flow — anterior view
+
+```{r signal-flow-anterior, fig.width=10, fig.height=9}
+proj_flow_a <- project_to_2d(syn_flow$x, syn_flow$y, syn_flow$z, anterior_rot)
+syn_flow$px_a <- proj_flow_a$px
+syn_flow$py_a <- proj_flow_a$py
+
+p_flow_a <- ggplot() +
+  stat_summary_hex(
+    data = syn_flow,
+    aes(x = px_a, y = py_a, z = min_order),
+    fun = "mean", bins = 80, alpha = 0.9
+  ) +
+  scale_fill_viridis_c(
+    option = "plasma", name = "Min\ncircuit\norder",
+    breaks = 2:6
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm")
+  ) +
+  theme_transparent()
+
+print(p_flow_a)
+ggsave(file.path(pdir_png, "brain_signal_flow_gradient_anterior.png"),
+       p_flow_a, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_signal_flow_gradient_anterior.pdf"),
+       p_flow_a, width = 10, height = 9)
+```
+
+## 13. Circuit-Layer Progression in Brain Space
+
+Integration builds up across circuit depth. Each panel shows the spatial
+distribution of neurons at a given circuit order, colored by how many
+modalities they carry.
+
+```{r layer-progression, fig.width=14, fig.height=10}
+# Assign each neuron its median circuit order
+layer_centroids <- centroids %>%
+  filter(!is.na(median_order), median_order >= 2, median_order <= 5) %>%
+  mutate(layer = factor(
+    paste0("Order ", round(median_order)),
+    levels = paste0("Order ", 2:5)
+  ))
+
+p_layers <- ggplot() +
+  geom_point(
+    data = layer_centroids,
+    aes(x = px_d, y = py_d, color = n_modalities),
+    size = 1.8, alpha = 0.75
+  ) +
+  scale_color_viridis_c(
+    option = "magma", name = "# modalities",
+    limits = c(1, 7), breaks = 1:7
+  ) +
+  facet_wrap(~ layer, nrow = 1) +
+  coord_fixed() +
+  theme_void(base_size = 11) +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "bottom",
+    legend.key.width = unit(1.5, "cm")
+  ) +
+  theme_transparent()
+
+print(p_layers)
+ggsave(file.path(pdir_png, "brain_layer_progression_dorsal.png"),
+       p_layers, width = 14, height = 5, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_layer_progression_dorsal.pdf"),
+       p_layers, width = 14, height = 5)
+```
+
+## 11. Convergence vs Divergence Geography
+
+Positive convergence ratio = more source than target diversity
+(funnel point). Negative = more target than source diversity
+(fan-out / broadcasting point).
+
+```{r convergence-divergence, fig.width=10, fig.height=9}
+conv_data <- centroids %>%
+  filter(!is.na(convergence_ratio), is.finite(convergence_ratio))
+
+# Diverging color scale: blue = convergence, red = divergence
+cr_lim <- max(abs(conv_data$convergence_ratio), na.rm = TRUE)
+
+p_conv <- ggplot() +
+  geom_point(
+    data = conv_data,
+    aes(x = px_d, y = py_d, color = convergence_ratio,
+        size = total_strength),
+    alpha = 0.7
+  ) +
+  scale_color_gradient2(
+    low = "#2166AC", mid = "grey90", high = "#B2182B",
+    midpoint = 0,
+    limits = c(-cr_lim, cr_lim),
+    name = "Convergence\nratio\n(log2 src/tgt)"
+  ) +
+  scale_size_continuous(
+    name = "Total\nstrength", range = c(0.5, 5),
+    trans = "log10", labels = scales::comma
+  ) +
+  coord_fixed() +
+  theme_void(base_size = 12) +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1, "cm")
+  ) +
+  theme_transparent()
+
+print(p_conv)
+ggsave(file.path(pdir_png, "brain_convergence_divergence_dorsal.png"),
+       p_conv, width = 10, height = 9, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_convergence_divergence_dorsal.pdf"),
+       p_conv, width = 10, height = 9)
+```
+
+## 12. Excitatory vs Inhibitory Integration Geography
+
+```{r ei-geography, fig.width=14, fig.height=7}
+# Compute E/I metrics per neuron
+ei_metrics <- intermediates_clean %>%
+  group_by(intermediate, valence, modality) %>%
+  summarise(mod_s = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  group_by(intermediate, valence) %>%
+  summarise(
+    n_mod = n_distinct(modality),
+    total = sum(mod_s),
+    .groups = "drop"
+  )
+
+ei_centroids <- centroids %>%
+  select(type, px_d, py_d) %>%
+  inner_join(ei_metrics, by = c("type" = "intermediate"))
+
+p_ei <- ggplot() +
+  geom_point(
+    data = ei_centroids,
+    aes(x = px_d, y = py_d, color = n_mod, size = total),
+    alpha = 0.7
+  ) +
+  scale_color_viridis_c(
+    option = "magma", name = "# modalities",
+    limits = c(1, 7), breaks = 1:7
+  ) +
+  scale_size_continuous(
+    name = "Strength", range = c(0.3, 4),
+    trans = "log10", guide = "none"
+  ) +
+  facet_wrap(~ valence) +
+  coord_fixed() +
+  theme_void(base_size = 11) +
+  theme(
+    strip.text = element_text(size = 13, face = "bold"),
+    legend.position = "bottom",
+    legend.key.width = unit(1.5, "cm")
+  ) +
+  theme_transparent()
+
+print(p_ei)
+ggsave(file.path(pdir_png, "brain_ei_integration_dorsal.png"),
+       p_ei, width = 14, height = 7, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_ei_integration_dorsal.pdf"),
+       p_ei, width = 14, height = 7)
+```
+
+## 13. Integration Dispersion — Path Spread per Modality
+
+How broadly does each modality's signal spread through brain space?
+Measured as the spatial standard deviation of synapse positions per
+modality.
+
+```{r dispersion-raincloud, fig.width=8, fig.height=5}
+# Spatial spread per neuron per modality
+spread <- syn_mod_long %>%
+  group_by(type, modality) %>%
+  summarise(
+    sd_x = sd(px, na.rm = TRUE),
+    sd_y = sd(py, na.rm = TRUE),
+    spread = sqrt(sd_x^2 + sd_y^2),
+    .groups = "drop"
+  ) %>%
+  filter(is.finite(spread)) %>%
+  mutate(modality = factor(modality, levels = modality_order))
+
+p_spread <- ggplot(spread, aes(x = modality, y = spread, fill = modality)) +
+  geom_violin(alpha = 0.4, linewidth = 0.3, scale = "width") +
+  geom_boxplot(width = 0.15, outlier.size = 0.5, linewidth = 0.3) +
+  scale_fill_manual(values = modality_colors, guide = "none") +
+  labs(x = NULL, y = "Spatial spread (px, 2D projected)") +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1, face = "bold")
+  ) +
+  theme_transparent()
+
+print(p_spread)
+ggsave(file.path(pdir_png, "brain_modality_spatial_spread.png"),
+       p_spread, width = 8, height = 5, dpi = 300, bg = "transparent")
+ggsave(file.path(pdir_pdf, "brain_modality_spatial_spread.pdf"),
+       p_spread, width = 8, height = 5)
+```
+
+## 14. nat.ggplot 3D Mesh Rendering — Top Integration Hubs
+
+Render the top 10 integration hub neurons as full 3D meshes overlaid on
+the brain surface. Each neuron colored by its dominant modality.
+
+```{r natggplot-meshes, fig.width=10, fig.height=9, eval=TRUE}
+n_mesh <- 10
+hub_for_mesh <- top_hubs %>% slice_head(n = n_mesh)
+
+# Get body IDs for hub neurons
+hub_bodies <- mba %>%
+  filter(type %in% hub_for_mesh$type) %>%
+  group_by(type) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+
+hub_mesh_order <- hub_for_mesh %>%
+  left_join(hub_bodies %>% select(type, bodyid), by = "type") %>%
+  filter(!is.na(bodyid))
+
+tryCatch({
+  meshes <- read_mcns_meshes(hub_mesh_order$bodyid)
+  names(meshes) <- hub_mesh_order$type
+
+  p_nat <- gganat +
+    geom_neuron(malecns::malecns.surf, rotation_matrix = top_rot,
+                cols = c("grey95", "grey85"), alpha = 0.2)
+
+  for (i in seq_along(meshes)) {
+    neuron_type <- names(meshes)[i]
+    dom_mod <- hub_mesh_order$dominant_modality[
+      hub_mesh_order$type == neuron_type
+    ]
+    col <- ifelse(length(dom_mod) > 0 && dom_mod %in% names(modality_colors),
+                  modality_colors[dom_mod], "grey50")
+    p_nat <- p_nat +
+      geom_neuron(meshes[[i]], rotation_matrix = top_rot,
+                  cols = c(col), alpha = 0.6)
+  }
+
+  p_nat <- p_nat + theme_void() +
+  theme_transparent()
+
+  print(p_nat)
+  ggsave(file.path(pdir_png, "brain_top_hubs_3d_meshes.png"),
+         p_nat, width = 10, height = 9, dpi = 300, bg = "transparent")
+  ggsave(file.path(pdir_pdf, "brain_top_hubs_3d_meshes.pdf"),
+         p_nat, width = 10, height = 9)
+}, error = function(e) {
+  message("nat.ggplot mesh rendering skipped: ", conditionMessage(e))
+})
+```
+
+### 3D Mesh Rendering — Anterior View
+
+```{r natggplot-meshes-anterior, fig.width=10, fig.height=9, eval=TRUE}
+tryCatch({
+  p_nat_a <- gganat +
+    geom_neuron(malecns::malecns.surf, rotation_matrix = anterior_rot,
+                cols = c("grey95", "grey85"), alpha = 0.2)
+
+  for (i in seq_along(meshes)) {
+    neuron_type <- names(meshes)[i]
+    dom_mod <- hub_mesh_order$dominant_modality[
+      hub_mesh_order$type == neuron_type
+    ]
+    col <- ifelse(length(dom_mod) > 0 && dom_mod %in% names(modality_colors),
+                  modality_colors[dom_mod], "grey50")
+    p_nat_a <- p_nat_a +
+      geom_neuron(meshes[[i]], rotation_matrix = anterior_rot,
+                  cols = c(col), alpha = 0.6)
+  }
+
+  p_nat_a <- p_nat_a + theme_void() +
+  theme_transparent()
+
+  print(p_nat_a)
+  ggsave(file.path(pdir_png, "brain_top_hubs_3d_meshes_anterior.png"),
+         p_nat_a, width = 10, height = 9, dpi = 300, bg = "transparent")
+  ggsave(file.path(pdir_pdf, "brain_top_hubs_3d_meshes_anterior.pdf"),
+         p_nat_a, width = 10, height = 9)
+}, error = function(e) {
+  message("nat.ggplot anterior mesh rendering skipped: ", conditionMessage(e))
+})
+```
+
+## Session info
+
+```{r session-info}
+sessionInfo()
+```

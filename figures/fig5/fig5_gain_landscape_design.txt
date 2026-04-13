@@ -1,0 +1,1073 @@
+================================================================================
+FIGURE 5 DESIGN DOCUMENT
+Circuit Gain Modulation Generates a Continuum of Mate Preference
+================================================================================
+
+Authors' note: This figure bridges the structural/functional analysis of the
+multimodal courtship circuit (Fig 6) with the evolutionary variation in mate
+preference documented by Ryba et al. (2025). It asks: given the wiring of
+the male CNS connectome, what is the parameter space of courtship behavior
+that gain modulation allows?
+
+================================================================================
+I.  FIGURE NARRATIVE
+================================================================================
+
+The central premise of Ryba et al. (2025) is that behavioral evolution in
+Drosophila mate preference operates through a surprisingly simple mechanism:
+variation in the gain of a single ascending inhibitory pathway (mAL GABAergic
+neurons) connecting peripheral contact chemosensory neurons (Ppk23+) to the
+courtship command neurons (P1). Selective strains (CO13N) have strong
+mAL-mediated inhibition of P1; promiscuous strains (CS) have weak inhibition.
+Peripheral detection of the inhibitory pheromone 7-tricosene is conserved
+across strains -- the variation is entirely central.
+
+This finding raises a deeper question that the connectome can uniquely address:
+is the mAL pathway the ONLY viable locus for this kind of evolutionary tuning,
+or does the circuit contain many potential "tuning knobs"? If mAL is
+special, what makes it special? If there are other knobs, why hasn't
+evolution turned them?
+
+Figure 5 answers this by computing the full gain modulation landscape of the
+courtship circuit. We systematically vary the gain (synaptic efficacy) at
+every intermediate neuron type in the circuit and measure how these changes
+affect the relative activation of courtship decision neurons by conspecific
+versus heterospecific stimulus patterns. The result is a quantitative map of
+the circuit's "evolvability" -- which gain changes efficiently shift mate
+selectivity, which changes break courtship entirely, and which changes are
+functionally neutral.
+
+The figure builds the following argument:
+
+  (1) The circuit contains many potential gain modulation sites, but only a
+      small subset have high LEVERAGE over mate selectivity (Panel A).
+
+  (2) Among high-leverage nodes, there is a qualitative distinction between
+      "selectivity switches" (steep response curves: small gain changes
+      produce large preference shifts) and "vigor modulators" (changes
+      that scale overall courtship drive without affecting selectivity)
+      (Panel B).
+
+  (3) When two nodes are varied simultaneously, the preference landscape
+      reveals ridges, valleys, and basins that constrain the space of
+      achievable phenotypes. Not all phenotypic states are equally
+      accessible from any starting point (Panel C).
+
+  (4) The 16 strains characterized by Ryba et al. are predicted to map
+      onto a low-dimensional manifold within this landscape, consistent
+      with the experimental finding that behavioral variation is largely
+      one-dimensional (Panel D).
+
+  (5) The mAL-like inhibitory neurons identified by Ryba et al. occupy a
+      unique position in parameter space: they have the highest ratio of
+      "useful variation range" (range over which selectivity changes
+      smoothly) to "total variation range" (range before courtship
+      breaks). This makes them ROBUST SELECTIVITY KNOBS -- the ideal
+      substrate for evolutionary variation (Panel E).
+
+  (6) This robustness asymmetry arises from a fundamental E/I asymmetry:
+      inhibitory gain modulation selectively affects preference, while
+      excitatory gain modulation primarily affects courtship vigor. The
+      circuit's neurotransmitter architecture thus channels evolutionary
+      variation into the inhibitory pathway (Panel F).
+
+  (7) Finally, a graph-theoretic analysis of "evolutionary accessibility"
+      shows that the selective-to-promiscuous transition requires
+      single-node gain changes in the inhibitory pathway, while other
+      phenotypic transitions (e.g., reversed preference) would require
+      coordinated multi-node changes. The circuit architecture makes
+      the observed variation EASY and the unobserved variation HARD
+      (Panel G).
+
+
+================================================================================
+II.  PANEL SPECIFICATIONS
+================================================================================
+
+----------
+PANEL A: The gain parameter space -- Leverage heatmap
+----------
+
+Question: Which neurons in the circuit have the greatest influence over
+mate selectivity when their gain is modulated?
+
+Data and computation:
+  We work with the signed adjacency matrix W (post-normalized, signed by
+  neurotransmitter identity) already exported to
+  /combinatorial_signal_flow/data/adj_matrix_post.mtx and sign-corrected
+  via NetworkLoader.sign_matrix(). The 7 sensory channels (DA1, VA1v,
+  VA1d, auditory, visual, ppk23, ppk25) are encoded as binary input
+  vectors via ChannelEncoder.
+
+  Define "conspecific stimulus" as the combination of channels active
+  during courtship of a D. melanogaster female:
+    S_con = ppk23 + ppk25 + DA1 + visual + auditory
+  (cVA pheromones activate DA1; visual and auditory are courtship-song
+  and visual-motion cues; ppk23/ppk25 detect cuticular hydrocarbons.)
+
+  Define "heterospecific stimulus" (or male-like stimulus) as:
+    S_het = ppk23 + VA1v
+  (7-tricosene activates VA1v; ppk23 detects male CHCs. Ryba et al.
+  show that the male-specific 7-T pheromone is the key inhibitory cue.)
+
+  For each intermediate neuron type n_i in the network (excluding sensory
+  neurons and target decision neurons), define a gain parameter g_i that
+  multiplies all outgoing synaptic weights from n_i:
+    W_modified[n_i, :] = g_i * W[n_i, :]
+
+  LEVERAGE SCORE for neuron n_i with respect to channel c:
+    L(n_i, c) = |d(PI) / d(g_i)|  evaluated at g_i = 1.0
+
+  where PI is the Preference Index:
+    PI = [A(S_con, target) - A(S_het, target)] / [A(S_con, target) + A(S_het, target)]
+
+  and A(S, target) is the activation at the target neurons (P1 cluster, or
+  aSP-f / aSP-g as proxies for courtship drive) after propagating stimulus
+  S through the gain-modified network for 3 steps with sustained input and
+  sigmoid_rectified nonlinearity.
+
+  Numerically, compute the derivative via central finite differences:
+    L(n_i, c) ~ |PI(g_i = 1.01) - PI(g_i = 0.99)| / 0.02
+
+  This is computed for each intermediate neuron type (there are ~15,000
+  types in the male CNS, but most have zero connectivity to the courtship
+  circuit -- we pre-filter to types that appear in the top-1000 strongest
+  paths from any sensory channel to any target, which is ~500 types).
+
+  The leverage score is computed separately for each target group (aSP-f,
+  aSP-g, vAB3_downstream, PPN1_downstream) to capture target-specific
+  effects.
+
+Visualization:
+  Heatmap with rows = intermediate neuron types (sorted by maximum
+  leverage across all targets), columns = target groups. Color = log10
+  of leverage score (diverging colormap, with high-leverage neurons
+  highlighted in red/orange). Right-margin annotation bars indicate:
+    (i)   Neurotransmitter identity (E/I color)
+    (ii)  Circuit layer (hop distance from sensory input)
+    (iii) Whether the neuron is in the mAL cluster
+
+  Highlight the top 10 highest-leverage neurons with labels.
+
+Expected results:
+  - The mAL_m subtypes (mAL_m1, mAL_m3b, mAL_m3c, mAL_m8, mAL_m9) should
+    appear among the top 10-20 highest-leverage neurons, confirming the
+    Ryba et al. finding from a purely connectomic perspective.
+  - The AN09B017 family (glutamatergic interneurons that appeared as key
+    intermediaries in the ppk interaction investigation) should also show
+    high leverage, but predominantly on VIGOR rather than SELECTIVITY.
+  - Most neurons in the network have near-zero leverage -- the circuit's
+    behavior is controlled by a small set of high-leverage nodes.
+
+Connection to Ryba et al.:
+  This panel provides a connectome-derived PREDICTION that the mAL neurons
+  are among the most powerful gain modulation sites in the circuit, prior
+  to and independent of the experimental identification by Ryba et al.
+  The convergence of experimental and computational identification
+  validates both approaches.
+
+
+----------
+PANEL B: Single-node gain sweeps -- Selectivity switches vs. vigor modulators
+----------
+
+Question: For the highest-leverage neurons, how does varying their gain
+from 0 (silenced) to 2x (enhanced) change mate preference?
+
+Data and computation:
+  For the top 10 highest-leverage neurons identified in Panel A, sweep
+  gain g_i over the range [0.0, 0.1, 0.2, ..., 1.8, 1.9, 2.0] (21
+  values). At each gain value, propagate both S_con and S_het through
+  the modified network (3 steps, sustained, sigmoid_rectified with
+  beta=5.0). Compute:
+
+    PI(g_i) = [A_con(g_i) - A_het(g_i)] / [A_con(g_i) + A_het(g_i)]
+
+  where A_con and A_het are mean activations across target neurons in the
+  P1 cluster (or aSP-f/aSP-g, depending on the analysis target).
+
+  Also compute:
+    VIGOR(g_i) = A_con(g_i) + A_het(g_i)
+  (total courtship drive, regardless of preference.)
+
+  SELECTIVITY SENSITIVITY = max |dPI/dg| over the sweep range
+  VIGOR SENSITIVITY = max |dVIGOR/dg| over the sweep range
+
+  A "selectivity switch" is a neuron with high selectivity sensitivity
+  relative to vigor sensitivity (steep PI curve, flat VIGOR curve).
+  A "vigor modulator" is the opposite (flat PI, steep VIGOR).
+
+Visualization:
+  Two-row panel layout (one row per metric):
+    Row 1: Stacked line plots of PI(g) for each neuron (colored by
+    neurotransmitter identity: inhibitory = blue, excitatory = red).
+    Y-axis = Preference Index [-1, +1]. X-axis = gain factor [0, 2].
+    Horizontal dashed line at PI=0 (no preference). Vertical dashed
+    line at g=1 (baseline). Gray shaded region marks the "useful range"
+    where |dPI/dg| > threshold.
+
+    Row 2: Corresponding VIGOR(g) curves.
+
+  Alternative: Small-multiples faceted by neuron, with PI and VIGOR
+  as two traces on the same plot (dual y-axis or normalized to [0,1]).
+
+  Inset scatter: selectivity sensitivity vs. vigor sensitivity for all
+  10 neurons, with quadrants labeled "selectivity switch" (top-left),
+  "vigor modulator" (bottom-right), "both" (top-right), "neither"
+  (bottom-left). Points colored by E/I identity.
+
+Expected results:
+  - INHIBITORY neurons (especially mAL subtypes) should show steep PI
+    curves with relatively flat VIGOR curves: changing their gain shifts
+    WHAT the animal prefers without changing HOW MUCH it courts.
+    This is the "selectivity switch" phenotype.
+    Mechanistically: mAL neurons are GABAergic and sit in the ascending
+    pathway from ppk23 to P1. Increasing mAL gain increases inhibition
+    of P1 by 7-T-responsive input, making the animal more selective.
+    Decreasing mAL gain releases P1 from this inhibition, making the
+    animal more promiscuous. But total courtship drive is maintained
+    because the excitatory pathways (olfactory, visual, auditory) are
+    unaffected.
+
+  - EXCITATORY neurons (e.g., AN09B017 family, P1 subtypes) should show
+    steep VIGOR curves with flatter PI curves: changing their gain changes
+    HOW MUCH the animal courts without changing WHAT it prefers.
+    Mechanistically: these neurons amplify all sensory signals equally,
+    so changing their gain scales the entire courtship response up or
+    down without differentially affecting conspecific vs. heterospecific
+    activation.
+
+  - This E/I asymmetry is the key prediction: the neurotransmitter
+    identity of a gain-modulated node determines WHETHER the effect is
+    on selectivity or vigor.
+
+Connection to Ryba et al.:
+  Ryba et al. show that "depolarizing mAL in a promiscuous background
+  makes flies selective; hyperpolarizing mAL in a selective background
+  makes flies promiscuous." This corresponds exactly to the "selectivity
+  switch" phenotype: the PI curve has a steep transition centered around
+  the baseline gain, and the direction of the shift matches the
+  prediction from our gain sweep.
+
+
+----------
+PANEL C: Two-dimensional gain landscape -- Contour plots
+----------
+
+Question: What does the preference landscape look like when two
+nodes are varied simultaneously?
+
+Data and computation:
+  Select 2-3 pairs of high-leverage neurons that represent biologically
+  meaningful combinations:
+    Pair 1: mAL_m1 (inhibitory) x AN09B017f (excitatory)
+      -- The "selectivity vs. vigor" axes
+    Pair 2: mAL_m1 (inhibitory) x mAL_m8 (inhibitory)
+      -- Two inhibitory nodes in the same pathway
+    Pair 3: AN09B017f (excitatory) x AN09B017g (excitatory)
+      -- Two excitatory nodes in the same pathway
+
+  For each pair, create a 21x21 grid of gain values (g1, g2) in
+  [0.0, 2.0] x [0.0, 2.0]. At each grid point, modify both neurons'
+  outgoing weights simultaneously and propagate both S_con and S_het.
+  Compute PI(g1, g2).
+
+  Also compute:
+    VIGOR(g1, g2) = A_con(g1, g2) + A_het(g1, g2)
+    FUNCTIONAL(g1, g2) = 1 if VIGOR > threshold, 0 otherwise
+      (whether courtship function is preserved)
+
+  Compute the gradient field of PI(g1, g2) on the landscape:
+    nabla PI = (dPI/dg1, dPI/dg2)
+
+  The "path of least resistance" is the streamline of steepest ascent
+  in the PI landscape that starts from the baseline (g1=1, g2=1) and
+  moves toward the direction of maximal preference change per unit
+  gain change. This is computed by gradient ascent:
+    (g1, g2) <- (g1, g2) + eta * nabla PI
+
+  where eta is a small step size.
+
+Visualization:
+  Three contour plots side-by-side (one per neuron pair):
+    X-axis = gain at node 1, Y-axis = gain at node 2.
+    Color = PI value (diverging colormap: blue = preference for
+    heterospecific, white = no preference, red = preference for
+    conspecific).
+    Contour lines at PI = {-0.5, -0.25, 0, 0.25, 0.5}.
+    Black dashed lines mark the boundary of the "functional zone"
+    (where VIGOR > threshold).
+    White arrows show the gradient field (direction and magnitude
+    of steepest PI change).
+    A highlighted path shows the "path of least resistance" from
+    baseline.
+    A star marks the baseline (1,1).
+
+Expected results:
+  - Pair 1 (mAL_m1 x AN09B017f): The landscape should show a roughly
+    rectangular functional zone with PI varying primarily along the
+    mAL_m1 axis (horizontal gradient). The path of least resistance
+    should be nearly horizontal -- changing mAL gain alone is the most
+    efficient way to shift selectivity. This confirms that the inhibitory
+    pathway is the "easy" evolutionary target.
+
+  - Pair 2 (mAL_m1 x mAL_m8): The landscape should show a ridge along
+    the diagonal (changing both mAL subtypes in the same direction has
+    redundant effects) with the path of least resistance running along
+    the ridge. This predicts that evolutionary changes in the mAL pathway
+    should affect multiple mAL subtypes coordinately (consistent with
+    Ryba et al.'s finding that the entire mAL population shows strain
+    variation).
+
+  - Pair 3 (AN09B017f x AN09B017g): The landscape should show a narrow
+    functional zone with PI varying weakly -- changing excitatory gain
+    at two nodes simultaneously primarily affects vigor, not selectivity.
+    The functional zone boundary should be close to the baseline,
+    indicating fragility.
+
+Connection to Ryba et al.:
+  The landscape geometry provides a mechanistic explanation for why the
+  mAL pathway is the substrate of evolutionary variation: it sits on a
+  long, flat ridge in gain space where large movements produce smooth
+  changes in selectivity without breaking courtship. Other pathways sit
+  on narrow peaks where small movements are catastrophic.
+
+
+----------
+PANEL D: Mapping strains onto the landscape
+----------
+
+Question: Where do the 16 Ryba et al. strains fall in the gain landscape?
+
+Data and computation:
+  Ryba et al. characterize 16 D. melanogaster strains along a continuous
+  selectivity axis, from CO13N (most selective) to CS (most promiscuous).
+  They measure: (i) behavioral preference index (discrimination between
+  D. mel and D. sim females), (ii) mAL calcium responses to 7-T, and
+  (iii) P1 calcium responses to 7-T.
+
+  From their behavioral data, we extract a 1D ordering of strains by
+  preference index. We then ask: what gain parameter values at the mAL
+  nodes would produce the observed preference indices in our model?
+
+  For each strain s with observed preference PI_obs(s), solve:
+    g_mAL(s) = argmin_g |PI_model(g) - PI_obs(s)|
+  where PI_model(g) is the preference index from the Panel B gain sweep
+  at mAL neurons. This is a simple 1D root-finding problem.
+
+  Then, for the 2D landscape (Panel C, Pair 1), map each strain to:
+    (g_mAL(s), g_exc = 1.0)
+  i.e., position it on the mAL axis with excitatory gain at baseline.
+
+  KEY TEST: If behavioral variation maps to a 1D path in gain space,
+  then the 16 strains should fall on a line (or narrow band) in the
+  2D landscape. The spread perpendicular to this line measures
+  "unexplained variation" -- variation that cannot be attributed to
+  mAL gain alone.
+
+  We quantify this with a linearity measure:
+    R^2 = variance along the first principal component of strain
+    positions in 2D gain space / total variance
+
+  If the variation is purely 1D (as Ryba et al. predict), R^2 ~ 1.0.
+
+Visualization:
+  Overlay on the Panel C contour plot (Pair 1: mAL x excitatory):
+    - 16 labeled points, one per strain, positioned at (g_mAL(s), 1.0).
+    - Color gradient from blue (selective) to red (promiscuous).
+    - An arrow connecting CO13N to CS shows the "evolutionary trajectory."
+    - Inset: 1D projection showing PI_obs vs. g_mAL(s) with a fitted
+      monotonic curve. Report R^2.
+
+  IMPORTANT CAVEAT: We do not have the actual per-strain behavioral data
+  from Ryba et al. in our connectome dataset. This panel should be
+  framed as a PREDICTION: "Given the Ryba et al. strain ordering, the
+  model predicts that the following gain values would reproduce the
+  observed behavioral variation." If Ryba et al. data becomes available
+  for quantitative fitting, the predicted gain values can be compared
+  to measured mAL response amplitudes.
+
+Expected results:
+  - The 16 strains should map to a monotonic 1D path along the mAL gain
+    axis, with no systematic displacement along the excitatory axis.
+  - The most selective strain (CO13N) should correspond to g_mAL ~ 1.5-2.0
+    (enhanced mAL inhibition), and the most promiscuous strain (CS) should
+    correspond to g_mAL ~ 0.3-0.7 (reduced mAL inhibition).
+  - The path should lie entirely within the "functional zone" where
+    VIGOR > threshold, consistent with all strains producing normal
+    courtship (just with different selectivity).
+
+Connection to Ryba et al.:
+  Ryba et al. show that their 16 strains form a continuous 1D gradient.
+  Our model predicts that this gradient maps to a 1D manifold in gain
+  space -- specifically, variation along a single pathway (mAL). This is
+  the connectome-level explanation for why "multigenic architecture may
+  nevertheless belie a relatively simple neural logic."
+
+
+----------
+PANEL E: Robustness and fragility analysis
+----------
+
+Question: Which gain changes preserve courtship function while shifting
+selectivity, and which changes break the circuit?
+
+Data and computation:
+  For each of the top 20 highest-leverage neurons, define:
+
+  USEFUL RANGE: The range of gain values [g_min, g_max] over which:
+    (i)   VIGOR(g) > 0.5 * VIGOR(1.0)  [courtship not abolished]
+    (ii)  |dPI/dg| > epsilon           [preference actually changes]
+  Width: w_useful = g_max - g_min
+
+  TOTAL RANGE: [0, 2.0] by construction (or the range before activation
+  goes to zero / saturates).
+  Width: w_total = 2.0
+
+  FRAGILITY INDEX:
+    F(n_i) = 1 - (w_useful / w_total)
+  High F = fragile (small useful range; most gain changes break courtship).
+  Low F = robust (large useful range; the node is a good evolutionary knob).
+
+  SELECTIVITY RANGE: The range of PI values achievable within the useful
+  range:
+    delta_PI = max(PI(g)) - min(PI(g)) for g in [g_min, g_max]
+
+  EFFICIENCY:
+    E(n_i) = delta_PI / w_useful
+  High efficiency = large selectivity change per unit gain change.
+  This measures how "sensitive" the selectivity knob is.
+
+  ROBUSTNESS-EFFICIENCY PRODUCT:
+    REP(n_i) = (1 - F(n_i)) * E(n_i)
+  This is the key metric: a good evolutionary knob has BOTH large useful
+  range AND high efficiency. The REP measures the "quality" of the knob.
+
+Visualization:
+  Main panel: Scatter plot with x-axis = Fragility F(n_i) and y-axis =
+  Selectivity Range delta_PI. Points colored by neurotransmitter identity
+  (inhibitory = blue, excitatory = red). Point size proportional to
+  log(leverage score). Labels for top 5 neurons.
+
+  Quadrants:
+    Top-left (low fragility, high selectivity range) = "Ideal evolutionary
+    knobs" -- PREDICT mAL neurons here.
+    Top-right (high fragility, high selectivity range) = "Dangerous knobs"
+    -- powerful but one wrong step breaks things.
+    Bottom-left (low fragility, low selectivity range) = "Safe but useless"
+    -- robust but don't affect preference.
+    Bottom-right (high fragility, low selectivity range) = "Worst of both
+    worlds" -- fragile AND don't help.
+
+  Right margin: Bar chart of REP scores for the top 10 neurons, sorted
+  descending. Highlight mAL neurons with asterisks.
+
+Expected results:
+  - mAL subtypes should cluster in the "ideal evolutionary knob" quadrant
+    (top-left): they have large useful range (gain can be varied widely
+    without abolishing courtship) AND high selectivity range (preference
+    changes substantially across this range).
+  - AN09B017 subtypes should fall in the bottom-left quadrant: robust but
+    primarily affecting vigor, not selectivity.
+  - P1 subtypes should fall in the top-right quadrant: high selectivity
+    range but fragile (small gain changes abolish courtship because they
+    are the command neurons themselves).
+
+Connection to Ryba et al.:
+  The finding that mAL neurons are "ideal evolutionary knobs" explains
+  WHY evolution converged on this pathway across multiple independently
+  derived strains. The circuit architecture constrains evolution to work
+  through the nodes that allow smooth, functional variation.
+
+
+----------
+PANEL F: Excitatory vs. inhibitory gain asymmetry
+----------
+
+Question: Does the E/I identity of a gain-modulated node determine
+whether the effect is on selectivity or vigor?
+
+Data and computation:
+  For all intermediate neurons in the courtship circuit (those with
+  nonzero leverage), classify by neurotransmitter:
+    Inhibitory: GABA, glycine, histamine (is_inhibitory = TRUE in
+    neurotransmitter_mapping.csv)
+    Excitatory: acetylcholine, glutamate
+
+  For each neuron, compute:
+    SELECTIVITY SENSITIVITY: max |dPI/dg| from the Panel B sweep
+    VIGOR SENSITIVITY: max |d(VIGOR)/dg| from the Panel B sweep
+
+  Compute the SELECTIVITY/VIGOR RATIO:
+    SVR(n_i) = selectivity sensitivity / vigor sensitivity
+
+  Compare distributions of SVR between inhibitory and excitatory neurons.
+
+  Statistical tests:
+    - Wilcoxon rank-sum test on SVR(inhibitory) vs SVR(excitatory)
+    - Permutation test: shuffle E/I labels 10,000 times, recompute
+      mean SVR difference, compute p-value
+
+Visualization:
+  Left panel: Paired box/violin plots of SVR for inhibitory vs. excitatory
+  neurons. Y-axis = selectivity/vigor ratio (log scale). Box whiskers show
+  IQR, individual points overlaid. Bracket with p-value from Wilcoxon test.
+
+  Right panel: Scatter plot of selectivity sensitivity vs. vigor sensitivity
+  for all neurons, with inhibitory (blue) and excitatory (red) as separate
+  populations. 95% confidence ellipses for each group. Diagonal line marks
+  SVR = 1 (equal sensitivity). Inhibitory neurons should cluster above the
+  line (selectivity-dominant); excitatory below (vigor-dominant).
+
+  Inset: Histogram of the permutation test null distribution with the
+  observed mean SVR difference marked as a vertical line.
+
+Expected results:
+  - Inhibitory neurons should have significantly higher SVR than excitatory
+    neurons (p < 0.001), confirming that GABAergic gain modulation
+    preferentially affects selectivity.
+  - The effect should be strongest for neurons in the ascending ppk23 ->
+    mAL -> P1 pathway, which is the specific pathway identified by Ryba.
+  - Excitatory neurons should have SVR ~ 1 or < 1, indicating that their
+    gain changes affect vigor as much as or more than selectivity.
+
+Biological interpretation:
+  This panel provides a circuit-theoretic explanation for WHY inhibitory
+  gain is the substrate of evolutionary variation in mate preference:
+
+  (1) Inhibitory neurons create a "gate" in the circuit: they can
+      selectively block specific sensory channels (the 7-T pathway)
+      without affecting others (olfactory, visual, auditory).
+
+  (2) Excitatory neurons create a "volume knob": they amplify all
+      signals passing through them, regardless of identity.
+
+  (3) For selectivity to change, you need a gate, not a volume knob.
+      Gates are inhibitory. Therefore, evolution modulates inhibition.
+
+  This argument extends Ryba et al.'s specific finding about mAL to a
+  general principle: in any sensory integration circuit, the nodes where
+  inhibitory gain modulation has disproportionate effects on stimulus
+  discrimination (relative to response magnitude) are the predicted
+  substrates of evolutionary variation in stimulus preference.
+
+
+----------
+PANEL G: Evolutionary accessibility network
+----------
+
+Question: Which phenotypic transitions are "easy" (accessible via
+single-node gain changes) vs. "hard" (requiring coordinated multi-node
+changes)?
+
+Data and computation:
+  Define a set of behaviorally meaningful PHENOTYPIC STATES:
+    P1: "Selective" -- PI > 0.5 (strong conspecific preference)
+    P2: "Moderate"  -- 0.1 < PI < 0.5 (weak conspecific preference)
+    P3: "Promiscuous" -- -0.1 < PI < 0.1 (no preference)
+    P4: "Reversed" -- PI < -0.1 (heterospecific preference)
+    P5: "Courtship-off" -- VIGOR < threshold (courtship abolished)
+
+  Build a TRANSITION GRAPH:
+    Nodes = phenotypic states P1-P5.
+    Directed edges = single-node gain changes that move from one state
+    to another.
+
+  For each intermediate neuron n_i and each starting state P_start:
+    Sweep gain over [0, 2.0] and record which states are visited.
+    If the sweep passes through a boundary between P_start and P_target,
+    record an edge (P_start -> P_target) with weight = minimum gain
+    change required to cross the boundary.
+
+  ACCESSIBILITY SCORE for transition (P_start -> P_target):
+    A(start, target) = min over all neurons n_i of the gain change
+    required to move from P_start to P_target via single-node modulation.
+    If no single-node change suffices, A = infinity.
+
+  For multi-node transitions, search over pairs: for each pair (n_i, n_j),
+  compute the minimum total gain change |delta_g_i| + |delta_g_j| required
+  to reach P_target from P_start.
+
+  EVOLUTIONARY DISTANCE between states:
+    D(start, target) = shortest path in the transition graph weighted
+    by accessibility scores.
+
+Visualization:
+  Network diagram:
+    5 nodes (phenotypic states) arranged in a circle or force-directed layout.
+    Edge thickness proportional to 1/accessibility (thick = easy transition).
+    Edge color: green = achievable by single-node inhibitory change,
+    orange = achievable by single-node excitatory change,
+    red = requires multi-node change, gray = not achievable.
+
+  Edge labels: the specific neuron(s) whose gain change mediates each
+  transition (e.g., "mAL_m1, delta_g = 0.5").
+
+  Node size proportional to the "basin of attraction" -- the fraction of
+  gain parameter space that maps to each phenotypic state.
+
+  Inset: Heatmap of pairwise evolutionary distances D(P_i, P_j).
+
+Expected results:
+  - P1 (selective) <-> P2 (moderate) <-> P3 (promiscuous): These
+    transitions should be EASY (green edges, low accessibility scores),
+    mediated by single-node changes in mAL subtypes. This is exactly
+    the variation observed across the 16 Ryba strains.
+
+  - P3 (promiscuous) -> P4 (reversed): This should be HARD (red edge,
+    high accessibility, requires multi-node changes). Reversed preference
+    is not observed in natural populations, and the circuit architecture
+    explains why -- it would require coordinated changes in multiple
+    pathways.
+
+  - Any state -> P5 (courtship-off): This should be moderately easy
+    via excitatory gain reduction (orange edges), explaining why courtship
+    can be abolished by many different mutations but preference can only
+    be shifted by specific ones.
+
+  - P1 (selective) has a large basin of attraction (robust state),
+    consistent with selectivity being the ancestral state that is
+    maintained by stabilizing selection.
+
+Connection to Ryba et al.:
+  Ryba et al. document within-species variation along the P1-P2-P3 axis
+  but no evidence of reversed preference (P4) or courtship abolition (P5).
+  The accessibility network provides a circuit-level explanation: the
+  observed variation falls along the "easy" transitions, and the
+  unobserved variation falls along the "hard" transitions. Natural
+  selection operates within the circuit's accessibility constraints.
+
+
+================================================================================
+III.  MATHEMATICAL FRAMEWORK
+================================================================================
+
+1. GAIN-MODIFIED PROPAGATION
+
+Let W be the signed adjacency matrix (N x N), s0 the input stimulus vector,
+and g = (g_1, ..., g_N) the gain vector (g_i = 1 for all neurons at baseline).
+
+Define the diagonal gain matrix G = diag(g).
+
+The gain-modified adjacency matrix is:
+  W_g = G . W
+
+i.e., W_g[i, j] = g_i * W[i, j].
+
+Signal propagation with sustained input:
+  x(0) = s0
+  x(t+1) = f(W_g^T . x(t) + s0)
+
+where f is the sigmoid_rectified activation: f(z) = max(0, tanh(beta * z)).
+
+After T steps, the final activation is x(T; g, s0).
+
+2. PREFERENCE INDEX
+
+  PI(g) = [x(T; g, S_con)_target - x(T; g, S_het)_target] /
+          [x(T; g, S_con)_target + x(T; g, S_het)_target]
+
+where the subscript "target" denotes the mean activation across target neurons.
+
+3. LEVERAGE
+
+The leverage of neuron i with respect to target group k is:
+  L_k(i) = |partial PI_k / partial g_i| evaluated at g = 1
+
+Computed numerically:
+  L_k(i) ~ |PI_k(g_i = 1 + epsilon) - PI_k(g_i = 1 - epsilon)| / (2*epsilon)
+
+with epsilon = 0.01.
+
+4. FRAGILITY
+
+For neuron i, define the useful range [g_min, g_max] such that:
+  (a) VIGOR(g) = x(T; g, S_con)_target + x(T; g, S_het)_target > v_threshold
+      where v_threshold = 0.5 * VIGOR(g=1)
+  (b) There exists g' in [g, g + delta] such that PI(g') != PI(g)
+      (preference is not frozen)
+
+  F(i) = 1 - (g_max - g_min) / g_total_range
+
+5. EVOLUTIONARY ACCESSIBILITY
+
+For transition from phenotypic state P_a to P_b:
+  A(a -> b) = min_{i} (|delta_g_i|) such that:
+    - At g_i = 1 + delta_g_i (with all other gains at 1), the system is in state P_b
+    - The system passes through only "functional" states along the path
+      from g_i = 1 to g_i = 1 + delta_g_i (no courtship abolition)
+
+For multi-node transitions:
+  A_multi(a -> b) = min_{(i,j)} (|delta_g_i| + |delta_g_j|)
+
+Evolutionary distance:
+  D(a, b) = shortest weighted path in the transition graph with weights A.
+
+
+================================================================================
+IV.  TECHNICAL IMPLEMENTATION
+================================================================================
+
+The implementation extends the existing combinatorial signal flow framework
+in /combinatorial_signal_flow/. All data required is already exported:
+
+  - adj_matrix_post.mtx: Post-normalized adjacency matrix (N x N sparse)
+  - type_names.csv: Index-to-type mapping
+  - channels.json: 7 sensory channel definitions
+  - targets.json: Target neuron sets (aSP-f, aSP-g, vAB3_downstream,
+    PPN1_downstream and their "_all" expansions)
+  - neurotransmitter_mapping.csv: Type -> NT -> is_inhibitory
+  - modality_colors.json: Color palette
+
+New Python module: gain_landscape.py
+
+  class GainModulator:
+      """Modifies the adjacency matrix by applying gain factors."""
+
+      def __init__(self, W_signed, type_names):
+          self.W = W_signed  # baseline signed matrix
+          self.type_to_idx = dict(zip(type_names["type"], type_names["index"]))
+          self.idx_to_type = dict(zip(type_names["index"], type_names["type"]))
+          self.n = W_signed.shape[0]
+
+      def apply_gain(self, gain_dict):
+          """Apply gain factors to specified neurons.
+          gain_dict: {type_name: gain_value, ...}
+          Returns modified sparse matrix.
+          """
+          gains = np.ones(self.n)
+          for type_name, gain_val in gain_dict.items():
+              if type_name in self.type_to_idx:
+                  gains[self.type_to_idx[type_name]] = gain_val
+          G = sparse.diags(gains)
+          return G.dot(self.W)
+
+      def sweep_single_gain(self, neuron_type, gain_range, stimulus_dict,
+                             target_indices, n_steps=3, sustained=True):
+          """Sweep gain at one neuron, compute PI and vigor at each value."""
+          results = []
+          for g in gain_range:
+              W_mod = self.apply_gain({neuron_type: g})
+              propagator = SignalPropagator(W_mod, "sigmoid_rectified",
+                                            {"beta": 5.0})
+              activations = {}
+              for stim_name, s0 in stimulus_dict.items():
+                  x = propagator.propagate(s0, n_steps, sustained=sustained)
+                  activations[stim_name] = np.mean([x[i] for i in target_indices])
+              results.append({"gain": g, **activations})
+          return pd.DataFrame(results)
+
+  class LeverageComputer:
+      """Computes leverage scores via numerical differentiation."""
+      ...
+
+  class FragilityAnalyzer:
+      """Computes fragility, useful range, and efficiency metrics."""
+      ...
+
+  class AccessibilityGraph:
+      """Builds and analyzes the evolutionary transition graph."""
+      ...
+
+New Python script: run_gain_landscape.py
+  - Loads data using NetworkLoader (same as run_analysis.py)
+  - Pre-filters neurons to those in strongest paths (N ~ 500)
+  - Computes leverage for all filtered neurons (Panel A)
+  - Runs gain sweeps for top-10 (Panel B)
+  - Computes 2D landscapes for selected pairs (Panel C)
+  - Maps strain phenotypes to gain values (Panel D)
+  - Computes fragility metrics (Panel E)
+  - Computes E/I asymmetry statistics (Panel F)
+  - Builds accessibility graph (Panel G)
+
+Computational cost estimate:
+  - Panel A: ~500 neurons x 2 perturbations x 2 stimuli x 4 target groups
+    = ~8,000 propagations. Each propagation is a sparse matrix-vector
+    multiply (3 steps). With the post-normalized matrix (~15k x 15k, ~2M
+    nonzeros), each propagation takes ~1ms. Total: ~8 seconds.
+  - Panel B: 10 neurons x 21 gain values x 2 stimuli x 4 targets
+    = ~1,680 propagations. Total: ~2 seconds.
+  - Panel C: 3 pairs x 21x21 grid x 2 stimuli x 4 targets
+    = ~10,584 propagations. Total: ~10 seconds.
+  - Panels D-G: Derived from Panels A-C, minimal additional computation.
+  - Total estimated runtime: under 1 minute.
+
+
+================================================================================
+V.  CONNECTIONS TO RYBA ET AL. EXPERIMENTAL FINDINGS
+================================================================================
+
+This figure makes several specific, testable predictions based on the
+connectome that align with or extend Ryba et al.'s experimental findings:
+
+1. CONVERGENT IDENTIFICATION OF mAL AS KEY LOCUS
+   Ryba et al. identify mAL through a forward genetic screen combined with
+   calcium imaging. Our leverage analysis (Panel A) identifies the same
+   neurons through a purely computational approach -- screening all ~500
+   neurons in the courtship circuit for their influence on preference index.
+   This convergence validates both approaches and suggests that connectome-
+   based leverage analysis could identify gain modulation sites in circuits
+   where experimental screens are not feasible.
+
+2. SELECTIVITY SWITCH PHENOTYPE
+   Ryba et al. show that mAL depolarization makes flies selective while
+   mAL hyperpolarization makes them promiscuous, with bidirectional
+   effects that are quantitatively consistent. Our gain sweep (Panel B)
+   predicts exactly this: a monotonic, steep relationship between mAL gain
+   and preference index. The quantitative shape of this curve (sigmoid,
+   with the transition centered near baseline) is a prediction that could
+   be tested by parametric optogenetic stimulation of mAL.
+
+3. ONE-DIMENSIONAL BEHAVIORAL VARIATION
+   Ryba et al. show that 16 strains form a continuous 1D gradient from
+   selective to promiscuous. Our landscape analysis (Panels C-D) predicts
+   that this 1D gradient maps to a 1D manifold in gain space (variation
+   along the mAL axis), with no systematic variation along other axes.
+   The R^2 of strain positions projected onto the mAL axis should be
+   > 0.9.
+
+4. WHY mAL AND NOT OTHER NEURONS
+   Ryba et al. note that "multigenic architecture may nevertheless belie
+   a relatively simple neural logic" but do not fully explain WHY the
+   circuit converges on this simple logic. Our fragility analysis
+   (Panel E) provides the answer: mAL neurons are uniquely positioned
+   in the circuit as "ideal evolutionary knobs" -- high leverage, high
+   robustness, and high efficiency. Other high-leverage neurons are
+   fragile (small gain changes break courtship) or inefficient (large
+   gain changes produce small selectivity shifts).
+
+5. E/I ASYMMETRY PRINCIPLE
+   Ryba et al. show that the key mechanism is GABAergic inhibition from
+   mAL to P1. Our E/I asymmetry analysis (Panel F) generalizes this to
+   a circuit-theoretic principle: inhibitory gain modulation preferentially
+   affects stimulus DISCRIMINATION, while excitatory gain modulation
+   preferentially affects response MAGNITUDE. This predicts that in other
+   circuits where stimulus preference varies across populations (e.g.,
+   olfactory food preference, visual pattern preference), the substrate
+   of variation should also be found in inhibitory interneurons.
+
+6. EVOLUTIONARY ACCESSIBILITY CONSTRAINTS
+   Ryba et al. observe within-species variation along the selective-
+   promiscuous axis but not reversed preference. Our accessibility
+   analysis (Panel G) explains this: the selective-to-promiscuous
+   transition is "easy" (single-node mAL gain changes), while preference
+   reversal would require coordinated multi-node changes that are
+   evolutionarily unlikely within a species.
+
+
+================================================================================
+VI.  BIOLOGICAL SIGNIFICANCE
+================================================================================
+
+This figure establishes three conceptual contributions:
+
+1. GAIN LANDSCAPES AS A TOOL FOR EVOLUTIONARY NEUROSCIENCE
+   The concept of a "gain landscape" -- the mapping from synaptic efficacy
+   parameters to behavioral phenotype -- provides a quantitative framework
+   for understanding how circuit architecture constrains behavioral
+   evolution. Just as fitness landscapes map genotype to fitness, gain
+   landscapes map neural parameters to behavioral phenotype. The topology
+   of this landscape (ridges, valleys, basins) determines which
+   evolutionary paths are accessible and which are blocked.
+
+2. THE CONNECTOME PREDICTS EVOLUTIONARY SUBSTRATES
+   By computing leverage, fragility, and accessibility from connectome
+   data alone (without any experimental manipulation), we can predict
+   which circuit nodes are the most likely substrates of evolutionary
+   variation. The validation against Ryba et al.'s experimental findings
+   demonstrates that this approach works -- the connectome contains
+   sufficient information to identify "evolutionary hotspots" in neural
+   circuits.
+
+3. THE E/I ASYMMETRY PRINCIPLE
+   The finding that inhibitory gain modulation selectively affects stimulus
+   preference while excitatory gain modulation affects response magnitude
+   is a general principle that should apply to any circuit performing
+   stimulus discrimination. This connects the specific biology of
+   Drosophila mate preference to broader questions about how neural
+   circuits evolve to change their computational properties.
+
+
+================================================================================
+VII.  PROPOSED FIGURE LAYOUT AND VISUAL DESIGN
+================================================================================
+
+Figure dimensions: Full page width (180mm) x ~220mm height (Nature format)
+or two-column (170mm width) for a 7-panel figure.
+
+Layout (2 rows):
+
+  Row 1 (top, ~45% of height):
+    [A] Leverage heatmap   [B] Gain sweep curves   [C] 2D landscape
+    (4.5cm wide)           (5.5cm wide)            (5.5cm wide)
+
+  Row 2 (bottom, ~55% of height):
+    [D] Strain mapping     [E] Fragility scatter   [F] E/I asymmetry
+    (5.0cm wide)           (5.0cm wide)            (5.0cm wide)
+
+  Row 3 (if space permits, or supplementary):
+    [G] Accessibility network
+    (16cm wide, spanning full width)
+
+Alternative layout for a more compact presentation:
+
+  Row 1: [A] [B] [C]
+  Row 2: [D + E combined as left half] [F + G combined as right half]
+
+Color scheme:
+  - Consistent with existing Fig 6 palette:
+    Modality colors from modality_colors.json
+    Target colors from target_colors in modality_colors.json
+  - New colors for gain landscape:
+    Preference index: diverging blue-white-red (blue = heterospecific
+    preference, red = conspecific preference)
+    Gain axis: grayscale
+    E/I identity: blue (inhibitory) / red (excitatory), matching standard
+    neuroscience convention
+  - Strain colors: continuous gradient from blue (selective) to
+    orange/red (promiscuous)
+
+Typography:
+  - Panel labels: bold uppercase (A, B, C, ...)
+  - Axis labels: 8pt, matching Fig 6 theme_pub()
+  - Gene/neuron names: italic
+  - Strain names: regular 7pt
+
+Export formats:
+  - PDF for vector graphics (all panels)
+  - PNG at 300 dpi for raster backup
+  - Source data as CSV files for reproducibility
+
+
+================================================================================
+VIII.  RELATIONSHIP TO FIGURE 6
+================================================================================
+
+Figure 5 and Figure 6 form a complementary pair:
+
+FIGURE 6 asks: "How does the connectome wire 7 sensory channels to
+courtship decision neurons, and does this wiring produce genuine
+nonlinear computation?"
+  -> Answer: Yes. The circuit performs structured multimodal integration
+  with specific synergistic and opposing channel pairs, target-specific
+  interaction profiles, and progressive convergence across circuit layers.
+
+FIGURE 5 asks: "Given this wiring, what is the parameter space of
+courtship behavior that the connectome allows, and how does evolutionary
+variation navigate this space?"
+  -> Answer: The circuit constrains behavioral variation to a
+  low-dimensional manifold defined by inhibitory gain modulation at a
+  small set of high-leverage nodes (mAL neurons). This explains the
+  Ryba et al. finding that strain variation in mate preference maps to
+  a single neural pathway despite multigenic architecture.
+
+The figures share computational infrastructure:
+  - Same signed adjacency matrix and channel/target definitions
+  - Same propagation model (SignalPropagator with sigmoid_rectified)
+  - Same target neuron groups (aSP-f, aSP-g, vAB3_downstream,
+    PPN1_downstream)
+
+But they ask fundamentally different questions:
+  - Fig 6 is about STRUCTURE -> FUNCTION (what does the wiring compute?)
+  - Fig 5 is about FUNCTION -> EVOLUTION (how does the computation
+    constrain what can evolve?)
+
+Together, they build the argument:
+  Structure (Fig 6A-C) -> Computation (Fig 6D-K) -> Integration (Fig 6L-O)
+  -> Variation (Fig 5A-C) -> Constraint (Fig 5D-G)
+
+This narrative arc -- from connectome wiring to evolutionary constraint --
+is the central contribution of the paper's computational analysis.
+
+
+================================================================================
+IX.  ADDITIONAL TECHNICAL NOTES
+================================================================================
+
+1. STIMULUS PATTERN DEFINITIONS
+
+The choice of S_con and S_het matters quantitatively. We propose:
+
+  S_con (conspecific female stimulus):
+    ppk23 = 1, ppk25 = 1, DA1 = 1, VA1d = 1, auditory = 0, visual = 1
+    Rationale: Female D. melanogaster produce cVA (DA1), have specific
+    cuticular hydrocarbons detected by ppk23/ppk25, and visual cues.
+    No auditory because the female does not sing. VA1d responds to
+    cis-vaccenyl acetate (in some contexts).
+
+  S_het (heterospecific / male-like stimulus):
+    ppk23 = 1, VA1v = 1, auditory = 0, visual = 1, ppk25 = 0
+    Rationale: Male D. melanogaster produce 7-T (VA1v), have male
+    CHCs detected by ppk23, and visual cues. ppk25 may respond less
+    to male CHCs (per Ryba et al., the key differential is 7-T on VA1v).
+
+  These can be refined based on the specific experimental protocols in
+  Ryba et al. The qualitative results should be robust to reasonable
+  variations in stimulus definitions, as the key leverage differences
+  come from circuit topology, not stimulus details.
+
+2. NORMALIZATION CONSIDERATIONS
+
+All computations use the post-normalized (column-normalized) adjacency
+matrix, which represents the fraction of each neuron's total input coming
+from each presynaptic partner. This is the most biologically appropriate
+normalization for gain modulation analysis because:
+  - It preserves the relative importance of different inputs
+  - Gain changes at a presynaptic neuron affect its contribution to
+    all postsynaptic partners proportionally
+  - The total input to each neuron sums to ~1 at baseline
+
+Results should be checked for robustness against pre-normalization and
+raw counts, as in the existing sensitivity analysis (run_analysis.py
+sensitivity_params).
+
+3. POTENTIAL LIMITATIONS
+
+  (a) The model uses a static nonlinearity (sigmoid_rectified) that may
+      not capture the full dynamics of real neural gain modulation. In
+      particular, synaptic plasticity, neuromodulation, and homeostatic
+      compensation are not modeled. The gain landscape should therefore
+      be interpreted as describing the INSTANTANEOUS effect of gain
+      changes, not the long-term evolutionary equilibrium.
+
+  (b) The connectome provides synaptic count-based weights but not
+      functional synaptic strength. Gain variation in Ryba et al. may
+      reflect changes in synaptic strength, neurotransmitter release
+      probability, or receptor density, all of which are collapsed into
+      a single gain parameter in our model.
+
+  (c) The stimulus patterns S_con and S_het are idealized binary vectors.
+      Real pheromone stimuli produce graded responses with complex
+      temporal dynamics. The preference index PI is therefore a
+      steady-state approximation.
+
+  (d) We model gain changes at the level of neuron TYPES (all neurons of
+      a type share the same gain). In reality, individual neurons within
+      a type may vary. This is acceptable for the present analysis because
+      Ryba et al. show that strain differences affect entire neuron
+      populations (all mAL neurons), not individual cells.
+
+4. VALIDATION OPPORTUNITIES
+
+  (a) QUANTITATIVE FIT: If per-strain mAL calcium imaging data from
+      Ryba et al. becomes available, the predicted g_mAL values (Panel D)
+      can be compared to measured mAL response amplitudes. The predicted
+      relationship is monotonic and roughly linear.
+
+  (b) PERTURBATION PREDICTIONS: The gain sweep (Panel B) predicts the
+      quantitative effect of parametric optogenetic stimulation of mAL.
+      Specifically, the PI curve predicts that intermediate levels of mAL
+      activation should produce intermediate levels of selectivity, not
+      a binary switch. This could be tested with graded optogenetic
+      protocols.
+
+  (c) NOVEL TARGETS: If the leverage analysis (Panel A) identifies
+      high-leverage neurons BEYOND the mAL cluster, these are predictions
+      for new experimental targets. Neurons with high leverage but high
+      fragility would be predicted to affect courtship when manipulated
+      but would not be expected to show natural variation (because
+      variation at these sites would be deleterious).
+
+================================================================================
+END OF DOCUMENT
+================================================================================

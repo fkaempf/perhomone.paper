@@ -1,0 +1,1179 @@
+Figure 5: Temporal Dynamics of Courtship Decision-Making
+=========================================================
+A connectome-grounded model of moment-to-moment sensory evaluation
+through transient inhibitory gating
+
+Research Design Document
+========================
+
+Authors' note: This document specifies a NEW figure (Fig 5) for the
+pheromone/courtship paper.  Fig 5 focuses on TIME -- how the courtship
+circuit implements sequential sensory sampling and decision switching --
+whereas Fig 6 (the existing figure) focuses on STATIC integration, i.e.,
+which modalities converge on which targets and with what interaction
+profiles.  Together, Figs 5 and 6 form a complementary pair: Fig 5 asks
+"When does information arrive, and how does the circuit respond to
+sequential inputs?"; Fig 6 asks "What is computed when all information
+has arrived?"
+
+
+========================================================================
+1.  FIGURE NARRATIVE: HOW THE PANELS TELL A SEQUENTIAL STORY
+========================================================================
+
+The narrative arc of Fig 5 is built on a single organizing principle:
+TIME.  Courtship is not a one-shot classification.  A male Drosophila
+approaches a potential mate, contacts her cuticle, evaluates her
+pheromone profile, and -- if she is heterospecific or unreceptive --
+pauses pursuit and reorients to sample a new target.  Ryba et al. (2025)
+demonstrated that this cycle is mediated by transient inhibitory gating
+of P1 neurons through mAL interneurons, driven by contact chemosensory
+cues (ppk23/ppk25).  The male does not become permanently disinterested;
+he becomes momentarily "blind" to the current pursuit target while his
+arousal system remains active.  The duration and depth of that inhibitory
+transient determines whether he switches targets.
+
+Fig 5 unpacks this temporal decision process using the male CNS
+connectome and the signal propagation framework already developed for
+Fig 6.  The story proceeds in three acts:
+
+ACT 1 -- THE MECHANISM (Panels A-C)
+  "Here is the decision cycle, here is what transient inhibition looks
+   like in the connectome's temporal dynamics, and here is how fast
+   different signals arrive."
+
+  Panel A introduces the state-transition model: the cycle of approach,
+  sense, evaluate, and continue-or-switch, annotated with the connectome
+  pathways that implement each transition.
+
+  Panel B shows WHAT HAPPENS in time when a male encounters sequential
+  sensory events.  Using propagate_trajectory(), we simulate a scenario
+  where sustained conspecific pheromone input (DA1+VA1v) is interrupted
+  by a transient contact chemosensory pulse (ppk23) and then resumes.
+  The result is a time-series at aSP-f/aSP-g/mAL-type neurons showing
+  the characteristic DIP in excitatory drive during the inhibitory
+  transient, followed by recovery.
+
+  Panel C quantifies the "integration time constants" -- how many
+  propagation steps it takes for each sensory channel to reach each
+  target group via excitatory versus inhibitory paths.  This reveals the
+  temporal ordering of information arrival.
+
+ACT 2 -- THE DECISION SPACE (Panels D-E)
+  "Given these dynamics, how does the circuit make a binary decision
+   (continue vs. switch), and what determines the outcome?"
+
+  Panel D maps the decision as a 2D phase diagram: excitatory drive
+  (x-axis) vs. inhibitory drive (y-axis), with color encoding switching
+  probability.  Experimental conditions from Ryba et al. -- conspecific,
+  heterospecific-selective, heterospecific-promiscuous -- are plotted as
+  points in this space.
+
+  Panel E formalizes the decision as a drift-diffusion process.
+  Excitatory connectome paths provide positive drift; inhibitory paths
+  provide negative drift.  When cumulative evidence at P1-like neurons
+  drops below a threshold, courtship pauses.  This framework predicts
+  decision time, error rate, and switching probability as functions of
+  the connectome-derived drift rates.
+
+ACT 3 -- THE PREDICTIONS (Panels F-G)
+  "What does the temporal architecture of the connectome predict about
+   real behavior?"
+
+  Panel F visualizes the "signal race" -- a timeline showing when
+  visual, olfactory, and contact chemosensory information arrives at
+  decision neurons.  The temporal ordering constrains the decision
+  process: fast-but-nonspecific signals (visual) arrive before
+  slow-but-specific ones (contact chemosensory), creating a window
+  during which the male pursues ANY moving target before species-specific
+  information arrives to confirm or abort.
+
+  Panel G simulates Ryba et al.'s closed-loop paradigm: a male
+  receiving repeated inhibitory pulses as he approaches a "fictive
+  heterospecific."  The connectome propagation predicts how quickly
+  preference develops as a function of the inhibitory/excitatory time
+  constant ratio.
+
+
+========================================================================
+2.  PANEL-BY-PANEL SPECIFICATIONS
+========================================================================
+
+------------------------------------------------------------------------
+PANEL A: Dynamic Decision Model Schematic
+------------------------------------------------------------------------
+
+Data/computation:
+  - No simulation; this is a conceptual diagram.
+  - Draws on connectome path data from Fig 6 (paths.all) to annotate
+    specific neuron types on the circuit diagram.
+
+Visualization:
+  - Central element: a state-transition diagram with 4 states arranged
+    in a cycle:
+      APPROACH (visual pursuit active, P1 high)
+        |
+        v
+      SENSE (contact chemosensory input arrives at mAL/vAB3)
+        |
+        v
+      EVALUATE (P1 drive vs. mAL inhibition: is net drive > threshold?)
+       / \
+      v   v
+    CONTINUE   SWITCH (reorient, sample new target)
+      |           |
+      +-----------+
+           |
+           v
+        APPROACH (cycle restarts)
+
+  - Each transition arrow is annotated with the connectome pathway:
+    - APPROACH -> SENSE: visual (LC10) -> P1 fast path; contact
+      (ppk23/ppk25) -> mAL/vAB3 downstream
+    - SENSE -> EVALUATE: mAL (GABAergic) -> P1 inhibition; DA1/VA1v
+      (excitatory) -> aSP-f/aSP-g -> P1 excitation
+    - EVALUATE -> CONTINUE: net excitatory drive > threshold
+    - EVALUATE -> SWITCH: net inhibitory drive > threshold (P1 dip)
+
+  - Use the modality_colors from the existing palette:
+    Excitatory paths in warm colors (DA1 green #66C2A5, VA1v orange
+    #FC8D62), inhibitory paths in cool/yellow (ppk23 #FFD92F, ppk25
+    #E5C494).
+  - mAL neurons drawn as inhibitory (filled circles) with GABA label.
+  - P1 neurons drawn as the decision integrator.
+
+  - Side annotation: a small inset showing the key neurotransmitter
+    signs from the connectome -- mAL subtypes are GABAergic (confirmed
+    from neurotransmitter_mapping.csv: mAL_m1, mAL_m3c, mAL_m4, mAL_m5a-c,
+    mAL_m7, mAL_m8, mAL_m9 are all GABA/inhibitory; mAL_m2a, mAL_m3a,
+    mAL_m3b, mAL_m6 are unclear/excitatory -- important heterogeneity).
+
+Expected results:
+  - The schematic will reveal that the "evaluate" step is not a simple
+    threshold comparison but depends on the signed convergence structure
+    of the connectome: multiple mAL subtypes, some inhibitory and some
+    excitatory, all converge on the same downstream targets.
+
+Design notes:
+  - Rendered as a vector graphic (Affinity Designer .afdesign), matching
+    the style of Panel A in Fig 6 (circuit schematic).
+  - Dimensions: full figure width (~180 mm), ~60 mm height.
+
+
+------------------------------------------------------------------------
+PANEL B: Temporal Activation Profiles Under Alternating Stimuli
+------------------------------------------------------------------------
+
+Data/computation:
+  This is the core computational panel.  We extend the existing
+  propagate_trajectory() method to simulate SEQUENTIAL stimulus events.
+
+  Simulation protocol:
+    1. Load the signed adjacency matrix (post-normalized, as in Fig 6).
+    2. Define three stimulus epochs:
+       - Epoch 1 (steps 0-4):  Sustained conspecific pheromone.
+         s0 = encode(DA1) + encode(VA1v).  Sustained mode.
+       - Epoch 2 (steps 5-7):  Transient contact chemosensory pulse
+         ADDED to the ongoing pheromone stimulus.
+         s0 = encode(DA1) + encode(VA1v) + encode(ppk23).  Pulse mode
+         for ppk23 (injected at step 5 only); sustained for DA1+VA1v.
+       - Epoch 3 (steps 8-12): Return to conspecific pheromone only.
+         s0 = encode(DA1) + encode(VA1v).  Sustained mode.
+
+    3. Implementing multi-epoch simulation:
+       The existing propagate_trajectory() handles a single stimulus
+       vector for all steps.  For Fig 5B, we need to extend this to
+       allow the input vector to change across steps.  The proposed
+       implementation:
+
+       def propagate_multi_epoch(self, epochs, n_steps_per_epoch):
+           """
+           epochs: list of (s0, sustained_bool) tuples
+           n_steps_per_epoch: list of int, one per epoch
+           """
+           x = np.zeros(self.n)
+           trajectory = [x.copy()]
+           for (s0, sustained), n_steps in zip(epochs, n_steps_per_epoch):
+               for t in range(n_steps):
+                   x = self.Wt.dot(x)
+                   if sustained:
+                       x = x + s0
+                   else:
+                       if t == 0:
+                           x = x + s0  # inject pulse at start of epoch only
+                   x = self.activation_fn(x, **self.activation_params)
+                   trajectory.append(x.copy())
+           return np.array(trajectory)
+
+       A cleaner alternative that keeps the existing API intact:
+       concatenate trajectories step by step, using the final state
+       of one epoch as the initial state of the next, and alternating
+       which input vector is clamped.
+
+    4. Read out activations at:
+       - aSP-f neurons (aspf target group: LH001m, LH002m, LH003m,
+         LH006m, LH008m, AVLP753m, PVLP205m, SLP160)
+       - aSP-g neurons (aspg target group: aSP-g3Am, AVLP700m,
+         AVLP704m, AVLP727m, AVLP750m)
+       - mAL-type neurons from vAB3_downstream: mAL_m1, mAL_m3c,
+         mAL_m8, mAL_m9, mAL_m3b, mAL_m2a (these are the GABAergic
+         intermediaries)
+       - P1 neurons (not in target groups but present in the type_names
+         and adjacency matrix; can be read out by encoding P1 subtypes)
+
+    5. Run three conditions and overlay:
+       (a) Wild-type: DA1+VA1v sustained + ppk23 transient pulse
+       (b) ppk23-silenced: DA1+VA1v sustained only (no ppk23 pulse)
+       (c) mAL-enhanced: DA1+VA1v sustained + ppk23 transient with
+           2x scaling on ppk23 input vector
+
+Visualization:
+  - Multi-panel time-series plot.
+  - X-axis: propagation step (= abstract time).
+  - Y-axis: mean activation within each neuron group.
+  - Separate subplot rows for:
+    Row 1: aSP-f mean activation (excitatory command, "P1-like")
+    Row 2: aSP-g mean activation
+    Row 3: mAL-type mean activation (inhibitory intermediary)
+  - Three line colors per subplot for the three conditions (WT, ppk23-
+    silenced, mAL-enhanced).
+  - Vertical shaded band marking the ppk23 pulse epoch.
+  - Annotations:
+    - Arrow pointing to the DIP in aSP-f/aSP-g activation during the
+      ppk23 epoch ("transient inhibitory gating").
+    - Arrow pointing to the LACK of dip in the ppk23-silenced condition.
+    - Arrow pointing to the DEEPER dip in the mAL-enhanced condition.
+
+Expected results:
+  - aSP-f and aSP-g should show a clear decrease in activation during
+    the ppk23 pulse epoch (because ppk23 routes through GABAergic mAL
+    neurons that inhibit P1/aSP-f/aSP-g targets -- as already shown in
+    Fig 6's interaction analysis where ppk23 often produces OPPOSING
+    interactions with olfactory channels at aSP-f/aSP-g targets).
+  - mAL neurons should show a SPIKE during the ppk23 epoch.
+  - After the pulse, aSP-f/aSP-g should recover toward the pre-pulse
+    sustained pheromone baseline.
+  - The depth and duration of the dip encode the "switching signal."
+
+Technical notes:
+  - Nonlinearity: use sigmoid_rectified (beta=5.0) to match the
+    default analysis in Fig 6.
+  - Normalization: post-synaptic (column-normalized), consistent with
+    Fig 6.
+  - Number of propagation steps: 3-5 per epoch, giving 9-15 total steps.
+    The existing framework uses 3 steps for steady-state analysis; for
+    temporal dynamics we use more to see transient behavior.
+  - Use leaky_relu (alpha=0.1) as a sensitivity check, since it
+    preserves inhibitory signal propagation better than ReLU.
+
+  Implementation file: a new Python script,
+    combinatorial_signal_flow/fig5_temporal_dynamics.py
+  Plot output: fig5/plots/panel_B/
+
+
+------------------------------------------------------------------------
+PANEL C: Integration Time Constants
+------------------------------------------------------------------------
+
+Data/computation:
+  For each of the 7 sensory channels, propagate a pulse input and
+  record the activation trajectory at each target group.  Compute the
+  "effective arrival time" as the propagation step at which activation
+  at the target first exceeds a threshold (e.g., 10% of peak).
+
+  Specifically:
+    1. For each channel ch in {DA1, VA1v, VA1d, auditory, visual,
+       ppk23, ppk25}:
+       a. Encode ch as input vector s0.
+       b. Run propagate_trajectory(s0, n_steps=6, sustained=False).
+          (Pulse mode: single injection, no re-clamping.)
+       c. For each target group tg in {aspf, aspg, vAB3_downstream,
+          PPN1_downstream}:
+          - Compute mean activation across target neurons at each step.
+          - Find t_arrival: first step where mean activation > 0.1 * max.
+          - Find t_peak: step of maximum activation.
+          - Find t_half: step where activation first drops below 50% of
+            peak (decay time).
+
+    2. Separately categorize paths as excitatory or inhibitory using
+       the sign information from the adjacency matrix.  The approach:
+       - Run propagation on the UNSIGNED matrix to get total signal
+         arrival time.
+       - Run propagation on a matrix where only excitatory weights are
+         kept (zero out inhibitory rows) to get excitatory arrival time.
+       - Run propagation on a matrix where only inhibitory weights are
+         kept to get inhibitory arrival time.
+       - Compare: does inhibition arrive BEFORE or AFTER excitation?
+
+Visualization:
+  - Dot-and-whisker plot or "arrival time distribution" plot.
+  - X-axis: sensory channel (ordered by modality group: olfactory,
+    auditory, visual, contact).
+  - Y-axis: propagation step of arrival.
+  - Two series per channel: excitatory arrival (filled circles) and
+    inhibitory arrival (open circles).
+  - Faceted by target group (aspf, aspg, vAB3_downstream,
+    PPN1_downstream).
+  - Key visual element: draw a horizontal band at each target group's
+    "decision window" -- the interval between excitatory and inhibitory
+    arrival.
+
+  Alternative visualization (if the dot plot is too sparse given the
+  discrete step counts):
+  - Heatmap with channels as rows, steps as columns, color = activation
+    level.  Separate heatmaps for excitatory and inhibitory components.
+
+Expected results:
+  - Olfactory channels (DA1, VA1v, VA1d) should arrive relatively fast
+    at aSP-f/aSP-g (2 hops: ORN -> PN -> target), consistent with the
+    path analysis in Fig 6.
+  - Contact chemosensory (ppk23, ppk25) may arrive at aSP-f/aSP-g via
+    longer paths (ppk23 -> LgLG/WG -> mAL -> aSP-f/aSP-g), but the
+    inhibitory component may be FASTER than the excitatory component
+    because the GABAergic mAL neurons are positioned as 2nd-order relays
+    in the contact chemosensory pathway.
+  - Visual signal should be fast but non-specific (reaches both target
+    groups similarly).
+  - KEY PREDICTION: if inhibitory paths from ppk23 are faster or equal
+    to excitatory paths from ppk23, the circuit implements a
+    "guilty until proven innocent" strategy -- initial contact triggers
+    suppression, and only if the pheromone profile matches conspecific
+    does the excitatory drive recover to override inhibition.
+
+Technical notes:
+  - This analysis uses the path data already computed for Fig 6
+    (paths.all, which includes path lengths and valence information)
+    AND the propagation framework.
+  - For the excitatory-only / inhibitory-only matrices: create
+    modified versions of the signed adjacency matrix by zeroing out
+    the appropriate rows.
+  - This extends the layer-by-layer analysis in Panel K of Fig 6 but
+    focuses on temporal ordering rather than convergence per se.
+
+  Implementation: fig5_temporal_dynamics.py (same script as Panel B)
+  Plot output: fig5/plots/panel_C/
+
+
+------------------------------------------------------------------------
+PANEL D: Switching Probability Phase Diagram
+------------------------------------------------------------------------
+
+Data/computation:
+  Model the courtship switching decision as a function of two competing
+  inputs:
+    - Excitatory drive E: activation at aSP-f/aSP-g from olfactory
+      channels (DA1 + VA1v), obtained via propagation.
+    - Inhibitory drive I: activation at mAL neurons from contact
+      channels (ppk23), obtained via propagation.
+
+  The switching probability is modeled as:
+
+    P(switch) = sigma(alpha * (I - beta * E))
+
+  where sigma is a logistic function, alpha controls the steepness,
+  and beta sets the excitation/inhibition balance.
+
+  To build the phase diagram:
+    1. Compute the baseline excitatory activation E_baseline at aSP-f
+       from DA1+VA1v (sustained, 3 steps).
+    2. Compute the baseline inhibitory activation I_baseline at mAL
+       neurons from ppk23 (pulse, 3 steps).
+    3. Create a 2D grid:
+       E_range = np.linspace(0, 2*E_baseline, 50)
+       I_range = np.linspace(0, 2*I_baseline, 50)
+    4. For each (E, I) pair, compute P(switch).
+    5. Map experimental conditions:
+       - Conspecific female: E = E_baseline (high), I = low (ppk23
+         activation minimal for conspecific).
+       - Heterospecific (selective male): E = 0.5*E_baseline (reduced
+         olfactory match), I = I_baseline (full ppk23 activation for
+         heterospecific contact pheromones).
+       - Heterospecific (promiscuous male): E = 0.5*E_baseline,
+         I = 0.5*I_baseline (reduced inhibitory response, consistent
+         with Ryba et al.'s finding that promiscuous strains have
+         weaker mAL-mediated inhibition).
+
+  Alternative, more biophysically grounded approach:
+    Instead of a logistic function, use the actual propagation dynamics.
+    For each (E_scale, I_scale) pair:
+    - Run multi-epoch simulation with:
+      Epoch 1: s0 = E_scale * (DA1 + VA1v), sustained
+      Epoch 2: s0 = E_scale * (DA1 + VA1v) + I_scale * ppk23, transient
+    - Measure the depth of the activation dip at aSP-f relative to
+      baseline.
+    - Define P(switch) = probability that the dip exceeds a threshold
+      (set as fraction of baseline activation).
+
+Visualization:
+  - 2D heatmap / phase diagram.
+  - X-axis: excitatory drive (E), labeled "Olfactory pheromone drive"
+  - Y-axis: inhibitory drive (I), labeled "Contact chemosensory drive"
+  - Color: P(switch) on a diverging blue-white-red scale (blue = low
+    switching, red = high switching).
+  - Overlaid points for the three experimental conditions with labels.
+  - Diagonal line marking the decision boundary (P(switch) = 0.5).
+  - Optional contour lines at P = 0.2, 0.5, 0.8.
+
+Expected results:
+  - The decision boundary should be a roughly diagonal line from high-E/
+    low-I (continue courtship) to low-E/high-I (switch).
+  - Conspecific female maps to the "continue" region.
+  - Heterospecific with selective male maps to the "switch" region.
+  - Heterospecific with promiscuous male maps near the boundary
+    (intermediate switching probability), consistent with the variable
+    behavior Ryba et al. observed.
+  - The slope of the boundary encodes the circuit's excitation/inhibition
+    balance, which is a property of the connectome wiring (number and
+    weight of excitatory vs. inhibitory paths).
+
+  Implementation: fig5_temporal_dynamics.py
+  Plot output: fig5/plots/panel_D/
+
+
+------------------------------------------------------------------------
+PANEL E: Drift-Diffusion Model
+------------------------------------------------------------------------
+
+Data/computation:
+  Frame the courtship decision as a drift-diffusion process (DDM),
+  which is the standard computational framework for binary decisions
+  in neuroscience.
+
+  The DDM for courtship:
+    dx/dt = mu + sigma * dW(t)
+
+  where:
+    x(t) = "evidence accumulator" at P1-like neurons
+    mu   = drift rate = f(excitatory drive) - g(inhibitory drive)
+    sigma = noise amplitude
+    dW(t) = Wiener process (noise)
+    Decision: when x(t) < threshold_low -> SWITCH
+              when x(t) > threshold_high -> CONTINUE
+
+  Connectome-derived drift rates:
+    mu_E = sum of signed path strengths from DA1+VA1v to aSP-f
+    mu_I = sum of signed path strengths from ppk23 to aSP-f via mAL
+    mu = mu_E - mu_I
+
+  For each "encounter type" (conspecific, heterospecific-selective,
+  heterospecific-promiscuous), set different mu values based on the
+  relative activation strength of excitatory vs. inhibitory pathways.
+
+  Compute analytically (or via Monte Carlo simulation):
+    - Mean decision time: T = (threshold_high - threshold_low) / mu
+      (for the absorbing boundary DDM)
+    - Error rate: P(error) = 1 / (1 + exp(2 * mu * threshold / sigma^2))
+    - Switching probability: P(switch) from the DDM
+
+  Monte Carlo approach (more flexible):
+    1. For each condition (conspecific, heterospecific-selective,
+       heterospecific-promiscuous):
+       a. Set mu from connectome-derived path strengths.
+       b. Simulate 10,000 DDM trials.
+       c. Record decision time and outcome (switch vs. continue).
+    2. Compare distributions across conditions.
+
+Visualization:
+  Three sub-panels:
+    E1: Sample DDM trajectories.
+      - X-axis: time (propagation steps).
+      - Y-axis: accumulated evidence x(t).
+      - Show 10-20 sample trajectories for each condition, colored by
+        condition (conspecific = green, heterospecific-selective = red,
+        heterospecific-promiscuous = orange).
+      - Horizontal lines for decision thresholds.
+      - Annotations: "CONTINUE" at upper threshold, "SWITCH" at lower.
+
+    E2: Decision time distributions.
+      - Violin plots or histograms of decision times by condition.
+      - Prediction: conspecific -> fast CONTINUE; heterospecific-
+        selective -> fast SWITCH; promiscuous -> slow, variable.
+
+    E3: Switching probability vs. drift rate.
+      - X-axis: drift rate mu (from strongly excitatory to strongly
+        inhibitory).
+      - Y-axis: P(switch).
+      - Sigmoidal curve with three conditions marked as points.
+
+Expected results:
+  - Conspecific encounter: positive drift (excitatory > inhibitory) ->
+    fast approach, low switching probability.
+  - Heterospecific (selective male): negative drift -> fast switching.
+  - Heterospecific (promiscuous male): drift near zero -> slow decisions,
+    high variability, intermediate switching.
+  - The DDM framework explains Ryba et al.'s observation that promiscuous
+    males take LONGER to develop preferences -- they are operating near
+    the decision boundary where noise dominates.
+
+  Implementation: fig5_temporal_dynamics.py
+  Plot output: fig5/plots/panel_E/
+
+
+------------------------------------------------------------------------
+PANEL F: Signal Race Between Modalities
+------------------------------------------------------------------------
+
+Data/computation:
+  This panel uses the propagate_trajectory() function in pulse mode to
+  visualize the temporal ordering of information arrival from different
+  modality groups at the decision neurons.
+
+  Protocol:
+    1. For each modality group:
+       - Olfactory: encode(DA1) + encode(VA1v) + encode(VA1d)
+       - Auditory: encode(auditory)
+       - Visual: encode(visual)
+       - Contact: encode(ppk23) + encode(ppk25)
+    2. Propagate each group's input separately (pulse mode, 6 steps).
+    3. Read out activation at aSP-f and aSP-g at each step.
+    4. For each group, record:
+       - Arrival time (first step with activation > threshold)
+       - Peak time
+       - Peak amplitude
+       - Species specificity index (defined below)
+
+  Species specificity:
+    Based on the biological literature, assign a "species-specificity
+    score" to each modality group:
+    - Visual: LOW (conspecific and heterospecific females look similar)
+    - Auditory: MEDIUM (courtship song is species-specific but
+      production varies)
+    - Olfactory: HIGH (pheromone blends are species-specific)
+    - Contact chemosensory: HIGHEST (cuticular hydrocarbons are the
+      most species-specific cue, and ppk23 mediates the rejection
+      response to heterospecific CHCs)
+
+Visualization:
+  Timeline / Gantt-chart style:
+  - X-axis: propagation step (time).
+  - Y-axis: modality group (visual, auditory, olfactory, contact).
+  - For each modality: horizontal bar from arrival time to decay time,
+    with width proportional to activation amplitude.
+  - Color: species-specificity (gradient from light/cool for low
+    specificity to dark/warm for high specificity).
+  - Overlay at the top: a "decision certainty" curve that increases as
+    each modality's signal arrives -- starts low when only visual is
+    available, increases when olfactory arrives, and reaches maximum
+    when contact chemosensory information is integrated.
+
+  Alternative: stacked area chart.
+  - X-axis: propagation step.
+  - Y-axis: cumulative activation at aSP-f (stacked by modality group).
+  - Shows how the total evidence builds over time as each modality
+    contributes.
+
+Expected results:
+  - Visual signal arrives first (LC10 neurons have direct projections
+    to AVLP, close to aSP-f/aSP-g).
+  - Olfactory signal arrives at step 2 (ORN -> PN -> aSP-f, a canonical
+    2-hop path).
+  - Contact chemosensory signal arrives at step 2-3 (ppk23 -> LgLG ->
+    mAL -> aSP-f, a 3-hop path, but some 2-hop paths may exist via
+    direct projections to AVLP neurons in the target set).
+  - KEY INSIGHT: the ordering is visual (fast, nonspecific) -> olfactory
+    (medium, specific) -> contact (slow, most specific).  This creates
+    a temporal hierarchy where the male's initial pursuit is driven by
+    nonspecific visual cues, then refined by olfactory identity, and
+    finally gated by contact chemosensory evaluation.  The circuit
+    implements a "coarse-to-fine" sensory evaluation strategy.
+
+  Implementation: fig5_temporal_dynamics.py
+  Plot output: fig5/plots/panel_F/
+
+
+------------------------------------------------------------------------
+PANEL G: Preference Learning in Closed-Loop Simulation
+------------------------------------------------------------------------
+
+Data/computation:
+  Simulate Ryba et al.'s closed-loop optogenetic paradigm using the
+  connectome propagation framework.
+
+  Experimental paradigm (Ryba et al.):
+    - Male in arena with two fictive "targets" (LEDs).
+    - When male approaches target A, he receives optogenetic activation
+      of mAL neurons (simulating heterospecific contact cue).
+    - When male approaches target B, no inhibitory input.
+    - Over trials, the male develops a preference for target B.
+    - After ~80% of switches away from A, stable preference emerges.
+
+  Connectome simulation:
+    1. Define a "trial" as one approach-contact-evaluate cycle.
+    2. For each trial n:
+       a. If male is near target A:
+          - Input: sustained pheromone (DA1+VA1v) + pulse ppk23
+          - Propagate 3 steps.
+          - Read aSP-f activation.  If dip > threshold -> switch to B.
+       b. If male is near target B:
+          - Input: sustained pheromone (DA1+VA1v) only
+          - Propagate 3 steps.
+          - aSP-f activation remains high -> continue at B.
+    3. Track preference index over trials:
+       PI(n) = (time at B - time at A) / (time at B + time at A)
+
+    4. Model variations:
+       (a) Vary the inhibitory strength (ppk23 scaling factor) to
+           simulate selective vs. promiscuous males.
+       (b) Vary the inhibitory/excitatory time constant ratio by
+           changing the relative path lengths (use different propagation
+           steps for inhibitory vs. excitatory components).
+       (c) Add trial-to-trial noise (stochastic switching).
+
+Visualization:
+  - X-axis: trial number (1-50).
+  - Y-axis: preference index PI(n), ranging from -1 (prefer A) to
+    +1 (prefer B).
+  - Multiple curves for different inhibitory strength levels:
+    - Strong inhibition (selective male): rapid preference development
+      (reaches PI > 0.8 by trial 10).
+    - Moderate inhibition (promiscuous male): slow preference
+      development (PI ~ 0.5 by trial 50).
+    - Weak inhibition (very promiscuous): no preference development
+      (PI ~ 0 throughout).
+  - Inset: learning rate (slope of PI curve in early trials) vs.
+    inhibitory/excitatory time constant ratio.
+
+Expected results:
+  - Preference development speed should scale with the strength of the
+    inhibitory pathway, consistent with Ryba et al.'s finding that
+    strain differences in mAL pathway strength predict courtship
+    selectivity.
+  - The ratio of inhibitory to excitatory time constants (from Panel C)
+    should predict the learning rate: if inhibition arrives fast
+    relative to excitation, switching is rapid and preference develops
+    quickly; if inhibition is slow, the male "commits" to the current
+    target before inhibition arrives, making switching rare.
+  - Prediction: the speed of preference learning depends on two
+    connectome parameters: (1) the ratio of inhibitory to excitatory
+    path strengths (from the interaction analysis in Fig 6), and (2)
+    the ratio of inhibitory to excitatory arrival times (from Panel C).
+
+  Implementation: fig5_temporal_dynamics.py
+  Plot output: fig5/plots/panel_G/
+
+
+========================================================================
+3.  CONNECTIONS TO RYBA ET AL. (2025)
+========================================================================
+
+Fig 5 is designed to bridge between the structural analysis of the
+connectome (this paper) and the functional/behavioral findings of Ryba
+et al.  The key connections:
+
+(1) P1 as the decision integrator.
+    Ryba et al. show that P1 neurons integrate visual pursuit signals
+    with inhibitory mAL input.  Our connectome analysis confirms that
+    P1 neurons (cholinergic, excitatory) receive convergent input from
+    olfactory, visual, AND contact chemosensory pathways, with the
+    contact pathways routed predominantly through GABAergic mAL
+    intermediaries (Panel A).  This is consistent with the signed
+    interaction analysis in Fig 6, where ppk23 and ppk25 produce
+    OPPOSING interactions with olfactory channels at aSP-f/aSP-g
+    targets.
+
+(2) Transient inhibition, not permanent silencing.
+    Ryba et al. demonstrate that mAL-mediated inhibition is TRANSIENT:
+    males resume pursuit within seconds.  Our temporal simulation
+    (Panel B) shows that this transience is an emergent property of the
+    connectome dynamics -- a pulse input through the ppk23 channel
+    produces a transient dip in aSP-f/aSP-g activation that naturally
+    recovers when the sustained pheromone drive continues.  The recovery
+    rate depends on the relative time constants of excitatory and
+    inhibitory pathways (Panel C).
+
+(3) The 80% switching probability.
+    Ryba et al. report that mAL activation triggers target switching in
+    ~80% of trials.  Our phase diagram (Panel D) predicts that this
+    corresponds to a specific point in the excitation-inhibition space
+    where the inhibitory drive is strong enough to cross the decision
+    boundary most but not all of the time (noise accounts for the 20%
+    non-switching trials).
+
+(4) Strain variation maps to parameter space.
+    Ryba et al.'s central finding is that strain differences in courtship
+    selectivity map to differences in mAL pathway strength.  Our DDM
+    (Panel E) formalizes this: different strains correspond to different
+    drift rates (mu) in the decision process, determined by the balance
+    of excitatory and inhibitory connectome pathways.  Selective strains
+    have larger negative drift (stronger mAL inhibition), leading to
+    faster switching; promiscuous strains have drift near zero, leading
+    to slow, variable decisions.
+
+(5) Closed-loop preference learning.
+    Ryba et al. show that repeated inhibitory feedback develops into
+    stable preference.  Panel G demonstrates that this can be explained
+    by a simple accumulation process where each inhibitory transient
+    biases the male away from the punished target, with the learning
+    rate determined by the connectome-derived inhibitory strength.
+
+(6) Temporal ordering constrains decision quality.
+    Panel F's "signal race" analysis predicts that the coarse-to-fine
+    ordering (visual -> olfactory -> contact) creates a fundamental
+    trade-off between speed and accuracy in mate choice.  Males that
+    rely primarily on fast visual cues will be promiscuous; males that
+    wait for slow contact chemosensory cues will be selective but slower
+    to initiate courtship.  This may explain the behavioral variation
+    Ryba et al. observe across strains.
+
+
+========================================================================
+4.  DYNAMICAL SYSTEMS FRAMEWORK
+========================================================================
+
+The mathematical framework underlying Fig 5 extends the steady-state
+propagation model used in Fig 6 into the temporal domain.
+
+4.1  Discrete-time recurrence relation
+
+The core equation in the existing framework is:
+
+    x(t+1) = f(W^T x(t) + s(t))
+
+where:
+    x(t)    = N-dimensional activation vector at step t
+    W       = signed adjacency matrix (N x N)
+    s(t)    = sensory input vector (changes across epochs in Fig 5)
+    f       = activation function (sigmoid_rectified with beta=5)
+
+For pulse mode:  s(t) = s0 * delta(t, t_injection)
+For sustained:   s(t) = s0  for all t in the epoch
+
+4.2  Multi-epoch extension
+
+Fig 5 introduces the concept of EPOCHS: contiguous time intervals
+during which the input vector s(t) is constant.  Between epochs, s(t)
+switches to a new configuration.  This models the sequential sensory
+events in a courtship encounter:
+
+    Epoch 1: s(t) = s_pheromone      (approach phase)
+    Epoch 2: s(t) = s_pheromone + s_contact  (evaluation phase)
+    Epoch 3: s(t) = s_pheromone      (recovery/decision phase)
+
+The state vector x(t) evolves continuously across epoch boundaries --
+there is no reset.  This means the history of prior stimulation
+affects the response to subsequent inputs, creating a form of
+short-term memory in the circuit.
+
+4.3  Transient dynamics and time constants
+
+The "effective time constant" of a pathway from channel ch to target
+group tg is operationally defined as:
+
+    tau_eff(ch, tg) = argmax_t [ x_tg(t) ]
+
+where x_tg(t) is the mean activation at target group tg at step t
+after a pulse injection from channel ch.  This gives the number of
+propagation steps to peak activation, which corresponds to the
+effective "synaptic delay" of the pathway.
+
+For inhibitory pathways, the relevant quantity is the time to maximum
+inhibition, measured as:
+
+    tau_inh(ch, tg) = argmin_t [ x_tg(t) - x_tg_baseline(t) ]
+
+where x_tg_baseline is the activation trajectory WITHOUT the
+inhibitory input.
+
+The CRITICAL QUANTITY for the decision process is the difference:
+
+    Delta_tau(ch, tg) = tau_inh(ch, tg) - tau_exc(ch, tg)
+
+If Delta_tau < 0 (inhibition arrives first): the circuit implements
+  a precautionary strategy -- initial contact suppresses courtship,
+  and only the sustained excitatory drive from conspecific pheromones
+  can override the suppression.
+
+If Delta_tau > 0 (excitation arrives first): the circuit implements
+  a permissive strategy -- initial contact excites courtship, and
+  inhibition can only RETROACTIVELY abort an ongoing approach.
+
+If Delta_tau ~ 0 (simultaneous): the decision depends entirely on
+  the RELATIVE STRENGTH of excitatory and inhibitory pathways,
+  not their timing.
+
+4.4  Connection to drift-diffusion model
+
+The DDM (Panel E) is derived from the continuous-time limit of the
+discrete propagation model.  If we define the decision variable as:
+
+    z(t) = x_target(t) - x_target(baseline)
+
+(deviation of target activation from resting state), then the
+evolution of z(t) can be approximated as:
+
+    z(t+1) - z(t) ~ mu + eta(t)
+
+where mu is the mean drift (determined by the net signed path
+strength from active channels to the target) and eta is noise
+(arising from the stochastic nature of actual neural firing, not
+modeled in the connectome propagation but added parametrically).
+
+This connects the connectome analysis directly to the behavioral
+decision:
+    mu > 0: net excitatory drive -> continue courtship
+    mu < 0: net inhibitory drive -> switch/abort
+    |mu| small: slow, noisy decision -> variable behavior
+
+4.5  Signed path analysis and effective drift
+
+The drift rate mu for a given sensory context can be computed from
+the signed adjacency matrix:
+
+    mu(context) = sum_ch [ alpha(ch) * PathStrength(ch -> target) ]
+
+where:
+    alpha(ch) = stimulus intensity at channel ch
+    PathStrength(ch -> target) = net signed path strength from ch to
+      the target group, computed as the activation at the target after
+      propagation of a unit input at ch.
+
+This is exactly what the existing CombinatorialScreen computes for
+the single-channel conditions.  The key insight is that the
+INTERACTION SCORES (R_ij from Fig 6) represent the nonlinear
+corrections to the drift rate when multiple channels are
+co-activated.  A large positive R_ij (synergy) means that the
+co-activation of channels i and j creates a LARGER drift than
+expected from linear summation -- the circuit amplifies certain
+channel combinations.  A large negative R_ij (opposition) means
+the drift is REDUCED -- the circuit suppresses certain combinations.
+
+
+========================================================================
+5.  BIOLOGICAL SIGNIFICANCE
+========================================================================
+
+5.1  Why temporal dynamics matter for courtship
+
+Courtship in Drosophila is a SEQUENTIAL process, not a snapshot
+evaluation.  The male's decision unfolds over seconds to minutes,
+during which he receives a continuous stream of multimodal sensory
+information.  Different modalities provide information at different
+rates:
+
+  - Visual motion cues: available from a distance, updated at high
+    frequency (visual tracking operates at >10 Hz).
+  - Olfactory pheromones: available at intermediate distances, updated
+    at moderate frequency (odor plume dynamics operate at ~1 Hz).
+  - Contact chemosensory cues: available only during physical contact,
+    providing high-resolution species identity information but requiring
+    close approach.
+
+This creates a natural temporal hierarchy: visual -> olfactory ->
+contact.  The connectome must wire these inputs so that:
+  (a) The male initiates pursuit based on fast, nonspecific cues (visual)
+  (b) The male refines his assessment using medium-speed, species-specific
+      cues (olfactory)
+  (c) The male makes a final accept/reject decision based on slow,
+      highly specific cues (contact chemosensory)
+
+Fig 5 shows that the connectome architecture is consistent with this
+temporal hierarchy: different sensory channels reach the decision
+neurons at different speeds, and the inhibitory (abort) signal from
+contact chemosensation arrives fast enough to gate the excitatory
+(continue) signal.
+
+5.2  Transient inhibition as a computational primitive
+
+The mAL-mediated transient inhibition is not just a "stop signal" --
+it is a computational primitive that enables the circuit to:
+
+  (a) SAMPLE: by transiently suppressing pursuit, the male pauses long
+      enough to reorient and encounter a new target.
+  (b) COMPARE: the depth and duration of the inhibitory transient
+      encode the "quality" of the current target (deeper dip = worse
+      match), which can be compared across sequential encounters.
+  (c) LEARN: repeated inhibitory transients from the same target build
+      up a negative association, driving preference development.
+
+This is analogous to the explore-exploit trade-off in reinforcement
+learning: the inhibitory transient implements the "explore" phase by
+interrupting the current "exploit" behavior (courtship pursuit).
+
+5.3  Implications for behavioral evolution
+
+Ryba et al.'s key finding is that strain variation in courtship
+selectivity maps to variation in the mAL inhibitory pathway.  Our
+connectome analysis suggests that this pathway is a particularly
+effective "tuning knob" for the circuit because:
+
+  (a) It is SPECIFIC: mAL neurons receive input from contact
+      chemosensory channels (ppk23/ppk25) but not strongly from
+      olfactory or visual channels.  Tuning mAL strength selectively
+      affects the contact-to-decision pathway without disrupting
+      visual pursuit or olfactory processing.
+
+  (b) It is GATED: mAL activation depends on physical contact, so it
+      only modulates the decision during the evaluation phase, not
+      during approach or pursuit.
+
+  (c) It is TRANSIENT: the inhibition decays naturally, ensuring that
+      the male's arousal state (maintained by aSP-f/aSP-g and P1) is
+      preserved across encounters.  This allows rapid resumption of
+      courtship toward a new, potentially conspecific target.
+
+  (d) It has the RIGHT time constant: our analysis predicts that mAL-
+      mediated inhibition arrives fast enough to suppress the current
+      pursuit before the male commits to copulation, but not so fast
+      that it prevents any approach at all.
+
+These properties make the mAL pathway an ideal substrate for natural
+selection to tune courtship selectivity: small changes in synaptic
+strength or receptor sensitivity at mAL neurons can shift the decision
+boundary (Panel D) without disrupting the overall circuit architecture.
+
+
+========================================================================
+6.  TECHNICAL IMPLEMENTATION
+========================================================================
+
+6.1  New Python module: fig5_temporal_dynamics.py
+
+Location: combinatorial_signal_flow/fig5_temporal_dynamics.py
+
+This module extends the existing signal_flow.py framework with:
+
+  (a) propagate_multi_epoch(): Generalized propagation across multiple
+      stimulus epochs, each with its own input vector and mode
+      (sustained/pulse).
+
+  (b) compute_arrival_times(): For each channel and target group,
+      computes the arrival time, peak time, and decay time from
+      pulse-mode trajectories.
+
+  (c) compute_drift_rates(): For each sensory context, computes the
+      DDM drift rate from the net signed path strengths.
+
+  (d) simulate_ddm(): Monte Carlo simulation of the drift-diffusion
+      decision process.
+
+  (e) simulate_closed_loop(): Iterative simulation of the closed-loop
+      preference learning paradigm.
+
+  (f) Plotting functions for each panel (B through G).
+
+6.2  Using propagate_trajectory()
+
+The existing propagate_trajectory() method returns a (n_steps+1 x N)
+matrix of activation values.  For Fig 5, we use this in two ways:
+
+  (a) Single-channel pulse trajectories (Panel C, F):
+      traj = propagator.propagate_trajectory(s0_ch, n_steps=6,
+                                              sustained=False)
+      For each target group, extract: traj[:, target_indices[tg]]
+
+  (b) Multi-epoch trajectories (Panel B):
+      Implemented as sequential calls to propagate(), carrying the
+      state vector x across epoch boundaries:
+
+      x = s0_epoch1.copy()
+      full_traj = [x.copy()]
+      for step in range(n_steps_epoch1):
+          x = Wt.dot(x) + s0_epoch1  # sustained
+          x = f(x)
+          full_traj.append(x.copy())
+      for step in range(n_steps_epoch2):
+          raw = Wt.dot(x) + s0_epoch1  # pheromone continues
+          if step == 0:
+              raw += s0_ppk23  # contact pulse
+          x = f(raw)
+          full_traj.append(x.copy())
+      # ... continue for epoch 3
+
+6.3  Sustained vs. pulse mode semantics
+
+In the existing framework:
+  - Pulse (sustained=False): s0 injected at step 0 ONLY.
+  - Sustained (sustained=True): s0 re-injected at EVERY step.
+
+For Fig 5, we need a HYBRID mode where:
+  - Pheromone channels are sustained (continuous exposure).
+  - Contact chemosensory channels are pulse (brief touch).
+  - Visual channels are sustained (continuous line-of-sight).
+
+This requires the multi-epoch extension or a modified propagator that
+accepts separate sustained and pulse input vectors:
+
+    x(t+1) = f(W^T x(t) + s_sustained + s_pulse * delta(t, t_inject))
+
+6.4  Excitatory/inhibitory decomposition
+
+For Panel C (integration time constants), we need to separately
+track excitatory and inhibitory signal propagation.  Implementation:
+
+  # Create excitatory-only matrix (zero out inhibitory rows)
+  signs = np.array([sign for _, sign in nt_sign_map.items()])
+  excit_mask = signs > 0  # True for excitatory types
+  inhib_mask = signs < 0  # True for inhibitory types
+
+  W_excit = W.copy()
+  W_excit[inhib_mask, :] = 0  # Zero out inhibitory presynaptic neurons
+
+  W_inhib = W.copy()
+  W_inhib[excit_mask, :] = 0  # Zero out excitatory presynaptic neurons
+
+  # Propagate separately
+  prop_excit = SignalPropagator(W_excit, nonlinearity="sigmoid_rectified")
+  prop_inhib = SignalPropagator(W_inhib, nonlinearity="sigmoid_rectified")
+
+  traj_excit = prop_excit.propagate_trajectory(s0, 6, sustained=False)
+  traj_inhib = prop_inhib.propagate_trajectory(s0, 6, sustained=False)
+
+Note: this decomposition is approximate because in reality, excitatory
+and inhibitory signals interact at every step.  The decomposition shows
+where each COMPONENT arrives, not where the NET signal lands.  This is
+appropriate for Panel C's "arrival time" analysis.
+
+6.5  Sensitivity analysis
+
+All analyses should be repeated with:
+  - Three nonlinearities: relu, sigmoid_rectified, leaky_relu
+  - Two modes: pulse and sustained (for the pheromone component)
+  - Two normalizations: post and pre (raw is too noisy for temporal
+    analysis)
+
+Results should be qualitatively consistent across parameter choices,
+as demonstrated for the static analysis in Fig 6.
+
+
+========================================================================
+7.  PROPOSED FIGURE LAYOUT AND DESIGN
+========================================================================
+
+Fig 5 is designed as a multi-panel figure occupying a full page
+(approximately 180 x 240 mm in a standard journal layout).
+
+Layout (3 rows, varying column structure):
+
+  +---------------------------------------------------------+
+  |                    PANEL A (full width)                   |
+  |          State-transition diagram / schematic             |
+  |                                                           |
+  +---------------------------------------------------------+
+  |          PANEL B           |         PANEL C              |
+  |   Temporal activation      |   Integration time           |
+  |   profiles (time-series)   |   constants (dot plot)       |
+  |                            |                              |
+  +----------------------------+------------------------------+
+  |    PANEL D     |    PANEL E     |       PANEL F            |
+  |  Phase diagram |  DDM traces    |    Signal race           |
+  |  (2D heatmap)  |  & distributions|  (timeline)            |
+  +----------------+----------------+-------------------------+
+  |                    PANEL G (full width)                    |
+  |      Closed-loop preference learning simulation           |
+  |                                                           |
+  +---------------------------------------------------------+
+
+Alternative layout (more balanced):
+
+  Row 1:  [A: schematic, ~1/2 width]  [C: time constants, ~1/2 width]
+  Row 2:  [B: temporal profiles, full width]
+  Row 3:  [D: phase diagram, ~1/3] [E: DDM, ~1/3] [F: signal race, ~1/3]
+  Row 4:  [G: closed-loop, full width]
+
+Color conventions:
+  - Sensory channels: use the modality_colors palette from Fig 6.
+  - Excitatory signals: warm colors (reds, oranges).
+  - Inhibitory signals: cool colors (blues, purples).
+  - Decision thresholds: dashed black lines.
+  - Epoch boundaries: light gray vertical bands.
+  - Condition labels: conspecific (green), heterospecific-selective
+    (red), heterospecific-promiscuous (orange).
+
+Typography:
+  - Match Fig 6 style: Helvetica, 8pt base, publication-quality
+    (theme_pub in R / plt.rcParams in Python).
+  - Panel labels: bold capital letters (A-G) in upper-left corners.
+  - Axis labels: sentence case, unit-free where possible (propagation
+    steps rather than milliseconds, since the model is abstract).
+
+
+========================================================================
+8.  COMPLEMENTARITY WITH FIG 6
+========================================================================
+
+Fig 5 and Fig 6 are designed as a pair that together tell the complete
+story of multimodal sensory integration in the courtship circuit:
+
+Fig 6 (STATIC INTEGRATION):
+  "What does the circuit compute when given all information at once?"
+  - Strength profiles (who gets what)
+  - Valence signatures (with what sign)
+  - Interaction scores (synergy vs. opposition)
+  - Target-specific integration profiles
+  - Robustness across parameters
+
+Fig 5 (DYNAMIC DECISIONS):
+  "How does the circuit use temporal dynamics to make moment-to-moment
+   decisions during sequential sensory encounters?"
+  - Temporal activation profiles under alternating stimuli
+  - Arrival time ordering (which information comes first)
+  - Decision boundaries in excitation-inhibition space
+  - Drift-diffusion model of courtship decisions
+  - Preference learning over repeated encounters
+
+The key BRIDGE between the two figures is:
+
+  Fig 6's interaction scores (R_ij) tell us WHAT the circuit computes
+  for each channel combination.  Fig 5 tells us WHEN those interactions
+  matter -- the temporal ordering of sensory signals determines which
+  interactions are relevant at each moment in the decision process.
+
+  Example: Fig 6 shows that ppk23 x DA1 is an OPPOSING interaction
+  at aSP-f (negative R_ij).  Fig 5 shows WHEN this opposition occurs
+  -- specifically, during the contact evaluation phase, when the
+  male has approached close enough to sense cuticular hydrocarbons.
+  The opposition is transient because the contact signal is pulsatile,
+  while the pheromone signal is sustained.
+
+  Similarly, Fig 6 shows that visual x olfactory is a SYNERGISTIC
+  interaction at aSP-f (positive R_ij).  Fig 5 shows that this synergy
+  operates during the approach phase, when both visual and olfactory
+  signals are active, and it drives the initial pursuit behavior.
+
+Together, the figures argue that the male courtship circuit is not
+merely a multimodal integrator (Fig 6) but a TEMPORAL DECISION MACHINE
+(Fig 5) that uses the specific timing of sensory signals, combined
+with the signed architecture of the connectome, to implement an
+adaptive sampling strategy for mate evaluation.
+
+
+========================================================================
+PANEL SUMMARY TABLE
+========================================================================
+
+Panel  Content                          Story role
+-----  -------------------------------  ----------------------------
+A      Decision cycle schematic         "Here is the temporal process"
+B      Temporal activation profiles     "Transient inhibition creates a
+                                         switching signal"
+C      Integration time constants       "Different signals arrive at
+                                         different speeds"
+D      Switching probability diagram    "The decision depends on E/I
+                                         balance"
+E      Drift-diffusion model            "Courtship is a noisy evidence
+                                         accumulation process"
+F      Signal race timeline             "Information arrives in a
+                                         coarse-to-fine hierarchy"
+G      Closed-loop preference learning  "Repeated inhibition drives
+                                         preference development"
+
+
+========================================================================
+IMPLEMENTATION PRIORITY
+========================================================================
+
+Phase 1 (proof of concept):
+  - Panel B: multi-epoch simulation (most novel computation)
+  - Panel C: arrival time analysis (uses existing propagate_trajectory)
+  These establish the core temporal dynamics from the connectome.
+
+Phase 2 (decision framework):
+  - Panel D: phase diagram (derived from Panel B results)
+  - Panel E: DDM simulation (derived from propagation drift rates)
+  These provide the decision-theoretic interpretation.
+
+Phase 3 (predictions and integration):
+  - Panel F: signal race (uses Panel C data, novel visualization)
+  - Panel G: closed-loop simulation (iterative extension of Panel B)
+  - Panel A: schematic (drawn after all computational results are in)
+  These complete the narrative and connect to Ryba et al.

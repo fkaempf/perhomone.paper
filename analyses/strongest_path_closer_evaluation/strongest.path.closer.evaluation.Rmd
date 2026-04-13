@@ -79,8 +79,8 @@ This notebook assembles precomputed strongest-path summaries across male and fem
 
 ### 1.1 Define save paths
 ```{r}
-plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/png/"
-plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/pdf/"
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path_closer_evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path_closer_evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/pdf/"
 ```
 
 
@@ -4040,7 +4040,7 @@ ids <- c(13693, 13341)
 scene <- make_mcns_scene(ids)
 url <- make_ng_url(scene)
 
-writeLines(url, "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/full_url.txt")
+writeLines(url, "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path_closer_evaluation/full_url.txt")
 browseURL(url)
 ```
 ```{r}

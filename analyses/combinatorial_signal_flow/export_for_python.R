@@ -13,7 +13,7 @@ library(jsonlite)
 
 # -- Paths -------------------------------------------------------------------
 project_root <- "/Users/fkampf/Documents/pheromone.paper"
-export_dir   <- file.path(project_root, "combinatorial_signal_flow", "data")
+export_dir   <- file.path(project_root, "analyses", "combinatorial_signal_flow", "data")
 feather_dir  <- file.path(project_root, "feather")
 
 dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
@@ -149,6 +149,15 @@ if (file.exists(ppn1_rds) && file.exists(vab3_rds)) {
     message("  WARNING: target.vAB3.rds not found — skipping vAB3 downstream targets")
 }
 
+# Add mAL_all target group: all mAL types in the adjacency matrix
+mal_all_types <- sort(all_types[grepl("^mAL", all_types)])
+targets$mAL_all <- mal_all_types
+# Add P1_all target group: all P1 types in the adjacency matrix
+p1_all_types <- sort(all_types[grepl("^P1", all_types)])
+targets$P1_all <- p1_all_types
+message(sprintf("  mAL_all: %d types", length(mal_all_types)))
+message(sprintf("  P1_all: %d types", length(p1_all_types)))
+
 message(sprintf("  aspf: %d types", length(targets$aspf)))
 message(sprintf("  aspg: %d types", length(targets$aspg)))
 
@@ -225,7 +234,9 @@ palette <- list(
     PPN1_downstream      = "#FF7F00",
     vAB3_downstream      = "#4DAF4A",
     PPN1_downstream_all  = "#FDBF6F",
-    vAB3_downstream_all  = "#B2DF8A"
+    vAB3_downstream_all  = "#B2DF8A",
+    mAL_all              = "#984EA3",
+    P1_all               = "#E41A1C"
   )
 )
 

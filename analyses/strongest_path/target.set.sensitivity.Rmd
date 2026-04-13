@@ -43,8 +43,8 @@ library(tidyr)
 
 ### 0 Define save path 
 ```{r}
-plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/target.set.sensitivity/png/"
-plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/target.set.sensitivity/pdf/"
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/target.set.sensitivity/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/target.set.sensitivity/pdf/"
 ```
 
 

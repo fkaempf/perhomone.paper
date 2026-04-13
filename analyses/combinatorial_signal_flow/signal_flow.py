@@ -37,6 +37,15 @@ def sigmoid(x: np.ndarray, beta: float = 5.0, **kwargs) -> np.ndarray:
     return np.tanh(z)  # tanh variant — saturates for large |x|
 
 
+def sigmoid_rectified(x: np.ndarray, beta: float = 5.0, **kwargs) -> np.ndarray:
+    """Rectified sigmoid: max(0, tanh(beta*x)).
+
+    Firing rates cannot be negative — this clips the tanh output at zero.
+    """
+    z = np.clip(beta * x, -500, 500)
+    return np.maximum(np.tanh(z), 0.0)
+
+
 def leaky_relu(x: np.ndarray, alpha: float = 0.1, **kwargs) -> np.ndarray:
     """Leaky ReLU: excitatory signal passes fully, inhibitory at reduced strength.
 
@@ -56,6 +65,7 @@ def linear(x: np.ndarray, **kwargs) -> np.ndarray:
 ACTIVATIONS = {
     "relu": relu,
     "sigmoid": sigmoid,
+    "sigmoid_rectified": sigmoid_rectified,
     "leaky_relu": leaky_relu,
     "linear": linear,
 }
@@ -236,15 +246,16 @@ class SignalPropagator:
         sustained=False (pulse):     x(t+1) = f(W.T @ x(t))
         sustained=True  (clamped):   x(t+1) = f(W.T @ x(t) + s0)
 
-        Returns final activation vector.
+        Returns (final_activation, final_net_input) tuple.
         """
         x = s0.copy().astype(np.float64)
+        net_input = x.copy()
         for _ in range(n_steps):
-            x = self.Wt.dot(x)
+            net_input = self.Wt.dot(x)
             if sustained:
-                x = x + s0
-            x = self.activation_fn(x, **self.activation_params)
-        return x
+                net_input = net_input + s0
+            x = self.activation_fn(net_input, **self.activation_params)
+        return x, net_input
 
     def propagate_trajectory(self, s0: np.ndarray, n_steps: int,
                              sustained: bool = False) -> np.ndarray:
@@ -253,10 +264,10 @@ class SignalPropagator:
         trajectory = np.zeros((n_steps + 1, self.n))
         trajectory[0] = x
         for t in range(n_steps):
-            x = self.Wt.dot(x)
+            net_input = self.Wt.dot(x)
             if sustained:
-                x = x + s0
-            x = self.activation_fn(x, **self.activation_params)
+                net_input = net_input + s0
+            x = self.activation_fn(net_input, **self.activation_params)
             trajectory[t + 1] = x
         return trajectory
 
@@ -320,7 +331,7 @@ class CombinatorialScreen:
             s0 = np.sum([self.encoded_channels[ch] for ch in combo_channels], axis=0)
 
             # Propagate
-            x_final = propagator.propagate(s0, n_steps, sustained=sustained)
+            x_final, net_input = propagator.propagate(s0, n_steps, sustained=sustained)
 
             # Read out at targets
             for tg_name, tg_indices in self.target_indices.items():
@@ -333,6 +344,7 @@ class CombinatorialScreen:
                         "target_type": self.idx_to_type.get(idx, f"idx_{idx}"),
                         "target_idx": idx,
                         "activation": x_final[idx],
+                        "net_input": net_input[idx],
                     })
 
         df = pd.DataFrame(rows)

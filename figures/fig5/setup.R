@@ -453,7 +453,7 @@ mal_annot <- data.frame(
 # Load signal flow model results (for Panel I comparison)
 # =============================================================================
 
-sf_plots_dir <- file.path(project_root, "combinatorial_signal_flow", "plots", "sigmoid_rectified")
+sf_plots_dir <- file.path(project_root, "analyses", "combinatorial_signal_flow", "plots", "sigmoid_rectified")
 
 screen_results <- read.csv(file.path(sf_plots_dir, "screen_results.csv"),
                            stringsAsFactors = FALSE)

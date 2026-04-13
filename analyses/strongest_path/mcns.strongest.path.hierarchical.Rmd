@@ -42,8 +42,8 @@ This notebook assembles precomputed strongest-path summaries across male and fem
 
 ### 0 Define save path 
 ```{r}
-plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/mcns.strongest.path.hierarchical/png/"
-plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/mcns.strongest.path.hierarchical/pdf/"
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/mcns.strongest.path.hierarchical/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/mcns.strongest.path.hierarchical/pdf/"
 ```
 
 
@@ -2072,7 +2072,7 @@ save_plot_both <- function(plot_obj, stem, width = 7, height = 7, dpi = 300, bg 
   ggsave(file.path(plot.path.pdf, paste0(stem, ".pdf")), plot_obj, width = width, height = height, dpi = dpi, bg = bg)
 }
 
-dir <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/morphology compared across modality valence path"
+dir <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/morphology compared across modality valence path"
 
 random_pastel <- function() {
   rgb(runif(1, 0.5, 1), runif(1, 0.5, 1), runif(1, 0.5, 1))

@@ -47,8 +47,8 @@ This notebook assembles precomputed strongest-path summaries across male and fem
 
 ### 0 Define save path 
 ```{r}
-plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/remove.dimorphism.and.specific/png/"
-plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path/plots/remove.dimorphism.and.specific/pdf/"
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/remove.dimorphism.and.specific/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path/plots/remove.dimorphism.and.specific/pdf/"
 ```
 
 ### 1 Define function that loads a file or alternatively if it doesnt exist exexutes a script

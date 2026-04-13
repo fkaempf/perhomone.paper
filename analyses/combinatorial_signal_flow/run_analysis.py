@@ -81,9 +81,10 @@ CONFIG = {
     "n_steps": 3,                  # propagation hops (layers)
 
     # Run all three nonlinearities, each in its own subfolder
-    "nonlinearities": ["relu", "sigmoid", "leaky_relu"],
+    "nonlinearities": ["relu", "sigmoid", "sigmoid_rectified", "leaky_relu"],
     "activation_params": {
         "sigmoid": {"beta": 5.0},
+        "sigmoid_rectified": {"beta": 5.0},
         "leaky_relu": {"alpha": 0.1},
     },
 
@@ -98,9 +99,9 @@ CONFIG = {
     "sensitivity_params": {
         "normalizations": ["post", "pre", "raw"],
         "n_steps": [2, 3, 4, 5],
-        "nonlinearities": ["relu", "sigmoid", "leaky_relu"],
+        "nonlinearities": ["relu", "sigmoid_rectified", "leaky_relu"],
         "activation_params": {
-            "sigmoid": {"beta": 5.0},
+            "sigmoid_rectified": {"beta": 5.0},
             "leaky_relu": {"alpha": 0.1},
         },
     },

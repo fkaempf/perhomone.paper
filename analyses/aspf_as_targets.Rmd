@@ -76,8 +76,8 @@ neuprint_login(server='https://neuprint-cns.janelia.org')
 
 ### 1.1 Define save paths
 ```{r}
-plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/png/"
-plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/strongest.path.closer.evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/pdf/"
+plot.path.png <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path_closer_evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/png/"
+plot.path.pdf <- "/Users/fkampf/Documents/pheromone.paper/analyses/strongest_path_closer_evaluation/plots/mcns.strongest.path.closer.evaluation.hierarchical/pdf/"
 ```
 
 

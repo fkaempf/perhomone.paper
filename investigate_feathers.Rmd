@@ -1,0 +1,515 @@
+---
+title: "Investigate base feather / rds files"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(arrow)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(purrr)
+library(stringr)
+
+repo <- "/Users/fkampf/Documents/pheromone.paper"
+f    <- function(...) file.path(repo, "feather", ...)
+
+# Shared utility helpers used by fig6 (R/path_analysis.R). Provides:
+#   add_valence_flag(df, nt_by_type, is_inhib_by_nt) -> adds nodes / nts /
+#     inhib / n_inhib / d (sign from parity of inhibitory relays) per row.
+#   summarise_paths_all(df, adj.matrix, adj.matrix.pre, adj.matrix.raw) ->
+#     per-node summary: position columns, per-position synapse strengths from
+#     three adjacency flavours, count / strength totals, node->datasets map.
+# Sourced on-demand below so the early "peek" chunks can run without the
+# heavy core data load.
+path_analysis_R <- file.path(repo, "R", "path_analysis.R")
+source(path_analysis_R)
+
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+```
+
+Three groups of files sit under `feather/`:
+
+1. **Core tables** — `mba.feather` (neuron annotations) and
+   `connectivity.feather` (synaptic edge list). Everything else is derived
+   from these.
+2. **Graph / adjacency** — `graph.general.rds`, `adj.matrix*.rds`,
+   `target.*.rds`.
+3. **Derived path caches** — `strongest.paths/…`,
+   `strongest.paths.closer.evaluation/…`, `brain_map_synapses.feather`.
+
+Each chunk below loads one file and gives you a quick structural peek plus
+a couple of useful aggregations. Knit or run chunk-by-chunk.
+
+## 1. `mba.feather` — neuron-level annotations
+
+One row per neuron (root_id). Columns include `type`, `consensus_nt`,
+`side`, `class`, plus the per-region inputs/outputs columns used to
+localize neurons by neuropil.
+
+```{r mba}
+mba <- read_feather(f("mba.feather"))
+cat("rows:", nrow(mba), " cols:", ncol(mba), "\n")
+str(mba, list.len = 30, give.attr = FALSE)
+
+# Neuron-type summary
+mba %>%
+  count(type, sort = TRUE) %>%
+  head(20)
+
+# Neurotransmitter distribution
+mba %>% count(consensus_nt, sort = TRUE)
+
+# Side / class breakdown
+mba %>% count(class, sort = TRUE) %>% head(15)
+```
+
+## 2. `connectivity.feather` — synaptic edge list
+
+One row per (pre_root_id -> post_root_id) connection with a weight
+(synapse count). This is the substrate for `graph.general`.
+
+```{r conn}
+conn <- read_feather(f("connectivity.feather"))
+cat("rows:", nrow(conn), " cols:", ncol(conn), "\n")
+str(conn, list.len = 20, give.attr = FALSE)
+
+# Weight distribution
+summary(conn$weight %||% conn$syn_count %||% conn[[3]])
+
+# Top 10 heaviest edges by type-level aggregation (if type cols exist)
+if (all(c("pre_type", "post_type") %in% names(conn))) {
+  conn %>%
+    group_by(pre_type, post_type) %>%
+    summarise(total = sum(.data[[intersect(c("weight","syn_count"), names(conn))[1]]],
+                          na.rm = TRUE),
+              n_edges = n(), .groups = "drop") %>%
+    arrange(desc(total)) %>% head(10)
+}
+```
+
+## 3. `brain_map_synapses.feather` — synapse spatial locations
+
+```{r syn-map}
+synmap <- read_feather(f("brain_map_synapses.feather"))
+cat("rows:", nrow(synmap), " cols:", ncol(synmap), "\n")
+str(synmap, list.len = 20, give.attr = FALSE)
+head(synmap)
+```
+
+## 4. `graph.general.rds` — igraph object built from connectivity
+
+```{r graph-general}
+g <- readRDS(f("graph.general.rds"))
+cat("class:", class(g), "\n")
+if (inherits(g, "igraph")) {
+  library(igraph)
+  cat("vcount:", vcount(g), "  ecount:", ecount(g), "\n")
+  cat("edge attrs:", paste(edge_attr_names(g), collapse = ", "), "\n")
+  cat("vertex attrs:", paste(vertex_attr_names(g), collapse = ", "), "\n")
+  cat("first 5 vertex names:\n")
+  print(head(V(g)$name, 5))
+}
+```
+
+## 5. `adj.matrix*.rds` — adjacency matrices
+
+- `adj.matrix.raw.rds`   : raw synapse counts (pre rows x post cols)
+- `adj.matrix.pre.rds`   : presynaptically normalized (column sums? check)
+- `adj.matrix.rds`       : the working one used by the path solver
+
+```{r adj}
+adj_raw <- readRDS(f("adj.matrix.raw.rds"))
+adj_pre <- readRDS(f("adj.matrix.pre.rds"))
+adj     <- readRDS(f("adj.matrix.rds"))
+
+dim_info <- function(x, name) {
+  cat(sprintf("%-20s dim=%s  class=%s  sparse=%s\n",
+              name, paste(dim(x), collapse = "x"),
+              paste(class(x), collapse = "/"),
+              inherits(x, "sparseMatrix")))
+  cat("  value range: ",
+      signif(min(x@x %||% x, na.rm = TRUE), 3), " -> ",
+      signif(max(x@x %||% x, na.rm = TRUE), 3), "\n", sep = "")
+}
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+dim_info(adj_raw, "adj.matrix.raw")
+dim_info(adj_pre, "adj.matrix.pre")
+dim_info(adj,     "adj.matrix")
+```
+
+## 6. Target neuron sets
+
+```{r targets}
+target_PPN1 <- readRDS(f("target.PPN1.rds"))
+target_vAB3 <- readRDS(f("target.vAB3.rds"))
+cat("PPN1 target ids:", length(target_PPN1), "\n")
+cat("vAB3 target ids:", length(target_vAB3), "\n")
+head(target_PPN1); head(target_vAB3)
+```
+
+## 7. Strongest-path caches
+
+One feather per (modality, target[, filter]) — these are the K strongest
+paths Yen's algorithm found from the modality's source neurons to each
+subtype in the target set. The schema is consistent across files:
+`path` (A -> B -> ... -> Z string), `strength`, `end`, plus `valence` and
+sometimes `start`, `modality`.
+
+```{r path-cache-index}
+paths_files <- list.files(f("strongest.paths"),
+                          pattern = "\\.feather$", full.names = TRUE)
+tibble(file = basename(paths_files),
+       size_mb = round(file.info(paths_files)$size / 1e6, 2)) %>%
+  arrange(desc(size_mb))
+```
+
+### Peek at one file
+
+Change `pick` to inspect a different cache.
+
+```{r path-cache-peek}
+pick <- grep("ppk23\\.pro\\.2\\.vAB3\\.included", paths_files, value = TRUE)[1]
+if (is.na(pick)) pick <- paths_files[1]
+cat("File:", basename(pick), "\n\n")
+paths1 <- read_feather(pick)
+cat("rows:", nrow(paths1), " cols:", ncol(paths1), "\n")
+str(paths1, list.len = 20, give.attr = FALSE)
+
+paths1 %>% count(end, sort = TRUE) %>% head(15)
+paths1 %>% count(valence %||% "NA")
+paths1 %>% arrange(desc(strength)) %>% select(any_of(c("start","path","end","valence","strength"))) %>% head(10)
+```
+
+### 7.5 Enriched per-path view (fig6 utilities applied)
+
+Adds the human-readable columns that make a raw path feather
+*analysable* rather than just *loadable*. Uses `add_valence_flag`
+from `R/path_analysis.R`, plus light helpers defined here
+(`path_hops`, `path_nt_sequence`, `path_valence_pattern`,
+`path_annotated`).
+
+Added columns per row:
+
+- `hops` : number of edges in the path (= nodes - 1).
+- `intermediates` : list column of interior nodes only (drops start and end).
+- `nodes` / `nts` / `inhib` : list columns from `add_valence_flag`.
+- `n_inhib` : count of inhibitory interior nodes.
+- `d` : net sign (+1 excitatory / -1 inhibitory) by parity of `n_inhib`.
+- `nt_sequence` : compact "ach>gaba>glut" string over presynaptic NTs.
+- `valence_pattern` : compact "E_I_E" pattern per hop (fig6-style).
+- `path_annotated` : human-readable path with NT + Cachero 2010 synonym
+  tags, e.g. `ppk23[ach/M-cell] -> AN09B017a[glut] -> mAL_m1[gaba/pIP10]`.
+- `path_synonyms` : semicolon-joined list of Cachero-2010 synonyms along
+  the path (empty if none).
+- `path_dimorphism_seq` : dimorphism tags per interior node
+  (`male_specific>shared>shared`).
+
+```{r path-enrich}
+# 1. Build per-type meta lookup from mba: NT, synonyms (Cachero 2010),
+#    flywire_type, receptor_type, dimorphism, fru_dsx, class, superclass, side.
+meta_cols_present <- intersect(
+  c("type","consensus_nt","synonyms","flywire_type","receptor_type",
+    "dimorphism","fru_dsx","class","superclass","side"),
+  names(mba)
+)
+type_meta <- mba %>%
+  select(all_of(meta_cols_present)) %>%
+  distinct() %>%
+  group_by(type) %>%
+  summarise(across(everything(), ~ first(na.omit(.x))), .groups = "drop")
+
+# Extract Cachero 2010 nomenclature from the raw "synonyms" blob
+# (e.g. "Cachero 2010:pIP10; FlyWire:mAL_m1" -> "pIP10"). Same regex
+# used by fetch_connectivity() in R/data_processing.R.
+if ("synonyms" %in% names(type_meta)) {
+  type_meta <- type_meta %>%
+    mutate(cachero.type = stringr::str_trim(
+      stringr::str_extract(synonyms, "(?<=Cachero 2010:)[^;]+")
+    ))
+}
+
+# Named vector lookups (fast access during path annotation).
+nt_by_type       <- setNames(type_meta$consensus_nt, type_meta$type)
+syn_by_type      <- setNames(type_meta$synonyms        %||% rep(NA, nrow(type_meta)), type_meta$type)
+cachero_by_type  <- setNames(type_meta$cachero.type    %||% rep(NA, nrow(type_meta)), type_meta$type)
+fwtype_by_type   <- setNames(type_meta$flywire_type    %||% rep(NA, nrow(type_meta)), type_meta$type)
+recept_by_type   <- setNames(type_meta$receptor_type   %||% rep(NA, nrow(type_meta)), type_meta$type)
+dimorph_by_type  <- setNames(type_meta$dimorphism      %||% rep(NA, nrow(type_meta)), type_meta$type)
+frudsx_by_type   <- setNames(type_meta$fru_dsx         %||% rep(NA, nrow(type_meta)), type_meta$type)
+class_by_type    <- setNames(type_meta$class           %||% rep(NA, nrow(type_meta)), type_meta$type)
+super_by_type    <- setNames(type_meta$superclass      %||% rep(NA, nrow(type_meta)), type_meta$type)
+side_by_type     <- setNames(type_meta$side            %||% rep(NA, nrow(type_meta)), type_meta$type)
+
+inhibitory_nts <- c("gaba","glycine","histamine")
+all_nts        <- unique(type_meta$consensus_nt)
+is_inhib_by_nt <- setNames(all_nts %in% inhibitory_nts, all_nts)
+
+nt_short <- c(acetylcholine = "ach", glutamate = "glut", gaba = "gaba",
+              glycine = "gly", histamine = "hist", dopamine = "dop",
+              serotonin = "5HT", octopamine = "oct")
+short_nt <- function(x) ifelse(is.na(x), "?", nt_short[x] %||% x)
+
+path_hops            <- function(p) lengths(strsplit(p, " -> ", fixed = TRUE)) - 1L
+path_nt_sequence     <- function(p) {
+  nodes <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+  paste(short_nt(nt_by_type[nodes[-length(nodes)]]), collapse = ">")
+}
+path_valence_pattern <- function(p) {
+  nodes <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+  nts   <- nt_by_type[nodes[-length(nodes)]]
+  paste(ifelse(nts %in% inhibitory_nts, "I", "E"), collapse = "_")
+}
+# Human-readable annotated path: appends [nt/synonym-or-flywire] per node.
+path_annotated <- function(p) {
+  ns <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+  tags <- vapply(ns, function(n) {
+    bits <- c(short_nt(nt_by_type[n]),
+              cachero_by_type[n],
+              # Fallback: flywire alt name if no Cachero synonym AND
+              # the flywire name differs from the canonical type.
+              if (is.na(cachero_by_type[n]) &&
+                  !is.na(fwtype_by_type[n]) &&
+                  !identical(fwtype_by_type[n], n)) fwtype_by_type[n] else NA_character_)
+    bits <- bits[!is.na(bits) & nchar(bits) > 0]
+    if (length(bits) == 0) n else sprintf("%s[%s]", n, paste(bits, collapse = "/"))
+  }, character(1))
+  paste(tags, collapse = " -> ")
+}
+path_synonyms <- function(p) {
+  ns <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+  s  <- cachero_by_type[ns]
+  s  <- s[!is.na(s) & nchar(s) > 0]
+  if (length(s) == 0) "" else paste(s, collapse = ";")
+}
+path_dimorphism_seq <- function(p) {
+  ns <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+  interior <- if (length(ns) > 2) ns[-c(1, length(ns))] else character(0)
+  d <- dimorph_by_type[interior]
+  if (length(d) == 0) "" else paste(ifelse(is.na(d), "?", d), collapse = ">")
+}
+
+paths1_enriched <- paths1 %>%
+  mutate(hops = path_hops(path)) %>%
+  add_valence_flag(nt_by_type, is_inhib_by_nt) %>%
+  rowwise() %>%
+  mutate(
+    intermediates       = list({
+      ns <- strsplit(path, " -> ", fixed = TRUE)[[1]]
+      if (length(ns) <= 2) character(0) else ns[-c(1, length(ns))]
+    }),
+    nt_sequence         = path_nt_sequence(path),
+    valence_pattern     = path_valence_pattern(path),
+    path_annotated      = path_annotated(path),
+    path_synonyms       = path_synonyms(path),
+    path_dimorphism_seq = path_dimorphism_seq(path)
+  ) %>% ungroup()
+
+# Flat preview (list columns hidden).
+paths1_enriched %>%
+  select(any_of(c("start","end","modality","hops","strength",
+                  "valence","n_inhib","d","valence_pattern","nt_sequence",
+                  "path_annotated","path_synonyms","path_dimorphism_seq"))) %>%
+  arrange(desc(strength)) %>% head(12)
+
+cat("\nHop distribution:\n"); print(table(paths1_enriched$hops, useNA = "ifany"))
+cat("\nTop valence patterns:\n"); print(paths1_enriched %>% count(valence_pattern, sort = TRUE) %>% head(10))
+cat("\nTop Cachero-2010 synonyms along paths:\n")
+print(
+  paths1_enriched %>%
+    tidyr::separate_rows(path_synonyms, sep = ";") %>%
+    filter(nchar(path_synonyms) > 0) %>%
+    count(path_synonyms, sort = TRUE) %>% head(15)
+)
+cat("\nSigned-drive summary (d x strength):\n")
+paths1_enriched %>%
+  summarise(net = sum(d * strength, na.rm = TRUE),
+            exc = sum(strength[d > 0], na.rm = TRUE),
+            inh = sum(strength[d < 0], na.rm = TRUE)) %>% print()
+```
+
+### 7.6 Per-node summary via `summarise_paths_all`
+
+Expands every path into a wide `node_0..node_N` table, looks up
+per-hop synapse strengths in the three adjacency matrices
+(`adj.matrix` input-normalized, `adj.matrix.pre` output-normalized,
+`adj.matrix.raw` raw counts), and returns one row per distinct
+*intermediate / endpoint node* with:
+
+- `count_pos0..count_posN` : how often the node appears at each position.
+- `count_total_global` / `count_total_frac` : overall frequency share.
+- `strength_sum_post|pre|raw_posX` and `strength_avg_*_total` columns
+  for each adjacency flavour.
+- `datasets` : semicolon-joined list of datasets the node appears in.
+
+The function expects a `dataset` column so it can map node -> datasets.
+We inject one when the feather does not carry it.
+
+```{r path-summarise-all}
+if (!"dataset" %in% names(paths1_enriched)) {
+  paths1_enriched$dataset <- paths1_enriched$modality %||%
+    sub("\\.feather$", "", basename(pick))
+}
+
+adj.matrix     <- adj
+adj.matrix.pre <- adj_pre
+adj.matrix.raw <- adj_raw
+
+node_summary <- summarise_paths_all(
+  paths1_enriched %>% select(-any_of(c("intermediates","nodes","nts","inhib"))),
+  adj.matrix     = adj.matrix,
+  adj.matrix.pre = adj.matrix.pre,
+  adj.matrix.raw = adj.matrix.raw,
+  min_frac       = 0.001
+)
+
+cat("Nodes in summary table:", nrow(node_summary), "\n")
+str(node_summary, list.len = 25, give.attr = FALSE)
+
+# Rank by overall occurrence fraction.
+node_summary %>%
+  arrange(desc(count_total_frac)) %>%
+  select(any_of(c("node","count_total_global","count_total_frac",
+                  "strength_sum_post_total","strength_sum_raw_total",
+                  "datasets"))) %>%
+  head(20)
+
+# Rank by total path-weight routed via the node (input-normalized).
+node_summary %>%
+  arrange(desc(strength_sum_post_total)) %>%
+  select(any_of(c("node","strength_avg_post_total","strength_sum_post_total",
+                  "count_total_global","datasets"))) %>%
+  head(20)
+```
+
+### 7.7 Intermediate-node hub view
+
+The ready-to-paint version of 7.6: keep only *interior* positions
+(drop `node_0` = source and the last node = target), re-compute count
+and strength totals. Useful answer to "which relays carry the most
+drive across all paths in this feather?".
+
+```{r path-intermediate-hubs}
+# Re-expand per-row long so we can mask endpoints.
+nodes_long <- paths1_enriched %>%
+  mutate(row_id = row_number(),
+         path_nodes = strsplit(path, " -> ", fixed = TRUE)) %>%
+  mutate(n_nodes = lengths(path_nodes)) %>%
+  rowwise() %>%
+  mutate(interior = list(if (n_nodes > 2) path_nodes[2:(n_nodes - 1)] else character(0))) %>%
+  ungroup() %>%
+  unnest_longer(interior, values_to = "node") %>%
+  filter(!is.na(node))
+
+if (!"modality" %in% names(nodes_long)) nodes_long$modality <- "NA"
+hub_summary <- nodes_long %>%
+  group_by(node) %>%
+  summarise(
+    n_paths        = n(),
+    total_strength = sum(strength, na.rm = TRUE),
+    n_modalities   = n_distinct(modality),
+    n_targets      = n_distinct(end),
+    avg_hops       = mean(hops, na.rm = TRUE),
+    .groups        = "drop"
+  ) %>%
+  left_join(
+    type_meta %>%
+      select(any_of(c("type","consensus_nt","cachero.type","flywire_type",
+                      "receptor_type","dimorphism","fru_dsx",
+                      "class","superclass","side"))) %>%
+      rename(node = type),
+    by = "node"
+  ) %>%
+  arrange(desc(total_strength))
+
+cat("Interior-node hubs (ranked by path-strength carried), with meta:\n")
+hub_summary %>%
+  select(any_of(c("node","consensus_nt","cachero.type","flywire_type",
+                  "class","superclass","dimorphism","fru_dsx","side",
+                  "n_paths","total_strength","n_modalities",
+                  "n_targets","avg_hops"))) %>%
+  head(25)
+```
+
+### Total strength to each target, across modalities
+
+Aggregates every `strongest.1000.paths.*.2.<TGT>.feather` into a
+modality × end summary (without needing the full `setup.R`).
+
+```{r path-agg}
+parse_name <- function(x) {
+  b <- basename(x) |> sub("^strongest\\.1000\\.paths\\.", "", x = _) |>
+       sub("\\.feather$", "", x = _)
+  parts <- strsplit(b, "\\.", fixed = FALSE)[[1]]
+  # parts: <modality pieces> "2" <target> [filter]
+  idx <- which(parts == "2")[1]
+  if (is.na(idx)) return(NULL)
+  list(
+    modality = paste(parts[seq_len(idx - 1)], collapse = "."),
+    target   = parts[idx + 1],
+    filter   = if (length(parts) > idx + 1) paste(parts[-(1:(idx+1))], collapse = ".") else NA_character_
+  )
+}
+
+agg <- lapply(paths_files, function(pf) {
+  meta <- parse_name(pf); if (is.null(meta)) return(NULL)
+  d <- tryCatch(read_feather(pf), error = function(e) NULL)
+  if (is.null(d) || nrow(d) == 0) return(NULL)
+  d %>%
+    group_by(end) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE),
+              n_paths = n(), .groups = "drop") %>%
+    mutate(modality = meta$modality, target = meta$target, filter = meta$filter)
+}) |> bind_rows()
+
+agg %>% arrange(desc(total_strength)) %>% head(20)
+```
+
+## 8. Neuron contribution caches
+
+`strongest.paths.closer.evaluation/neuron.contribution.*.feather` —
+per-neuron contribution to path strength, split by modality and ex/in.
+Useful for "who relays this signal the most".
+
+```{r contrib}
+contrib_files <- list.files(f("strongest.paths.closer.evaluation"),
+                            pattern = "\\.feather$", full.names = TRUE)
+tibble(file = basename(contrib_files),
+       size_kb = round(file.info(contrib_files)$size / 1e3, 1)) %>%
+  arrange(desc(size_kb)) %>% head(20)
+
+c1 <- read_feather(contrib_files[1])
+cat("File:", basename(contrib_files[1]), "\n")
+str(c1, list.len = 20, give.attr = FALSE)
+head(c1)
+```
+
+## 9. Merged path cache (if present)
+
+```{r merged}
+merged_dir <- f("strongest.paths.merged")
+if (dir.exists(merged_dir)) {
+  mf <- list.files(merged_dir, pattern = "\\.feather$", full.names = TRUE)
+  tibble(file = basename(mf),
+         size_mb = round(file.info(mf)$size / 1e6, 2)) %>%
+    arrange(desc(size_mb))
+  if (length(mf)) {
+    m <- read_feather(mf[1])
+    cat("Peek:", basename(mf[1]), "\n")
+    str(m, list.len = 20, give.attr = FALSE)
+  }
+}
+```
+
+---
+
+## Tips
+
+- `read_feather()` is lazy-loading friendly; for huge files you can
+  `open_dataset(file)` and dplyr-verb it without pulling into memory.
+- To go from `path` strings to a graph-ready edge list:
+  `tidyr::separate_rows(path, sep = " -> ")` then lag-join within path_id.
+- `mba.feather` is the Rosetta stone: anything identified by `type` or
+  `root_id` can be joined back to neurotransmitter, side, and neuropil
+  columns.

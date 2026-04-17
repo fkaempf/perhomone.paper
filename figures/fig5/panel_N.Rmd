@@ -1,0 +1,188 @@
+---
+title: "Figure 5 Panel N: AN05B102 parallel cholinergic ascending relay"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel N: AN05B102 -- a parallel cholinergic ascending relay for ppk23/ppk25
+===========================================================================
+Mirrors Panel B's AN09B017 analysis but for the AN05B102 family, which is
+cholinergic (acetylcholine) rather than AN09B017's glutamatergic identity.
+AN05B102 variants are present in Figure 5's underlying path feathers but are
+not displayed in Panels B/K because the story was scoped to AN09B017.
+
+Left:  Scatter of ppk23 vs ppk25 input (input-normalized fraction) per
+       AN05B102 variant (a-d), with y=x diagonal; points coloured by
+       dominant input.
+Right: Log2 ppk23/ppk25 input-ratio bar per variant.
+"
+pdir <- panel_plot_dir("panel_N_description", "txt")
+writeLines(description, file.path(pdir, "panel_N_description.txt"))
+cat(description)
+```
+
+## Query AN05B102 connectivity from connectome
+
+```{r an05b102-connectivity}
+# Discover AN05B102 variants dynamically from mba (no hard-coded list — robust
+# against future additions).
+an05b102_types <- sort(unique(mba$type[grepl("^AN05B102", mba$type)]))
+cat("AN05B102 variants found:", paste(an05b102_types, collapse = ", "), "\n")
+
+# Sanity-check NT identity (must be cholinergic for this panel's framing).
+nt_check <- mba %>%
+  dplyr::select(type, consensus_nt) %>%
+  dplyr::distinct() %>%
+  dplyr::filter(type %in% an05b102_types)
+print(nt_check)
+
+# ppk23/ppk25 sensory neuron types from shared setup.
+ppk23_types <- channel_neurons[["ppk23"]]
+ppk25_types <- channel_neurons[["ppk25"]]
+
+# Input-normalized weights: adj.matrix[pre, post] = fraction of post's total
+# input contributed by the presynaptic type. Sum over all ppk23/ppk25 sensory
+# partners per AN05B102 variant.
+adj_rows <- rownames(adj.matrix)
+adj_cols <- colnames(adj.matrix)
+
+ppk23_to_an05b102 <- data.frame(
+  post_type = an05b102_types,
+  ppk23_input = sapply(an05b102_types, function(an) {
+    ppk_in_mat <- ppk23_types[ppk23_types %in% adj_rows]
+    if (length(ppk_in_mat) > 0 && an %in% adj_cols)
+      sum(adj.matrix[ppk_in_mat, an])
+    else 0
+  }),
+  stringsAsFactors = FALSE
+)
+
+ppk25_to_an05b102 <- data.frame(
+  post_type = an05b102_types,
+  ppk25_input = sapply(an05b102_types, function(an) {
+    ppk_in_mat <- ppk25_types[ppk25_types %in% adj_rows]
+    if (length(ppk_in_mat) > 0 && an %in% adj_cols)
+      sum(adj.matrix[ppk_in_mat, an])
+    else 0
+  }),
+  stringsAsFactors = FALSE
+)
+
+an05b102_inputs <- data.frame(type = an05b102_types, stringsAsFactors = FALSE) %>%
+  dplyr::left_join(ppk23_to_an05b102, by = c("type" = "post_type")) %>%
+  dplyr::left_join(ppk25_to_an05b102, by = c("type" = "post_type")) %>%
+  dplyr::mutate(
+    ppk23_input = tidyr::replace_na(ppk23_input, 0),
+    ppk25_input = tidyr::replace_na(ppk25_input, 0),
+    ratio = ifelse(ppk25_input > 0, ppk23_input / ppk25_input, Inf),
+    dominant = dplyr::case_when(
+      ppk23_input > ppk25_input * 1.5 ~ "ppk23-biased",
+      ppk25_input > ppk23_input * 1.5 ~ "ppk25-biased",
+      TRUE ~ "balanced"
+    ),
+    label = sub("AN05B102", "", type)
+  )
+
+cat("\nAN05B102 input profiles:\n")
+print(an05b102_inputs %>% dplyr::select(type, ppk23_input, ppk25_input, ratio, dominant))
+```
+
+## Scatter: ppk23 vs ppk25 input per AN05B102 variant
+
+```{r scatter, fig.width=7, fig.height=7}
+selectivity_colors <- c(
+  "ppk23-biased" = "#FFD92F",
+  "ppk25-biased" = "#E5C494",
+  "balanced"     = "#999999"
+)
+
+p_scatter <- ggplot(an05b102_inputs, aes(x = ppk23_input, y = ppk25_input,
+                                         color = dominant)) +
+  geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+              linetype = "dashed", color = "grey60") +
+  geom_point(size = 5) +
+  ggrepel::geom_text_repel(aes(label = label), size = 3, fontface = "bold") +
+  scale_color_manual(values = selectivity_colors) +
+  labs(x = "ppk23 input (fraction of total input)",
+       y = "ppk25 input (fraction of total input)",
+       color = "Selectivity") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_scatter, "panel_N_an05b102_selectivity", width = 7, height = 7)
+print(p_scatter)
+```
+
+## Log2 ppk23/ppk25 ratio bar
+
+```{r ratio-bars, fig.width=8, fig.height=5}
+p_ratio <- ggplot(an05b102_inputs %>% dplyr::filter(is.finite(ratio)),
+                  aes(x = reorder(type, ratio), y = log2(ratio), fill = dominant)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  scale_fill_manual(values = selectivity_colors) +
+  labs(x = "AN05B102 variant",
+       y = expression(log[2] * "(ppk23/ppk25 input ratio)"),
+       fill = "Selectivity") +
+  coord_flip() +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_ratio, "panel_N_an05b102_selectivity_ratio", width = 8, height = 5)
+print(p_ratio)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_variants     <- nrow(an05b102_inputs)
+n_ppk23_biased <- sum(an05b102_inputs$dominant == "ppk23-biased")
+n_ppk25_biased <- sum(an05b102_inputs$dominant == "ppk25-biased")
+n_balanced     <- sum(an05b102_inputs$dominant == "balanced")
+most_ppk23     <- an05b102_inputs$type[which.max(an05b102_inputs$ppk23_input)]
+most_ppk25     <- an05b102_inputs$type[which.max(an05b102_inputs$ppk25_input)]
+
+narrative <- sprintf(
+"PANEL N: AN05B102 parallel cholinergic ascending relay
+======================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Parallel to Panel B but for the AN05B102 family (%d variants; all cholinergic
+/ acetylcholine), which also relays contact-pheromone signals from ppk23/ppk25
+sensory neurons on the legs toward brain targets. AN05B102 appears in Figure
+5's underlying path feather (roughly 3233 of 18500 cached ppk23->mAL paths
+traverse it) but was not rendered as rows in Panels B or K because those
+panels scoped to AN09B017.
+
+KEY OBSERVATIONS
+----------------
+1. The %d AN05B102 variants split: %d ppk23-biased, %d ppk25-biased, %d balanced.
+2. %s receives the most ppk23 input; %s receives the most ppk25 input.
+3. AN05B102 complements AN09B017 as a second (cholinergic) ascending relay
+   family for contact pheromone; both contribute excitatory drive to mAL_m
+   but AN05B102 is excitatory via acetylcholine rather than glutamate.
+
+INTERPRETATION
+--------------
+Adding AN05B102 closes a completeness gap in the relay layer story: the male
+contact-pheromone information carried by ppk23 arrives at mAL_m through at
+least two parallel ascending-neuron families (AN09B017 glutamatergic in
+Panel B; AN05B102 cholinergic here in Panel N), on top of the AN05B035-led
+GABAergic sign-inverter pool (Panel M). Panels B and N together show the
+excitatory relay landscape; Panel M handles the inhibitory arm.
+",
+n_variants,
+n_variants, n_ppk23_biased, n_ppk25_biased, n_balanced,
+most_ppk23, most_ppk25
+)
+
+save_panel_narrative("panel_N", narrative)
+cat(narrative)
+```

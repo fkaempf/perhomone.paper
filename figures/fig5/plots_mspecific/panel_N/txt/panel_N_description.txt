@@ -1,0 +1,13 @@
+
+Panel N: AN05B102 -- a parallel cholinergic ascending relay for ppk23/ppk25
+===========================================================================
+Mirrors Panel B's AN09B017 analysis but for the AN05B102 family, which is
+cholinergic (acetylcholine) rather than AN09B017's glutamatergic identity.
+AN05B102 variants are present in Figure 5's underlying path feathers but are
+not displayed in Panels B/K because the story was scoped to AN09B017.
+
+Left:  Scatter of ppk23 vs ppk25 input (input-normalized fraction) per
+       AN05B102 variant (a-d), with y=x diagonal; points coloured by
+       dominant input.
+Right: Log2 ppk23/ppk25 input-ratio bar per variant.
+

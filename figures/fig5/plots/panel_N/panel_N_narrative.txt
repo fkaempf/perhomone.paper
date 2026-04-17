@@ -1,0 +1,29 @@
+PANEL N: AN05B102 parallel cholinergic ascending relay
+======================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Parallel to Panel B but for the AN05B102 family (4 variants; all cholinergic
+/ acetylcholine), which also relays contact-pheromone signals from ppk23/ppk25
+sensory neurons on the legs toward brain targets. AN05B102 appears in Figure
+5's underlying path feather (roughly 3233 of 18500 cached ppk23->mAL paths
+traverse it) but was not rendered as rows in Panels B or K because those
+panels scoped to AN09B017.
+
+KEY OBSERVATIONS
+----------------
+1. The 4 AN05B102 variants split: 2 ppk23-biased, 1 ppk25-biased, 1 balanced.
+2. AN05B102c receives the most ppk23 input; AN05B102a receives the most ppk25 input.
+3. AN05B102 complements AN09B017 as a second (cholinergic) ascending relay
+   family for contact pheromone; both contribute excitatory drive to mAL_m
+   but AN05B102 is excitatory via acetylcholine rather than glutamate.
+
+INTERPRETATION
+--------------
+Adding AN05B102 closes a completeness gap in the relay layer story: the male
+contact-pheromone information carried by ppk23 arrives at mAL_m through at
+least two parallel ascending-neuron families (AN09B017 glutamatergic in
+Panel B; AN05B102 cholinergic here in Panel N), on top of the AN05B035-led
+GABAergic sign-inverter pool (Panel M). Panels B and N together show the
+excitatory relay landscape; Panel M handles the inhibitory arm.
+

@@ -1,0 +1,143 @@
+---
+title: "Figure 5 Panel N': AN05B102 input composition per mAL vs ppk asymmetry"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(scatterpie)
+```
+
+## What this is
+
+Parallel to Panel B' (panel_B_supp_v6.Rmd) but for the AN05B102 cholinergic
+relay family. Each mAL_m subtype is drawn as a pie at position (x = ppk23 -
+ppk25 path-based drive, y = % of mAL's total input from all AN05B102 variants
+combined); pie slices show each AN05B102 variant's fraction of that total.
+
+```{r build}
+an05b102_types   <- sort(unique(mba$type[grepl("^AN05B102", mba$type)]))
+an05b102_present <- intersect(an05b102_types, rownames(adj.matrix))
+mal_present      <- intersect(mal_subtypes, colnames(adj.matrix))
+cat("AN05B102 variants present in adj.matrix:", paste(an05b102_present, collapse = ", "), "\n")
+cat("mAL targets present:", length(mal_present), "\n")
+
+w <- as.matrix(adj.matrix[an05b102_present, mal_present])
+df_wide <- tibble(
+  mAL       = mal_present,
+  total_pct = colSums(w) * 100,
+  delta_ppk = mal_activation_matrix[mal_present, "ppk23"] -
+              mal_activation_matrix[mal_present, "ppk25"]
+)
+for (v in an05b102_present) df_wide[[v]] <- ifelse(colSums(w) > 0, w[v, ] / colSums(w), 0)
+```
+
+## Plot
+
+```{r plot, fig.width=12, fig.height=9}
+base_pal <- RColorBrewer::brewer.pal(8, "Set1")
+an05b102_palette <- setNames(base_pal[seq_along(an05b102_present)], an05b102_present)
+
+x_raw <- df_wide$delta_ppk
+y_raw <- df_wide$total_pct
+x_pad <- 0.08 * diff(range(x_raw))
+y_pad <- 0.08 * diff(range(y_raw))
+x_lo <- min(x_raw) - x_pad; x_hi <- max(x_raw) + x_pad
+y_lo <- min(0, min(y_raw) - y_pad); y_hi <- max(y_raw) + y_pad
+x_span <- x_hi - x_lo; y_span <- y_hi - y_lo
+
+df_wide$x_n <- (df_wide$delta_ppk - x_lo) / x_span
+df_wide$y_n <- (df_wide$total_pct  - y_lo) / y_span
+
+pts <- as.matrix(df_wide[, c("x_n", "y_n")])
+d_mat <- as.matrix(dist(pts)); diag(d_mat) <- Inf
+pie_r <- max(min(0.45 * min(d_mat), 0.045), 0.022)
+
+x_breaks_raw <- pretty(c(min(x_raw), max(x_raw)), n = 5)
+y_breaks_raw <- pretty(c(min(y_raw), max(y_raw)), n = 5)
+x_breaks_n <- (x_breaks_raw - x_lo) / x_span
+y_breaks_n <- (y_breaks_raw - y_lo) / y_span
+keep_x <- x_breaks_n >= 0 & x_breaks_n <= 1
+keep_y <- y_breaks_n >= 0 & y_breaks_n <= 1
+x_breaks_n   <- x_breaks_n[keep_x];   x_breaks_raw <- x_breaks_raw[keep_x]
+y_breaks_n   <- y_breaks_n[keep_y];   y_breaks_raw <- y_breaks_raw[keep_y]
+
+zero_x_n   <- (0 - x_lo) / x_span
+median_y   <- median(y_raw)
+median_y_n <- (median_y - y_lo) / y_span
+
+quad_df <- tibble(
+  xmin = c(zero_x_n, 0,        0,        zero_x_n),
+  xmax = c(1,        zero_x_n, zero_x_n, 1),
+  ymin = c(median_y_n, median_y_n, 0,          0),
+  ymax = c(1,          1,          median_y_n, median_y_n),
+  fill = c("#FDE9D9", "#D9E8FD", "#F2F2F2", "#F2F2F2")
+)
+
+lbl_y_top <- 1 - 0.02
+lbl_y_bot <- 0 + 0.04
+quad_labels <- tibble(
+  x = c(1 - 0.01, 0 + 0.01, 1 - 0.01, 0 + 0.01),
+  y = c(lbl_y_top, lbl_y_top, lbl_y_bot, lbl_y_bot),
+  hjust = c(1, 0, 1, 0),
+  label = c(
+    "male-contact-driven mAL\nstrong AN05B102 input",
+    "female-contact-driven mAL\nstrong AN05B102 input",
+    "weak AN05B102 involvement\n(ppk23-dominant)",
+    "weak AN05B102 involvement\n(ppk25-dominant)"
+  ),
+  col = c("#B45F06", "#1F4E79", "grey45", "grey45")
+)
+
+p <- ggplot() +
+  geom_rect(data = quad_df,
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = quad_df$fill, alpha = 0.55, inherit.aes = FALSE) +
+  geom_hline(yintercept = median_y_n, linewidth = 0.4,
+             color = "grey45", linetype = "dashed") +
+  geom_vline(xintercept = zero_x_n, linewidth = 0.4,
+             color = "grey45", linetype = "dashed") +
+  annotate("label", x = zero_x_n, y = median_y_n - 0.06,
+           label = "ppk balanced", angle = 90,
+           hjust = 0.5, vjust = 0.5, size = 2.8, color = "grey30",
+           fontface = "italic",
+           fill = alpha("white", 0.85), label.size = 0, label.padding = unit(1.2, "pt")) +
+  annotate("label", x = zero_x_n + 0.06, y = median_y_n,
+           label = sprintf("median = %.1f%%", median_y),
+           hjust = 0, vjust = 0.5, size = 2.8, color = "grey30",
+           fontface = "italic",
+           fill = alpha("white", 0.85), label.size = 0, label.padding = unit(1.2, "pt")) +
+  geom_text(data = quad_labels,
+            aes(x = x, y = y, label = label, hjust = hjust),
+            vjust = 1, size = 3.4, fontface = "bold",
+            color = quad_labels$col, lineheight = 0.95) +
+  geom_scatterpie(data = df_wide,
+                  aes(x = x_n, y = y_n, r = pie_r),
+                  cols = an05b102_present,
+                  color = "grey20", linewidth = 0.15) +
+  coord_fixed(ratio = 1, xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+  scale_fill_manual(values = an05b102_palette, name = "AN05B102 variant") +
+  scale_x_continuous(breaks = x_breaks_n, labels = x_breaks_raw) +
+  scale_y_continuous(breaks = y_breaks_n, labels = y_breaks_raw) +
+  ggrepel::geom_text_repel(data = df_wide,
+                           aes(x = x_n, y = y_n, label = mAL),
+                           size = 2.9, color = "grey20",
+                           max.overlaps = 30, min.segment.length = 0,
+                           box.padding = pie_r * 1.5 + 0.01,
+                           point.padding = pie_r * 1.1,
+                           segment.color = "grey55", segment.size = 0.25) +
+  labs(
+    x = expression(ppk23 - ppk25 ~ "(male - female contact drive)"),
+    y = "Total AN05B102 input to mAL (% of mAL's total input)",
+    title = "AN05B102 input composition per mAL vs ppk asymmetry"
+  ) +
+  theme_pub(base_size = 11) +
+  theme(legend.position = "right",
+        plot.title.position = "plot",
+        panel.grid.major = element_line(linewidth = 0.2, color = "grey92"),
+        panel.grid.minor = element_blank())
+
+save_fig5_plot(p, "panel_N_an05b102_dominance_vs_ppk_asymmetry", width = 12, height = 9)
+print(p)
+```

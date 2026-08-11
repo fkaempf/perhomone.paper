@@ -278,9 +278,16 @@ if (length(case_links)) {
 # shows the neuron the literature name refers to), else the first target type.
 # layout 3d with slices off, so the iframe opens on the morphology rather than
 # on EM planes.
+embed_cfg  <- CASES[[CASE]]$embed
 embed_type <- if (length(alias_types)) alias_types[1] else TARGET_TYPES[1]
-embed_body <- syn %>% filter(target_type == embed_type, is_focus) %>%
-  count(bodyid, sort = TRUE) %>% slice_head(n = 1) %>% pull(bodyid)
+embed_body <- if (!is.null(embed_cfg$body)) embed_cfg$body else {
+  syn %>% filter(target_type == embed_type, is_focus) %>%
+    count(bodyid, sort = TRUE) %>% slice_head(n = 1) %>% pull(bodyid)
+}
+# a case may pin the camera, e.g. to match the orientation of a light-level panel
+if (!is.null(embed_cfg$body)) {
+  embed_type <- bodies$target_type[match(embed_cfg$body, bodies$bodyid)]
+}
 
 embed_url <- NULL
 if (length(embed_body)) {
@@ -289,8 +296,10 @@ if (length(embed_body)) {
   es$layers[[2]]$segmentDefaultColor <- "#ff0000"
   es$layers[[2]]$segmentColors       <- setNames(list("#ff0000"), as.character(embed_body))
   ep <- syn %>% filter(bodyid == embed_body, is_focus)
-  es$position        <- c(mean(ep$x), mean(ep$y), mean(ep$z))
-  es$projectionScale <- fit_scale(ep)
+  es$position        <- if (!is.null(embed_cfg$position)) embed_cfg$position
+                        else c(mean(ep$x), mean(ep$y), mean(ep$z))
+  es$projectionScale <- if (!is.null(embed_cfg$scale)) embed_cfg$scale else fit_scale(ep)
+  if (!is.null(embed_cfg$orientation)) es$projectionOrientation <- embed_cfg$orientation
   es$layout          <- "3d"
   es$showSlices      <- FALSE
   es$showAxisLines   <- FALSE
@@ -319,10 +328,9 @@ mcfo_html <- if (length(case_images)) {
 # light-level morphology and the EM reconstruction can be compared directly
 if (!is.null(embed_url)) {
   frame <- sprintf(
-    '<figure style="flex:1.35"><div class="box ngbox" style="aspect-ratio:1.35"><iframe src="%s" loading="lazy" allowfullscreen title="%s %s"></iframe></div><figcaption>%s %s, interactive. <a href="%s" rel="noopener">open full</a></figcaption></figure>',
+    '<figure><div class="box ngbox"><iframe src="%s" loading="lazy" allowfullscreen title="%s %s"></iframe></div><figcaption>%s %s, interactive. Same view as the VNC panel above. <a href="%s" rel="noopener">open full</a></figcaption></figure>',
     embed_url, embed_type, embed_body, embed_type, embed_body, embed_url)
-  mcfo_html <- if (nzchar(mcfo_html)) sub('</div>$', paste0(frame, '</div>'), mcfo_html)
-               else paste0('<div class="mcfo">', frame, '</div>')
+  mcfo_html <- paste0(mcfo_html, '<div class="ngrow">', frame, '</div>')
 }
 
 # --- Billy's receptor assignment ---------------------------------------------
@@ -455,8 +463,15 @@ html_head <- sprintf('<!doctype html>
  .mcfo .box{display:block;position:relative;width:100%%;overflow:hidden;
             background:#000;border:1px solid #d8d8d8;border-radius:7px}
  .mcfo .box img{display:block;width:100%%;height:auto}
- .mcfo .ngbox iframe{position:absolute;inset:0;width:100%%;height:100%%;border:0;
-                     display:block}
+ .ngrow{margin:0 0 1.6rem}
+ .ngrow figure{margin:0}
+ .ngrow .box{position:relative;width:100%%;height:420px;overflow:hidden;background:#000;
+             border:1px solid #d8d8d8;border-radius:7px}
+ .ngrow .box iframe{position:absolute;inset:0;width:100%%;height:100%%;border:0;display:block}
+ .ngrow figcaption{color:#666;font-size:.75rem;margin-top:.35rem}
+ @media (prefers-color-scheme:dark){
+  .ngrow .box{border-color:#333} .ngrow figcaption{color:#9aa3b0}
+ }
  .mcfo .box.rot img{position:absolute;top:50%%;left:50%%;height:auto;
                     transform:translate(-50%%,-50%%) rotate(90deg)}
  .mcfo figcaption{color:#666;font-size:.72rem;margin-top:.3rem;line-height:1.3}

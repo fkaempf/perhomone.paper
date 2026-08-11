@@ -66,12 +66,13 @@ CASES <- list(
                    position    = c(49768.5, 60317.5, 100391.5),
                    orientation = c(0.5, -0.5, -0.5, -0.5),
                    scale       = 25967.26498891576),
-    # w/h are the intrinsic pixel sizes; rot turns the portrait VNC stack on its
-    # side so all three panels are landscape and the row fills the text column
+    # w/h are the intrinsic pixel sizes, used to flex each panel by its aspect.
+    # rot is left FALSE: these are template-aligned stacks and turning one on its
+    # side would misrepresent the standard anatomical orientation
     images  = list(
       list(cap = "Prothoracic, multichannel MIP", w = 686, h = 685, rot = FALSE,
            url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-prothoracic-GAL4-multichannel_mip.png"),
-      list(cap = "VNC, aligned to JRC2018 VNC Unisex", w = 573, h = 1119, rot = TRUE,
+      list(cap = "VNC, aligned to JRC2018 VNC Unisex", w = 573, h = 1119, rot = FALSE,
            url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-vnc-GAL4-JRC2018_VNC_Unisex-aligned_stack.png"),
       list(cap = "Central brain, aligned to JRC2018 Unisex 20x HR", w = 1210, h = 566, rot = FALSE,
            url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-central-GAL4-JRC2018_Unisex_20x_HR-aligned_stack.png"))

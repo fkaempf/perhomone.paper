@@ -305,6 +305,8 @@ if (length(embed_body)) {
   es$showAxisLines   <- FALSE
   # the embed is for looking, not for driving: close every panel so the frame
   # opens on the neuron rather than on neuroglancer's chrome
+  es$showScaleBar    <- FALSE
+  es$showDefaultAnnotations <- FALSE
   es$selectedLayer   <- list(visible = FALSE)
   es$layerListPanel  <- list(visible = FALSE)
   es$selection       <- list(visible = FALSE)
@@ -320,14 +322,9 @@ mcfo_html <- if (length(case_images)) {
   # its layout box unrotated, so the box carries the post-rotation aspect and the
   # image is absolutely centred inside it at the reciprocal width.
   paste0('<div class="mcfo">',
-    paste(vapply(case_images, function(im) {
-      asp <- if (isTRUE(im$rot)) im$h / im$w else im$w / im$h
-      sprintf(
-        '<figure style="flex:%.3f"><a class="box%s" style="aspect-ratio:%.3f" href="%s" rel="noopener"><img src="%s" alt="%s" loading="lazy"%s></a><figcaption>%s</figcaption></figure>',
-        asp, if (isTRUE(im$rot)) " rot" else "", asp, im$url, im$url, im$cap,
-        if (isTRUE(im$rot)) sprintf(' style="width:%.2f%%"', 100 / asp) else "",
-        im$cap)
-    }, character(1)), collapse = ""),
+    paste(vapply(case_images, function(im) sprintf(
+      '<figure><a href="%s" rel="noopener"><img src="%s" alt="%s" loading="lazy"></a><figcaption>%s</figcaption></figure>',
+      im$url, im$url, im$cap, im$cap), character(1)), collapse = ""),
     '</div>')
 } else ""
 
@@ -335,7 +332,7 @@ mcfo_html <- if (length(case_images)) {
 # light-level morphology and the EM reconstruction can be compared directly
 if (!is.null(embed_url)) {
   frame <- sprintf(
-    '<figure><div class="box ngbox"><iframe src="%s" loading="lazy" allowfullscreen title="%s %s"></iframe></div><figcaption>%s %s, interactive. Same view as the VNC panel above. <a href="%s" rel="noopener">open full</a></figcaption></figure>',
+    '<figure><div class="box ngbox"><iframe src="%s" loading="lazy" allowfullscreen title="%s %s"></iframe><span class="mask tl"></span><span class="mask tr"></span></div><figcaption>%s %s, interactive. Same view as the VNC panel above. <a href="%s" rel="noopener">open full</a></figcaption></figure>',
     embed_url, embed_type, embed_body, embed_type, embed_body, embed_url)
   mcfo_html <- paste0(mcfo_html, '<div class="ngrow">', frame, '</div>')
 }
@@ -465,29 +462,38 @@ html_head <- sprintf('<!doctype html>
  p.note{color:#555;margin:0 0 1.25rem;font-size:.92rem}
  p.reflink{margin-top:.5rem}
  .mcfo{display:flex;gap:.7rem;align-items:flex-start;justify-content:center;
-        margin:.5rem 0 1.6rem}
- .mcfo figure{margin:0;min-width:0}
- .mcfo .box{display:block;position:relative;width:100%%;overflow:hidden;
-            background:#000;border:1px solid #d8d8d8;border-radius:7px}
- .mcfo .box img{display:block;width:100%%;height:auto}
+        flex-wrap:wrap;margin:.5rem 0 1.3rem}
+ .mcfo figure{margin:0}
+ .mcfo img{display:block;height:190px;width:auto;max-width:100%%;
+           background:#000;border:0;border-radius:7px}
+ .mcfo figcaption{color:#666;font-size:.72rem;margin-top:.3rem;line-height:1.3;
+                  max-width:22rem}
+ @media (prefers-color-scheme:dark){
+  .mcfo figcaption{color:#9aa3b0}
+ }
  .ngrow{margin:0 0 1.6rem}
  .ngrow figure{margin:0}
- .ngrow .box{position:relative;width:100%%;height:420px;overflow:hidden;background:#000;
-             border:1px solid #d8d8d8;border-radius:7px}
- /* Clio-NG keeps its layer bar regardless of the panel flags in the state, and a
-    cross-origin frame cannot be restyled, so the frame is grown by the bar height
-    and pulled up: the bar is clipped by the box overflow instead. */
- .ngrow .box iframe{position:absolute;left:0;top:-38px;width:100%%;
-                    height:calc(100%% + 38px);border:0;display:block}
+ .ngrow .box{position:relative;width:100%%;height:440px;overflow:hidden;
+             background:#000;border:0;border-radius:7px}
+ /* The frame is laid out at twice the visible size and scaled back down, so
+    neuroglancer renders into twice as many pixels and the result stays sharp.
+    It is also grown past the layer bar height and pulled up, letting the box
+    overflow clip the bar: Clio-NG keeps it whatever the state says, and a
+    cross-origin frame cannot be restyled from here. */
+ .ngrow .box iframe{position:absolute;left:0;top:-48px;
+                    width:200%%;height:calc(200%% + 96px);
+                    transform:scale(.5);transform-origin:0 0;
+                    z-index:1;border:0;display:block}
+ /* the axis letters and the panel toggle survive every state flag, so they are
+    covered by patches in matching black */
+ /* z-index is required: the transform on the iframe promotes it to its own
+    compositing layer, which otherwise paints over anything later in the DOM */
+ .ngrow .box .mask{position:absolute;z-index:2;background:#000;pointer-events:none}
+ .ngrow .box .mask.tl{left:0;top:0;width:30px;height:58px}
+ .ngrow .box .mask.tr{right:0;top:0;width:36px;height:32px}
  .ngrow figcaption{color:#666;font-size:.75rem;margin-top:.35rem}
  @media (prefers-color-scheme:dark){
-  .ngrow .box{border-color:#333} .ngrow figcaption{color:#9aa3b0}
- }
- .mcfo .box.rot img{position:absolute;top:50%%;left:50%%;height:auto;
-                    transform:translate(-50%%,-50%%) rotate(90deg)}
- .mcfo figcaption{color:#666;font-size:.72rem;margin-top:.3rem;line-height:1.3}
- @media (prefers-color-scheme:dark){
-  .mcfo .box{border-color:#333} .mcfo figcaption{color:#9aa3b0}
+  .ngrow figcaption{color:#9aa3b0}
  }
  .reftag{display:inline-block;margin-right:.45rem;padding:0 .35rem;border-radius:4px;
          background:#0b5fa5;color:#fff;font-size:.68rem;font-weight:600;

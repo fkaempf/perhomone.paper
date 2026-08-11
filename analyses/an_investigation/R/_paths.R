@@ -50,7 +50,12 @@ CASES <- list(
     # a/b/c are LgLG1a/WG4/LgLG1b/WG3 cells; AN05B102d is a different animal,
     # driven by WG1 and LgLG2, so both sets are needed to show the split
     focus   = c("WG3", "WG4", "LgLG1a", "LgLG1b", "WG1", "LgLG2"),
-    figures = TRUE, billy = TRUE
+    figures = TRUE, billy = TRUE,
+    # driver line imagery for PPN1, i.e. AN05B102a
+    links   = list(list(
+      label = "Gen1 MCFO: R56C09",
+      url   = "https://gen1mcfo.janelia.org/cgi-bin/view_gen1mcfo_imagery.cgi?line=R56C09",
+      note  = "the line used for PPN1 in Kallman et al. 2015"))
   )
 )
 

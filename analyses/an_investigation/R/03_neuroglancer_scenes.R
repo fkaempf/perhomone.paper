@@ -44,6 +44,16 @@ point_layer <- function(df, name, colour, visible = TRUE) {
        name = sprintf("%s (%d syn)", name, nrow(df)))
 }
 
+# make_mcns_scene frames the whole CNS (projectionScale 192860 vox = 1.54 mm),
+# which leaves every scene opening far too wide. Fit the zoom to the extent of the
+# points the scene is actually about, with a floor so a tight cluster does not
+# open inside the neuron.
+fit_scale <- function(d, pad = 1.8, floor_vox = 2500) {
+  if (!nrow(d)) return(NULL)
+  span <- max(diff(range(d$x)), diff(range(d$y)), diff(range(d$z)))
+  max(floor_vox, round(span * pad))
+}
+
 write_scene <- function(scene, fname) {
   write(toJSON(scene, auto_unbox = TRUE, pretty = FALSE, digits = 8),
         file.path(ng_dir, fname))
@@ -73,7 +83,8 @@ per_body <- lapply(seq_len(nrow(bodies)), function(i) {
 
   scene$layers <- c(scene$layers, anns)
   f <- s %>% filter(is_focus)
-  scene$position <- c(mean(f$x), mean(f$y), mean(f$z))
+  scene$position        <- c(mean(f$x), mean(f$y), mean(f$z))
+  scene$projectionScale <- fit_scale(f)
 
   fname <- sprintf("%s_%s.json", tt, b)
   url   <- write_scene(scene, fname)
@@ -98,7 +109,8 @@ pt_layers <- lapply(FOCUS, function(tp) {
 })
 scene$layers <- c(scene$layers, pt_layers)
 f <- syn %>% filter(is_focus)
-scene$position <- c(mean(f$x), mean(f$y), mean(f$z))
+scene$position        <- c(mean(f$x), mean(f$y), mean(f$z))
+scene$projectionScale <- fit_scale(f)
 overview_url <- write_scene(scene, sprintf("%s_overview.json", CASE))
 
 # --- cluster diagrams for the menu page --------------------------------------
@@ -246,6 +258,15 @@ bilat_note <- if (length(uni_types)) {
   "Every type here receives T1 input on both sides."
 }
 bilat_note <- paste0(bilat_note, alias_note)
+
+# external references declared by the case, e.g. driver-line imagery
+case_links <- CASES[[CASE]]$links
+if (length(case_links)) {
+  bilat_note <- paste0(bilat_note, " ",
+    paste(vapply(case_links, function(l)
+      sprintf('<a href="%s" rel="noopener">%s</a> &ndash; %s.', l$url, l$label, l$note),
+      character(1)), collapse = " "))
+}
 
 # --- Billy's receptor assignment ---------------------------------------------
 # Reproduced from Billy's figure. This is a light-level receptor-to-type call and

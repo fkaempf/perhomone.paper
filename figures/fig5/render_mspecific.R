@@ -9,12 +9,13 @@ panels <- c(
 )
 
 fig5_dir <- "/Users/fkampf/Documents/pheromone.paper/figures/fig5"
+rmd_dir  <- file.path(fig5_dir, "rmd")
 tmp_dir  <- file.path(fig5_dir, ".tmp_mspecific")
 dir.create(tmp_dir, showWarnings = FALSE)
 
 # Write all temp Rmds first
 for (panel in panels) {
-  src <- file.path(fig5_dir, panel)
+  src <- file.path(rmd_dir, panel)
   if (!file.exists(src)) next
 
   lines <- readLines(src)

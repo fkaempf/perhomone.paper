@@ -1,0 +1,208 @@
+---
+title: "Figure 5I supplement: P1 scenario-decoder"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this asks
+
+For each P1 courtship command neuron (and for each P1 *level-1 group*, e.g. `P1_3a` + `P1_3b` + `P1_3c` → `P1_3`), which of the three encounter scenarios does it best predict?
+
+- Female encounter:  `ppk23 + ppk25`
+- cVA + male:        `DA1 + ppk23`
+- cVA + female:      `DA1 + ppk23 + ppk25`
+
+Drive comes from the signal-flow model (`p1_all_combos$net_input`), so the analysis inherits the saturation/gain-control nonlinearity used in Panel I.
+
+For every P1, the 3-scenario drive vector is **z-scored across scenarios** so the question is purely "which scenario stands out for this P1?", independent of its overall activation level.
+
+```{r build-drive-table}
+scenarios <- c(
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"       = "DA1,ppk23",
+  "cVA + female (cVA+ppk25)"     = "DA1,ppk25"
+)
+
+drive_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  p1_all_combos %>%
+    filter(channels == scenarios[[nm]]) %>%
+    transmute(P1 = target_type, scenario = nm, drive = net_input)
+})) %>%
+  mutate(scenario = factor(scenario, levels = names(scenarios)))
+
+p1_levels <- unique(drive_long$P1)
+cat("P1 subtypes:", length(p1_levels), "\n")
+
+# Per-P1 z-score across scenarios (centred, scaled)
+drive_z <- drive_long %>%
+  group_by(P1) %>%
+  mutate(z = (drive - mean(drive)) / sd(drive),
+         z = ifelse(is.na(z), 0, z)) %>%   # constant-drive P1: z=0
+  ungroup()
+
+# Best scenario per P1: argmax z
+best_per_p1 <- drive_z %>%
+  group_by(P1) %>%
+  slice_max(z, n = 1, with_ties = FALSE) %>%
+  rename(best_scenario = scenario, best_z = z) %>%
+  select(P1, best_scenario, best_z)
+
+# Discriminability index per P1: max(z) - min(z) (range)
+discrim_per_p1 <- drive_z %>%
+  group_by(P1) %>%
+  summarise(disc = max(z) - min(z), .groups = "drop")
+
+p1_summary <- best_per_p1 %>% left_join(discrim_per_p1, by = "P1") %>%
+  arrange(best_scenario, desc(best_z))
+
+cat("\nBest P1 predictor per scenario:\n")
+print(p1_summary %>% group_by(best_scenario) %>% slice_max(best_z, n = 5))
+```
+
+## Plot 1 — heatmap of z-scored drive per P1 (sorted by best scenario)
+
+```{r heatmap, fig.width=10, fig.height=11}
+p1_order <- p1_summary$P1
+drive_z <- drive_z %>% mutate(P1 = factor(P1, levels = rev(p1_order)))
+
+scenario_colors <- c(
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"       = "#8E24AA",
+  "cVA + female (cVA+ppk25)"     = "#F57C00"
+)
+
+p_heat <- ggplot(drive_z, aes(x = scenario, y = P1, fill = z)) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
+                       midpoint = 0, name = "z(drive)\nacross\nscenarios") +
+  geom_text(aes(label = sprintf("%.1f", z)), size = 2.5,
+            color = ifelse(abs(drive_z$z) > 0.9, "white", "grey20")) +
+  labs(x = NULL, y = "P1 subtype (sorted by best-predicted scenario)",
+       title = "P1 scenario-decoder (z-score per row)",
+       subtitle = "Each row sums to 0, sd 1 - highlights which scenario each P1 best predicts.") +
+  theme_pub(base_size = 9) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "bold"),
+        axis.text.y = element_text(size = 6),
+        plot.title.position = "plot")
+
+save_fig5_plot(p_heat, "panel_I_p1_decoder_heatmap", width = 10, height = 11, subdir = NULL)
+print(p_heat)
+```
+
+## Plot 2 — top-5 P1 predictors per scenario
+
+```{r top-bars, fig.width=11, fig.height=5}
+top5 <- p1_summary %>%
+  group_by(best_scenario) %>%
+  slice_max(best_z, n = 5) %>%
+  ungroup() %>%
+  mutate(P1 = factor(P1, levels = rev(P1)))
+
+p_top <- ggplot(top5, aes(x = best_z, y = P1, fill = best_scenario)) +
+  geom_col() +
+  facet_wrap(~ best_scenario, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = scenario_colors, guide = "none") +
+  labs(x = "Best-scenario z-score (higher = more selective)",
+       y = NULL, title = "Top-5 most scenario-selective P1 subtypes") +
+  theme_pub(base_size = 10) +
+  theme(strip.text = element_text(face = "bold", size = rel(1.1)),
+        plot.title.position = "plot")
+
+save_fig5_plot(p_top, "panel_I_p1_decoder_top5", width = 11, height = 5, subdir = NULL)
+print(p_top)
+```
+
+## Plot 3 — same analysis at P1 *group* level (level-1 collapse)
+
+```{r group-level}
+to_group <- function(x) sub("([a-z]?)$", "", x)   # strip trailing lowercase
+drive_group <- drive_long %>%
+  mutate(P1_group = to_group(P1)) %>%
+  group_by(P1_group, scenario) %>%
+  summarise(drive = sum(drive), .groups = "drop") %>%
+  group_by(P1_group) %>%
+  mutate(z = (drive - mean(drive)) / sd(drive),
+         z = ifelse(is.na(z), 0, z)) %>%
+  ungroup()
+
+best_per_group <- drive_group %>%
+  group_by(P1_group) %>%
+  slice_max(z, n = 1, with_ties = FALSE) %>%
+  rename(best_scenario = scenario, best_z = z) %>%
+  arrange(best_scenario, desc(best_z))
+
+cat("\nP1 group counts:", length(unique(drive_group$P1_group)), "\n")
+print(best_per_group)
+```
+
+```{r heatmap-group, fig.width=8, fig.height=7}
+group_order <- best_per_group$P1_group
+drive_group <- drive_group %>% mutate(P1_group = factor(P1_group, levels = rev(group_order)))
+
+p_group <- ggplot(drive_group, aes(x = scenario, y = P1_group, fill = z)) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B",
+                       midpoint = 0, name = "z(drive)") +
+  geom_text(aes(label = sprintf("%.1f", z)), size = 3,
+            color = ifelse(abs(drive_group$z) > 0.9, "white", "grey20")) +
+  labs(x = NULL, y = "P1 group (level-1)",
+       title = "P1-group scenario-decoder",
+       subtitle = "Subtypes pooled to level-1 group (P1_3a/b/c -> P1_3) before z-scoring") +
+  theme_pub(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, face = "bold"),
+        plot.title.position = "plot")
+
+save_fig5_plot(p_group, "panel_I_p1_decoder_group_heatmap", width = 8, height = 7, subdir = NULL)
+print(p_group)
+```
+
+```{r combined}
+p_combined <- (p_heat | (p_top / p_group)) +
+  patchwork::plot_layout(widths = c(1, 1)) +
+  plot_annotation(tag_levels = "a")
+save_fig5_plot(p_combined, "panel_I_p1_decoder_combined", width = 16, height = 11, subdir = NULL)
+```
+
+## Summary
+
+```{r narrative, echo=FALSE}
+counts <- p1_summary %>% count(best_scenario, name = "n_P1_subtypes")
+group_counts <- best_per_group %>% count(best_scenario, name = "n_P1_groups")
+
+txt <- sprintf(
+"P1 scenario-decoder
+====================
+For each of %d P1 courtship subtypes (and %d P1-level-1 groups), drive under
+the three pheromone-encounter scenarios was extracted from the signal-flow
+model (p1_all_combos$net_input). For each row the 3-scenario vector was
+z-scored, so the question reduces to 'which scenario stands out, regardless
+of overall drive magnitude'.
+
+Per-scenario count of P1s for which that scenario is the best predictor:
+
+  P1 subtype level:
+%s
+
+  P1 group level (level-1):
+%s
+
+Top-3 best predictors per scenario (subtype level):
+%s
+",
+length(p1_levels), length(unique(drive_group$P1_group)),
+paste(sprintf("    %-18s  %d", counts$best_scenario, counts$n_P1_subtypes), collapse = "\n"),
+paste(sprintf("    %-18s  %d", group_counts$best_scenario, group_counts$n_P1_groups), collapse = "\n"),
+paste(p1_summary %>% group_by(best_scenario) %>%
+        slice_max(best_z, n = 3) %>%
+        transmute(line = sprintf("    %-18s  %s  (z=%.2f)", best_scenario, P1, best_z)) %>%
+        pull(line),
+      collapse = "\n")
+)
+out_dir <- panel_plot_dir("panel_I", "txt")
+writeLines(txt, file.path(out_dir, "panel_I_p1_decoder.txt"))
+cat(txt)
+```

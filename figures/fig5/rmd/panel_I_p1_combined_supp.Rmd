@@ -1,0 +1,146 @@
+---
+title: "Figure 5I supp: P1 model-agreement 2x2 grid"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(patchwork)
+```
+
+## What this is
+
+P1 analog of `panel_I_combined.pdf` (the 2x2 grid of per-scenario path vs
+signal-flow scatter for mAL). Three facets = three encounter scenarios, each
+showing path-based P1 drive on x vs signal-flow P1 net_input on y. Dashed
+diagonal y = x; Spearman rho annotated per scenario. Fourth tile: the
+rectified-sigmoid activation function used by the signal-flow model.
+
+```{r build}
+scenarios <- c(
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"       = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"     = "DA1+ppk25"
+)
+
+p1_subtypes <- unique(p1_all_combos$target_type)
+
+# -- signed mAL -> P1 matrix ----
+mal_rows_present <- intersect(mal_subtypes, rownames(adj.matrix))
+p1_cols_present  <- intersect(p1_subtypes,  colnames(adj.matrix))
+mal_p1_signed    <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+                           dimnames = list(mal_subtypes, p1_subtypes))
+mal_p1_signed[mal_rows_present, p1_cols_present] <-
+  as.matrix(adj.matrix[mal_rows_present, p1_cols_present])
+sign_mult <- ifelse(mal_nt[mal_subtypes] == "GABA", -1, 1)
+mal_p1_signed <- sweep(mal_p1_signed, 1, sign_mult, "*")
+
+# -- path-based scenario matrix for mAL, then propagate to P1 ----
+path_scenario_mal <- matrix(0, length(scenarios), length(mal_subtypes),
+                            dimnames = list(names(scenarios), mal_subtypes))
+for (i in seq_along(scenarios)) {
+  chs <- strsplit(scenarios[i], "[+]")[[1]]
+  for (ch in chs) if (ch %in% colnames(mal_activation_matrix)) {
+    path_scenario_mal[i, ] <- path_scenario_mal[i, ] +
+      mal_activation_matrix[mal_subtypes, ch]
+  }
+}
+p1_path <- path_scenario_mal %*% mal_p1_signed   # scenarios x P1
+
+# -- signal-flow P1 drive per scenario ----
+p1_sf_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  p1_all_combos %>%
+    filter(combination == scenarios[[nm]]) %>%
+    transmute(P1 = target_type, scenario = nm, sf = net_input)
+}))
+p1_sf_mat <- p1_sf_long %>%
+  pivot_wider(names_from = P1, values_from = sf, values_fill = 0) %>%
+  column_to_rownames("scenario") %>% as.matrix()
+
+# -- reshape to long for ggplot ----
+common <- intersect(colnames(p1_path), colnames(p1_sf_mat))
+p1_path  <- p1_path[names(scenarios), common, drop = FALSE]
+p1_sf    <- p1_sf_mat[names(scenarios), common, drop = FALSE]
+
+comparison <- do.call(rbind, lapply(names(scenarios), function(sc) {
+  data.frame(
+    scenario = sc,
+    P1       = common,
+    path     = p1_path[sc, common],
+    sf       = p1_sf[sc, common]
+  )
+})) %>%
+  mutate(scenario = factor(scenario, levels = names(scenarios)))
+
+# Per-scenario Spearman correlations
+cor_labels <- comparison %>%
+  group_by(scenario) %>%
+  summarise(rho = cor(path, sf, method = "spearman"),
+            p   = suppressWarnings(cor.test(path, sf, method = "spearman")$p.value),
+            .groups = "drop") %>%
+  mutate(label = sprintf("rho = %.2f\np = %s",
+                         rho,
+                         ifelse(p < 0.001, "<0.001", format(p, digits = 2))))
+print(cor_labels)
+```
+
+## 2x2 grid
+
+```{r grid, fig.width=12, fig.height=12}
+common_lim <- range(c(comparison$path, comparison$sf))
+
+scenario_scatter <- function(sc) {
+  d  <- comparison %>% filter(scenario == sc)
+  cl <- cor_labels %>% filter(scenario == sc)
+  ggplot(d, aes(x = path, y = sf)) +
+    geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+                linetype = "dashed", color = "grey50") +
+    geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+    geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+    geom_point(size = 2.2, alpha = 0.85, color = "#455A64") +
+    ggrepel::geom_text_repel(aes(label = P1), size = 2, color = "grey30",
+                              max.overlaps = 15, min.segment.length = 0) +
+    geom_text(data = cl, aes(label = label),
+              x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
+              size = 3, color = "black", inherit.aes = FALSE) +
+    coord_fixed(ratio = 1, xlim = common_lim, ylim = common_lim) +
+    labs(title = sc,
+         x = "Path-based P1 drive",
+         y = "Signal flow P1 net input") +
+    theme_pub(base_size = 10) +
+    theme(plot.title = element_text(size = rel(1.05), face = "bold"))
+}
+
+p_fem   <- scenario_scatter("Female (ppk25)")
+p_cva_m <- scenario_scatter("cVA + male (cVA+ppk23)")
+p_cva_f <- scenario_scatter("cVA + female (cVA+ppk25)")
+
+# Activation function inset (same function used by signal-flow model)
+beta <- 5
+act_df <- tibble(x = seq(-1, 1, length.out = 401)) %>%
+  mutate(tanh_only         = tanh(beta * x),
+         sigmoid_rectified = pmax(0, tanh(beta * x)))
+p_act <- ggplot(act_df, aes(x = x)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_line(aes(y = tanh_only), linetype = "dashed",
+            color = "grey55", linewidth = 0.6) +
+  geom_line(aes(y = sigmoid_rectified), color = "#B2182B", linewidth = 1) +
+  annotate("text", x = 0.6,  y = -0.15, label = "tanh(beta*x)",
+           hjust = 0, size = 3.2, color = "grey40") +
+  annotate("text", x = 0.3,  y = 1.07,  label = "max(0, tanh(beta*x))",
+           hjust = 0, size = 3.2, color = "#B2182B") +
+  scale_y_continuous(limits = c(-1.05, 1.15), breaks = c(-1, 0, 1)) +
+  scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
+  labs(x = "net input", y = "output (firing rate)",
+       title = sprintf("Activation fn: sigmoid_rectified (beta = %d)", beta)) +
+  theme_pub(base_size = 10) +
+  theme(plot.title = element_text(size = rel(1)))
+
+p_combined <- ((p_fem | p_cva_m) / (p_cva_f | p_act)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_I_p1_combined_supp", width = 12, height = 12)
+print(p_combined)
+```

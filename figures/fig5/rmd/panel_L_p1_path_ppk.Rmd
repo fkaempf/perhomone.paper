@@ -1,0 +1,71 @@
+---
+title: "Figure 5L: path-based P1 ppk23 vs ppk25 selectivity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this is
+
+Path-based P1 analog of `panel_L_mal_ppk_selectivity.pdf`. For each P1
+subtype, the ppk23-driven and ppk25-driven components of drive are computed
+by propagating the panel-A path-based mAL activations through the signed
+mAL -> P1 connectivity:
+
+- x = ppk23 drive onto P1   = (mAL ppk23 activation) . (mAL -> P1 signed)
+- y = ppk25 drive onto P1   = (mAL ppk25 activation) . (mAL -> P1 signed)
+
+Complements panel_L_p1_sf_ppk_selectivity.pdf (the signal-flow analog).
+
+```{r build}
+p1_subtypes <- unique(p1_all_combos$target_type)
+
+mal_rows_present <- intersect(mal_subtypes, rownames(adj.matrix))
+p1_cols_present  <- intersect(p1_subtypes,  colnames(adj.matrix))
+mal_p1_signed    <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+                           dimnames = list(mal_subtypes, p1_subtypes))
+mal_p1_signed[mal_rows_present, p1_cols_present] <-
+  as.matrix(adj.matrix[mal_rows_present, p1_cols_present])
+sign_mult <- ifelse(mal_nt[mal_subtypes] == "GABA", -1, 1)
+mal_p1_signed <- sweep(mal_p1_signed, 1, sign_mult, "*")
+
+p1_ppk23 <- as.numeric(mal_activation_matrix[mal_subtypes, "ppk23"] %*% mal_p1_signed)
+p1_ppk25 <- as.numeric(mal_activation_matrix[mal_subtypes, "ppk25"] %*% mal_p1_signed)
+names(p1_ppk23) <- p1_subtypes
+names(p1_ppk25) <- p1_subtypes
+
+p1_path <- tibble(
+  type      = p1_subtypes,
+  ppk23     = p1_ppk23,
+  ppk25     = p1_ppk25
+)
+
+has_drive <- abs(p1_path$ppk23) > 1e-6 | abs(p1_path$ppk25) > 1e-6
+cat(sprintf("P1 subtypes with detectable ppk drive: %d / %d\n",
+            sum(has_drive), nrow(p1_path)))
+cat("Range ppk23:", range(p1_path$ppk23), "\n")
+cat("Range ppk25:", range(p1_path$ppk25), "\n")
+```
+
+## Scatter
+
+```{r scatter, fig.width=10, fig.height=8}
+p <- ggplot(p1_path[has_drive, ], aes(x = ppk23, y = ppk25)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey60", linewidth = 0.3) +
+  geom_point(size = 3, alpha = 0.85, color = "#455A64") +
+  ggrepel::geom_text_repel(aes(label = type), size = 3, color = "grey25",
+                            max.overlaps = 30, min.segment.length = 0) +
+  labs(x = "ppk23 path drive onto P1\n(mAL ppk23 activation x signed mAL -> P1)",
+       y = "ppk25 path drive onto P1\n(mAL ppk25 activation x signed mAL -> P1)") +
+  theme_pub(base_size = 10) +
+  coord_fixed(ratio = 1)
+
+save_fig5_plot(p, "panel_L_p1_ppk_selectivity", width = 10, height = 8)
+print(p)
+```

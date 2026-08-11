@@ -7,6 +7,7 @@
 # =============================================================================
 
 fig5_dir <- "/Users/fkampf/Documents/pheromone.paper/figures/fig5"
+rmd_dir  <- file.path(fig5_dir, "rmd")
 html_dir <- file.path(fig5_dir, "html")
 dir.create(html_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -26,7 +27,7 @@ panels <- c(
 )
 
 for (panel in panels) {
-  panel_path <- file.path(fig5_dir, panel)
+  panel_path <- file.path(rmd_dir, panel)
   if (!file.exists(panel_path)) {
     message(sprintf("SKIP: %s not found", panel))
     next

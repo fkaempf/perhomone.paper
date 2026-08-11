@@ -34,15 +34,15 @@ cat(description)
 # Define the 3 scenarios (same as Panel F)
 # Lone male encounter excluded: male contact always co-occurs with cVA
 scenarios <- c(
-  "Female encounter" = "ppk23+ppk25",
-  "cVA + male"      = "DA1+ppk23",
-  "cVA + female"    = "DA1+ppk23+ppk25"
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"      = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"    = "DA1+ppk25"
 )
 
 scenario_colors <- c(
-  "Female encounter" = "#D73027",
-  "cVA + male"      = "#8E24AA",
-  "cVA + female"    = "#F57C00"
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"      = "#8E24AA",
+  "cVA + female (cVA+ppk25)"    = "#F57C00"
 )
 
 # Signal flow model now covers all mAL types via mAL_all target group
@@ -269,7 +269,7 @@ p_spread_scatter <- ggplot(subtype_means, aes(x = mean_path, y = mean_sf,
   geom_point(alpha = 0.7) +
   ggrepel::geom_text_repel(aes(label = subtype), size = 2, color = "grey30",
                             max.overlaps = 20, min.segment.length = 0) +
-  scale_size_continuous(range = c(1, 10), name = "Scenario spread") +
+  scale_size_continuous(range = c(1.5, 14), name = "Scenario spread") +
   scale_color_manual(values = dimorphism_colors, name = "Dimorphism") +
   labs(x = "Mean path-based activation",
        y = "Mean signal flow net input") +
@@ -308,7 +308,7 @@ p_trajectories <- ggplot() +
              aes(x = path_activation, y = sf_activation, color = scenario),
              size = 2.5, alpha = 0.8) +
   ggrepel::geom_text_repel(
-    data = points_filtered %>% filter(scenario == "cVA + male"),
+    data = points_filtered %>% filter(scenario == "cVA + male (cVA+ppk23)"),
     aes(x = path_activation, y = sf_activation, label = subtype),
     size = 2, color = "grey30", max.overlaps = 20, min.segment.length = 0) +
   scale_color_manual(values = scenario_colors, name = "Encounter") +
@@ -391,13 +391,79 @@ if (nrow(disagreements) > 0) {
 }
 ```
 
-## Combined panel
+## Activation function used by the signal-flow model
 
-```{r combined, fig.width=14, fig.height=10}
-p_combined <- p_compare +
+```{r activation-fn, fig.width=5, fig.height=4}
+# f(x) = max(0, tanh(beta * x))    (sigmoid_rectified in signal_flow.py)
+beta <- 5
+act_df <- tibble(
+  x = seq(-1, 1, length.out = 401)
+) %>%
+  mutate(
+    tanh_only         = tanh(beta * x),
+    sigmoid_rectified = pmax(0, tanh(beta * x))
+  )
+
+p_act <- ggplot(act_df, aes(x = x)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_line(aes(y = tanh_only), linetype = "dashed",
+            color = "grey55", linewidth = 0.6) +
+  geom_line(aes(y = sigmoid_rectified), color = "#B2182B", linewidth = 1) +
+  annotate("text", x = 0.6,  y = -0.15, label = "tanh(beta*x)",
+           hjust = 0, size = 3.2, color = "grey40") +
+  annotate("text", x = 0.3,  y = 1.07,  label = "max(0, tanh(beta*x))",
+           hjust = 0, size = 3.2, color = "#B2182B") +
+  scale_y_continuous(limits = c(-1.05, 1.15), breaks = c(-1, 0, 1)) +
+  scale_x_continuous(limits = c(-1, 1), breaks = c(-1, -0.5, 0, 0.5, 1)) +
+  labs(x = "net input",
+       y = "output (firing rate)",
+       title = sprintf("Activation fn: sigmoid_rectified (beta = %d)", beta)) +
+  theme_pub(base_size = 10) +
+  theme(plot.title = element_text(size = rel(1)))
+
+save_fig5_plot(p_act, "panel_I_activation_fn", width = 5, height = 4)
+print(p_act)
+```
+
+## Combined panel — 2x2 grid (3 scenario scatters + activation function)
+
+```{r combined, fig.width=12, fig.height=12}
+common_lim <- range(c(comparison$path_activation, comparison$sf_activation))
+
+scenario_scatter <- function(sc) {
+  d <- comparison %>% filter(scenario == sc)
+  cl <- cor_labels %>% filter(scenario == sc)
+  ggplot(d, aes(x = path_activation, y = sf_activation, color = dimorphism)) +
+    geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+                linetype = "dashed", color = "grey50") +
+    geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+    geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+    geom_point(size = 2.5, alpha = 0.85) +
+    ggrepel::geom_text_repel(aes(label = subtype), size = 2,
+                              max.overlaps = 15, min.segment.length = 0,
+                              color = "grey30") +
+    geom_text(data = cl, aes(label = label),
+              x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
+              size = 3, color = "black", inherit.aes = FALSE) +
+    scale_color_manual(values = dimorphism_colors, name = "Dimorphism",
+                       guide = "none") +
+    coord_fixed(ratio = 1, xlim = common_lim, ylim = common_lim) +
+    labs(title = sc,
+         x = "Path-based activation (exc - inh)",
+         y = "Signal flow net input") +
+    theme_pub(base_size = 10) +
+    theme(plot.title = element_text(size = rel(1.05), face = "bold"))
+}
+
+p_fem    <- scenario_scatter("Female (ppk25)")
+p_cva_m  <- scenario_scatter("cVA + male (cVA+ppk23)")
+p_cva_f  <- scenario_scatter("cVA + female (cVA+ppk25)")
+
+p_combined <- ((p_fem | p_cva_m) / (p_cva_f | p_act)) +
   plot_annotation(tag_levels = "a")
 
-save_fig5_plot(p_combined, "panel_I_combined", width = 14, height = 10)
+save_fig5_plot(p_combined, "panel_I_combined", width = 12, height = 12)
 print(p_combined)
 ```
 

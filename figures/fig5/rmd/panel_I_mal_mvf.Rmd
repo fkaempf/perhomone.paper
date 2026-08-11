@@ -1,0 +1,148 @@
+---
+title: "Figure 5I: mAL male vs female contact (no cVA)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(patchwork)
+```
+
+## What this is
+
+Two-scenario version with **no cVA (volatile DA1) at all**:
+
+- Male encounter:   `ppk23`         (male contact pheromone only)
+- Female encounter: `ppk23,ppk25`   (both contact pheromones)
+
+Shared channel: ppk23. Toggled channel: ppk25. Spread = `drive(female) - drive(male)`
+in absolute value - isolates how each mAL subtype changes when ppk25 (female
+contact) is added on top of ppk23 alone.
+
+```{r drive}
+scenarios <- c(
+  "Male (ppk23)"   = "ppk23",
+  "Female (ppk25)" = "ppk25"
+)
+scenario_colors <- c(
+  "Male (ppk23)"   = "#1B7837",
+  "Female (ppk25)" = "#D73027"
+)
+
+drive_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  mal_all_combos %>%
+    filter(channels == scenarios[[nm]], target_type %in% mal_subtypes) %>%
+    transmute(mAL = target_type, scenario = nm, drive = net_input)
+})) %>%
+  mutate(scenario = factor(scenario, levels = names(scenarios)))
+
+discrim <- drive_long %>%
+  group_by(mAL) %>%
+  summarise(
+    spread     = max(drive) - min(drive),
+    mean_drive = mean(drive),
+    argmax     = scenario[which.max(drive)],
+    delta      = drive[scenario == "Female (ppk25)"] - drive[scenario == "Male (ppk23)"],
+    .groups = "drop"
+  ) %>%
+  arrange(desc(spread))
+
+cat("Top 10 most ppk25-sensitive mAL subtypes (no cVA):\n")
+print(head(discrim, 10))
+cat("\nArgmax counts:\n"); print(discrim %>% count(argmax))
+```
+
+## Bar chart
+
+```{r bar, fig.width=12, fig.height=4}
+discrim_ord <- discrim %>% mutate(mAL = factor(mAL, levels = mAL))
+
+p_bar <- ggplot(discrim_ord, aes(x = mAL, y = spread, fill = argmax)) +
+  geom_col(width = 0.75) +
+  scale_fill_manual(values = scenario_colors, name = "Higher-drive scenario") +
+  labs(x = "mAL subtype (sorted by |female - male| drive)",
+       y = "ppk25 sensitivity\n|female drive - male drive|") +
+  theme_pub(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 7),
+        legend.position = "top")
+
+save_fig5_plot(p_bar, "panel_I_mal_mvf_bar", width = 12, height = 4)
+print(p_bar)
+```
+
+## Scatter
+
+```{r scatter, fig.width=8, fig.height=6}
+p_scatter <- ggplot(discrim, aes(x = mean_drive, y = spread,
+                                 size = spread, color = argmax)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(alpha = 0.85) +
+  ggrepel::geom_text_repel(aes(label = mAL), size = 2.6, color = "grey30",
+                            max.overlaps = 25, min.segment.length = 0) +
+  scale_color_manual(values = scenario_colors,
+                     name = "Higher-drive scenario",
+                     guide = guide_legend(override.aes = list(size = 4))) +
+  scale_size_continuous(range = c(1.5, 8), name = "|delta|") +
+  labs(x = "Mean drive across male and female",
+       y = "|female drive - male drive|") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+save_fig5_plot(p_scatter, "panel_I_mal_mvf_scatter", width = 8, height = 6)
+print(p_scatter)
+```
+
+## Trajectories
+
+```{r traj, fig.width=10, fig.height=6}
+top_n <- 15
+top_mal <- head(discrim$mAL, top_n)
+traj <- drive_long %>% filter(mAL %in% top_mal) %>%
+  mutate(mAL = factor(mAL, levels = top_mal))
+
+p_traj <- ggplot(traj, aes(x = scenario, y = drive, group = mAL, color = mAL)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_line(linewidth = 0.75, alpha = 0.85) +
+  geom_point(size = 2.2) +
+  ggrepel::geom_text_repel(
+    data = traj %>% filter(scenario == levels(scenario)[2]),
+    aes(label = mAL), size = 2.7, hjust = -0.1, direction = "y",
+    nudge_x = 0.15, segment.size = 0.2, segment.color = "grey60"
+  ) +
+  scale_color_viridis_d(option = "C", end = 0.9, guide = "none") +
+  expand_limits(x = length(scenarios) + 0.8) +
+  labs(x = NULL, y = "Signal flow net input",
+       title = sprintf("Top %d most ppk25-sensitive mAL subtypes (no cVA)", top_n)) +
+  theme_pub(base_size = 10) +
+  theme(plot.title = element_text(size = rel(1.05)))
+
+save_fig5_plot(p_traj, "panel_I_mal_mvf_trajectories", width = 10, height = 6)
+print(p_traj)
+```
+
+```{r narrative, echo=FALSE}
+out <- panel_plot_dir("panel_I", "txt")
+top10 <- head(discrim, 10)
+writeLines(sprintf(
+"mAL male-contact vs female-contact (no cVA)
+============================================
+For each of %d mAL subtypes, drive under male (ppk23) and female
+(ppk23+ppk25) encounter scenarios from the signal-flow model
+(mal_all_combos$net_input). Spread = |drive(female) - drive(male)|
+isolates ppk25 sensitivity without cVA.
+
+Top 10 most ppk25-sensitive:
+%s
+
+Argmax counts:
+%s
+",
+nrow(discrim),
+paste(sprintf("  %-12s |delta|=%.4f  higher=%s  delta(F-M)=%+.4f",
+              top10$mAL, top10$spread, top10$argmax, top10$delta),
+      collapse = "\n"),
+paste(capture.output(discrim %>% count(argmax)), collapse = "\n")
+), file.path(out, "panel_I_mal_mvf.txt"))
+```

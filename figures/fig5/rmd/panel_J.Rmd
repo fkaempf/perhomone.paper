@@ -206,15 +206,15 @@ if (length(unique(total_p1$ppk23_group)) > 1) {
 # Define 3 encounter scenarios (same as Panel F)
 # Lone male encounter excluded: male contact always co-occurs with cVA
 scenarios <- c(
-  "Female encounter" = "ppk23+ppk25",
-  "cVA + male"      = "DA1+ppk23",
-  "cVA + female"    = "DA1+ppk23+ppk25"
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"      = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"    = "DA1+ppk25"
 )
 
 scenario_colors <- c(
-  "Female encounter" = "#D73027",
-  "cVA + male"      = "#8E24AA",
-  "cVA + female"    = "#F57C00"
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"      = "#8E24AA",
+  "cVA + female (cVA+ppk25)"    = "#F57C00"
 )
 
 # Build mAL population response per scenario (from activation matrix)
@@ -246,7 +246,7 @@ per_p1$scenario <- factor(per_p1$scenario, levels = names(scenarios))
 
 # Order P1 subtypes by male encounter drive
 p1_order <- per_p1 %>%
-  filter(scenario == "cVA + male") %>%
+  filter(scenario == "cVA + male (cVA+ppk23)") %>%
   arrange(predicted_drive) %>%
   pull(P1)
 per_p1$P1 <- factor(per_p1$P1, levels = p1_order)

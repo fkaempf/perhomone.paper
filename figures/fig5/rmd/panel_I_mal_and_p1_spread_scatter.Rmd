@@ -1,0 +1,168 @@
+---
+title: "Figure 5I: mAL + P1 combined mean-path vs mean-sf scatter"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(patchwork)
+```
+
+## What this is
+
+Both mAL and P1 subtypes on the same axes. Each point is one subtype
+(either mAL or P1). X = mean path-based activation across the 3 scenarios.
+Y = mean signal-flow net input across the 3 scenarios. Size = joint spread
+across scenarios, `sqrt(var_path + var_sf)`. Shape/color distinguishes the
+two populations.
+
+```{r build-data}
+scenarios <- c(
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"       = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"     = "DA1+ppk25"
+)
+
+# ---- Path-based scenario matrix for mAL (linear channel sum) -------------
+path_scenario_mat <- matrix(0, length(scenarios), length(mal_subtypes),
+                            dimnames = list(names(scenarios), mal_subtypes))
+for (i in seq_along(scenarios)) {
+  chs <- strsplit(scenarios[i], "[+]")[[1]]
+  for (ch in chs) if (ch %in% colnames(mal_activation_matrix)) {
+    path_scenario_mat[i, ] <- path_scenario_mat[i, ] +
+      mal_activation_matrix[mal_subtypes, ch]
+  }
+}
+
+# ---- Signal-flow mAL drive per scenario ----------------------------------
+mal_sf_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  mal_all_combos %>%
+    filter(combination == scenarios[[nm]], target_type %in% mal_subtypes) %>%
+    transmute(subtype = target_type, scenario = nm, sf = net_input)
+}))
+mal_sf_mat <- mal_sf_long %>%
+  pivot_wider(names_from = subtype, values_from = sf, values_fill = 0) %>%
+  column_to_rownames("scenario") %>% as.matrix()
+mal_sf_mat <- mal_sf_mat[names(scenarios),
+                         intersect(colnames(mal_sf_mat), mal_subtypes), drop = FALSE]
+common_mal <- intersect(colnames(path_scenario_mat), colnames(mal_sf_mat))
+mal_path <- path_scenario_mat[, common_mal, drop = FALSE]
+mal_sf   <- mal_sf_mat[, common_mal, drop = FALSE]
+
+mal_summary <- tibble(
+  subtype  = common_mal,
+  pop      = "mAL",
+  mean_path = colMeans(mal_path),
+  mean_sf   = colMeans(mal_sf),
+  var_path  = apply(mal_path, 2, var),
+  var_sf    = apply(mal_sf,   2, var)
+) %>% mutate(spread_2d = sqrt(var_path + var_sf))
+
+# ---- Path-based drive for P1 (= scenario x mAL path drive  %*%  mAL -> P1
+#                                   signed connectivity) -------------------
+p1_subtypes      <- unique(p1_all_combos$target_type)
+mal_rows_present <- intersect(mal_subtypes, rownames(adj.matrix))
+p1_cols_present  <- intersect(p1_subtypes,  colnames(adj.matrix))
+mal_p1_signed    <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+                           dimnames = list(mal_subtypes, p1_subtypes))
+mal_p1_signed[mal_rows_present, p1_cols_present] <-
+  as.matrix(adj.matrix[mal_rows_present, p1_cols_present])
+sign_mult <- ifelse(mal_nt[mal_subtypes] == "GABA", -1, 1)
+mal_p1_signed <- sweep(mal_p1_signed, 1, sign_mult, "*")
+
+p1_path <- path_scenario_mat %*% mal_p1_signed
+
+# ---- Signal-flow P1 drive per scenario -----------------------------------
+p1_sf_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  p1_all_combos %>%
+    filter(combination == scenarios[[nm]]) %>%
+    transmute(P1 = target_type, scenario = nm, sf = net_input)
+}))
+p1_sf_mat <- p1_sf_long %>%
+  pivot_wider(names_from = P1, values_from = sf, values_fill = 0) %>%
+  column_to_rownames("scenario") %>% as.matrix()
+
+common_p1 <- intersect(colnames(p1_path), colnames(p1_sf_mat))
+p1_path   <- p1_path[names(scenarios), common_p1, drop = FALSE]
+p1_sf     <- p1_sf_mat[names(scenarios), common_p1, drop = FALSE]
+
+p1_summary <- tibble(
+  subtype  = common_p1,
+  pop      = "P1",
+  mean_path = colMeans(p1_path),
+  mean_sf   = colMeans(p1_sf),
+  var_path  = apply(p1_path, 2, var),
+  var_sf    = apply(p1_sf,   2, var)
+) %>% mutate(spread_2d = sqrt(var_path + var_sf))
+
+combined <- bind_rows(mal_summary, p1_summary) %>%
+  mutate(pop = factor(pop, levels = c("mAL", "P1")))
+
+cat("\nmAL summary (top 5 by spread):\n")
+print(mal_summary %>% arrange(desc(spread_2d)) %>% head(5))
+cat("\nP1 summary (top 5 by spread):\n")
+print(p1_summary %>% arrange(desc(spread_2d)) %>% head(5))
+```
+
+## Combined scatter
+
+```{r scatter, fig.width=10, fig.height=8}
+pop_colors <- c("mAL" = "#1F77B4", "P1" = "#D62728")
+
+# Label top-N per population (by spread) so the plot stays readable
+label_set <- combined %>% group_by(pop) %>%
+  slice_max(spread_2d, n = 10) %>% pull(subtype)
+
+p <- ggplot(combined, aes(x = mean_path, y = mean_sf,
+                          size = spread_2d, color = pop, shape = pop)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(alpha = 0.7) +
+  ggrepel::geom_text_repel(
+    data = combined %>% filter(subtype %in% label_set),
+    aes(label = subtype), size = 2.8, color = "grey20",
+    max.overlaps = 30, min.segment.length = 0
+  ) +
+  scale_color_manual(values = pop_colors, name = "Population") +
+  scale_shape_manual(values = c("mAL" = 16, "P1" = 17), name = "Population") +
+  scale_size_continuous(range = c(1.5, 12), name = "Scenario spread\nsqrt(var_path + var_sf)") +
+  labs(x = "Mean path-based drive across scenarios",
+       y = "Mean signal-flow drive across scenarios",
+       title = "mAL and P1 in joint path x signal-flow space") +
+  theme_pub(base_size = 11) +
+  theme(legend.position = "right",
+        plot.title.position = "plot")
+
+save_fig5_plot(p, "panel_I_mal_and_p1_spread_scatter", width = 10, height = 8)
+print(p)
+```
+
+```{r facet-zoom, fig.width=12, fig.height=6}
+# Also provide a side-by-side faceted view with shared axes so each
+# population's distribution is readable without overcrowding
+axis_lim <- list(
+  x = range(combined$mean_path),
+  y = range(combined$mean_sf)
+)
+
+p_facet <- ggplot(combined, aes(x = mean_path, y = mean_sf,
+                                size = spread_2d, color = pop)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(alpha = 0.75) +
+  ggrepel::geom_text_repel(aes(label = subtype), size = 2.4, color = "grey25",
+                            max.overlaps = 25, min.segment.length = 0,
+                            show.legend = FALSE) +
+  scale_color_manual(values = pop_colors, guide = "none") +
+  scale_size_continuous(range = c(1.5, 10), name = "Spread") +
+  facet_wrap(~ pop, ncol = 2) +
+  coord_cartesian(xlim = axis_lim$x, ylim = axis_lim$y) +
+  labs(x = "Mean path-based drive across scenarios",
+       y = "Mean signal-flow drive across scenarios") +
+  theme_pub(base_size = 10) +
+  theme(strip.text = element_text(face = "bold", size = rel(1.1)))
+
+save_fig5_plot(p_facet, "panel_I_mal_and_p1_spread_scatter_facet", width = 12, height = 6)
+print(p_facet)
+```

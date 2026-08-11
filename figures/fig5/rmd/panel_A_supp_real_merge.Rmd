@@ -1,0 +1,323 @@
+---
+title: "Figure 5A — Supplementary: real upstream source merge (option 1)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(igraph)
+```
+
+## What this does
+
+The main panel A and the post-hoc supplementary checks (1–5) all work with the **existing** cached paths (`feather/strongest.paths/strongest.50.paths.{mod}.2.mAL_all.feather`). In those caches, modalities with multiple source neurons (ppk23: 10 sensilla, ppk25: 10, visual: 7) contribute 50 paths **per source**, i.e. 500 / 500 / 350 paths per (modality, target) pair.
+
+DA1/VA1*/auditory have a single aggregate source (`ORN_DA1`, etc.) already upstream, so they get 50 paths per target.
+
+This script **actually modifies the graph** — it pools the multi-source modalities into one virtual aggregate node each (`ppk23_merged`, `ppk25_merged`, `visual_merged`), with pooled outgoing edges — then re-runs Yen's k-strongest-paths from these virtual sources. Each modality ends up with a single "source" in the path-finder's view, matching DA1's structure. This is the faithful version of Option 1, not an approximation.
+
+The output is cached (`feather/strongest.paths.merged/...`) so the expensive path-finding only runs once.
+
+```{r out-dirs}
+supp_png <- panel_plot_dir("panel_A", "png", "supp")
+supp_pdf <- panel_plot_dir("panel_A", "pdf", "supp")
+supp_txt <- panel_plot_dir("panel_A", "txt", "supp")
+
+merged_cache_dir <- file.path(feather_dir, "strongest.paths.merged")
+dir.create(merged_cache_dir, recursive = TRUE, showWarnings = FALSE)
+cat("Path cache (merged sources):\n  ", merged_cache_dir, "\n")
+```
+
+## Build merged-source graph
+
+```{r build-merged-graph}
+# Which modalities to merge (the ones with > 1 source in channel_neurons)
+multi_source_mods <- names(channel_neurons)[sapply(channel_neurons, length) > 1]
+cat("Multi-source modalities:\n")
+for (mod in multi_source_mods) {
+  cat("  ", mod, "(n=", length(channel_neurons[[mod]]), "sensilla)\n")
+}
+
+# Start from the full graph
+g_merged <- graph.general
+
+# For each multi-source modality, add a synthetic merged source node
+# whose outgoing edges sum the sensilla's outgoing edges
+merged_source_name <- function(mod) sprintf("%s_merged", mod)
+
+for (mod in multi_source_mods) {
+  sensilla <- channel_neurons[[mod]]
+  sensilla <- sensilla[sensilla %in% V(g_merged)$name]
+  if (length(sensilla) == 0) next
+
+  merged_name <- merged_source_name(mod)
+  # Skip if somehow already added
+  if (merged_name %in% V(g_merged)$name) next
+
+  # Find each sensillum's outgoing edges
+  out_edges <- ego(g_merged, order = 1, nodes = sensilla, mode = "out", mindist = 1)
+  neighbor_weight_list <- list()
+  for (i in seq_along(sensilla)) {
+    s <- sensilla[i]
+    # get outgoing edges for this sensillum
+    eids <- incident(g_merged, v = s, mode = "out")
+    if (length(eids) == 0) next
+    ends <- ends(g_merged, eids, names = TRUE)[, 2]
+    wts  <- E(g_merged)$weight[eids]
+    for (j in seq_along(ends)) {
+      y <- ends[j]
+      w <- wts[j]
+      neighbor_weight_list[[y]] <- c(neighbor_weight_list[[y]], w)
+    }
+  }
+
+  if (length(neighbor_weight_list) == 0) next
+
+  # Aggregate: sum of edge weights per unique downstream neighbor
+  # (biological rationale: pooled activation — action potentials in any sensillum
+  #  contribute to postsynaptic drive at Y)
+  agg_targets <- names(neighbor_weight_list)
+  agg_weights <- sapply(neighbor_weight_list, sum)
+
+  # Add the merged vertex
+  g_merged <- add_vertices(g_merged, 1, attr = list(name = merged_name))
+  # Add edges from merged vertex to aggregated downstream neighbors
+  new_edges <- as.vector(rbind(rep(merged_name, length(agg_targets)), agg_targets))
+  g_merged <- add_edges(g_merged, new_edges, attr = list(weight = agg_weights))
+
+  cat(sprintf("  Added %s: %d outgoing edges (merged from %d sensilla)\n",
+              merged_name, length(agg_targets), length(sensilla)))
+}
+
+cat("\nMerged graph: |V|=", vcount(g_merged), " |E|=", ecount(g_merged),
+    " (original: |V|=", vcount(graph.general), " |E|=", ecount(graph.general), ")\n", sep = "")
+```
+
+## Run path-finder on merged graph (cached)
+
+```{r run-path-finder}
+run_merged_paths <- function(mod, force = FALSE) {
+  mod_file_label <- modality_file_labels[[mod]]
+  fname <- file.path(merged_cache_dir,
+    sprintf("strongest.%d.paths.%s_merged.2.%s.feather",
+            n_paths_mal, mod_file_label, target_name_mal))
+
+  if (file.exists(fname) && !force) {
+    df <- read_feather(fname)
+    df <- drop_list_cols(df)
+    message(sprintf("  Loaded cached merged paths for %s (%d rows)", mod, nrow(df)))
+    return(df)
+  }
+
+  # Determine the merged source name for this modality
+  merged_name <- if (mod %in% multi_source_mods) merged_source_name(mod) else {
+    # Already single-source modality — use its original start
+    channel_neurons[[mod]][1]
+  }
+  if (!merged_name %in% V(g_merged)$name) {
+    message(sprintf("  SKIP %s: merged source %s not in graph", mod, merged_name))
+    return(NULL)
+  }
+  starts <- merged_name
+  targets <- mal_subtypes[mal_subtypes %in% V(g_merged)$name]
+
+  # Prepare log-weight edge attribute (same as setup.R does for path-finding)
+  g <- g_merged
+  w <- E(g)$weight
+  w[!is.finite(w) | w <= 0] <- .Machine$double.eps
+  E(g)$log_weight <- -log(w)
+
+  message(sprintf("  Running Yen K-strongest-paths: %s (%s) -> %d mAL targets ...",
+                  mod, merged_name, length(targets)))
+  t0 <- Sys.time()
+  result <- find_k_strongest_paths_yen(
+    g       = g,
+    starts  = starts,
+    targets = targets,
+    mba     = mba,
+    n_paths = n_paths_mal
+  )
+  t1 <- Sys.time()
+  message(sprintf("    completed in %.1f s", as.numeric(difftime(t1, t0, units = "secs"))))
+
+  df <- result$df
+  if (nrow(df) == 0) {
+    message(sprintf("    No paths found for %s", mod))
+    return(NULL)
+  }
+  df$modality   <- mod
+  df$target_set <- target_name_mal
+  write_feather(df, fname)
+  message(sprintf("    Cached %d paths to %s", nrow(df), basename(fname)))
+  df
+}
+
+# Run for all 7 modalities (cheap for single-source ones; potentially slow for merged)
+merged_paths_list <- list()
+for (mod in modality_order) {
+  merged_paths_list[[mod]] <- run_merged_paths(mod)
+}
+mal_paths_merged <- bind_rows(merged_paths_list)
+
+cat("\nPath counts after actual merge:\n")
+mal_paths_merged %>% count(modality) %>% print()
+```
+
+## Compute activation matrix from merged paths
+
+```{r activation-merged}
+# Restrict to the active mAL_subtypes (works for both regular and mspecific)
+mal_paths_merged <- mal_paths_merged %>% filter(end %in% mal_subtypes)
+
+compute_valence_strength_local <- function(paths_df, val) {
+  paths_df %>%
+    filter(valence == val) %>%
+    group_by(end, modality) %>%
+    summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = modality, values_from = total_strength, values_fill = 0) %>%
+    column_to_rownames("end") %>%
+    as.matrix()
+}
+
+mat_exc <- compute_valence_strength_local(mal_paths_merged, "excitatory")
+mat_inh <- compute_valence_strength_local(mal_paths_merged, "inhibitory")
+
+# Align
+align_mat <- function(m) {
+  missing_r <- setdiff(mal_subtypes, rownames(m))
+  if (length(missing_r)) m <- rbind(m, matrix(0, length(missing_r), ncol(m),
+                                              dimnames = list(missing_r, colnames(m))))
+  missing_c <- setdiff(modality_order, colnames(m))
+  if (length(missing_c)) m <- cbind(m, matrix(0, nrow(m), length(missing_c),
+                                              dimnames = list(rownames(m), missing_c)))
+  m[mal_subtypes, modality_order, drop = FALSE]
+}
+mat_exc <- align_mat(mat_exc)
+mat_inh <- align_mat(mat_inh)
+mat_merge <- mat_exc - mat_inh
+cat("Merged-source activation matrix: ", nrow(mat_merge), "x", ncol(mat_merge),
+    " range [", sprintf("%.4f, %.4f", min(mat_merge), max(mat_merge)), "]\n", sep = "")
+```
+
+## Plot heatmap
+
+```{r heatmap-merged}
+row_annot <- mal_annot[rownames(mat_merge), c("neurotransmitter", "dimorphism"), drop = FALSE]
+col_annot <- data.frame(
+  modality_group = modality_group[colnames(mat_merge)],
+  row.names = colnames(mat_merge)
+)
+ann_colors <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors,
+  modality_group   = modality_group_colors
+)
+n_colors <- 100
+max_abs <- max(abs(mat_merge)); if (max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = n_colors + 1)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(n_colors)
+
+png_file <- file.path(supp_png, "panel_A_supp_real_merge.png")
+pdf_file <- file.path(supp_pdf, "panel_A_supp_real_merge.pdf")
+
+pheatmap::pheatmap(
+  mat_merge,
+  annotation_row = row_annot, annotation_col = col_annot,
+  annotation_colors = ann_colors,
+  breaks = breaks, color = colors,
+  cluster_rows = TRUE, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 10, border_color = NA,
+  cellwidth = 30, cellheight = 14, gaps_col = c(3, 4, 5),
+  main = "Real upstream source merge (re-run path-finder on pooled-source graph)",
+  filename = png_file, width = 8, height = 10
+)
+pheatmap::pheatmap(
+  mat_merge,
+  annotation_row = row_annot, annotation_col = col_annot,
+  annotation_colors = ann_colors,
+  breaks = breaks, color = colors,
+  cluster_rows = TRUE, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  fontsize_row = 6, fontsize_col = 10, border_color = NA,
+  cellwidth = 30, cellheight = 14, gaps_col = c(3, 4, 5),
+  main = "Real upstream source merge (re-run path-finder on pooled-source graph)",
+  filename = pdf_file, width = 8, height = 10
+)
+cat("Saved:", basename(png_file), "  range: [", sprintf("%.4f, %.4f]", min(mat_merge), max(mat_merge)), "\n")
+```
+
+## Comparison vs raw panel A
+
+```{r compare}
+comparison <- tibble(
+  modality = colnames(mal_activation_matrix),
+  raw_mean_abs   = colMeans(abs(mal_activation_matrix)),
+  merge_mean_abs = colMeans(abs(mat_merge))
+) %>%
+  mutate(modality = factor(modality, levels = modality_order),
+         raw_rel   = raw_mean_abs   / max(raw_mean_abs),
+         merge_rel = merge_mean_abs / max(merge_mean_abs))
+
+print(comparison)
+write.csv(comparison, file.path(supp_txt, "panel_A_supp_real_merge_comparison.csv"),
+          row.names = FALSE)
+
+p_cmp <- comparison %>%
+  pivot_longer(c(raw_rel, merge_rel), names_to = "method", values_to = "rel_strength") %>%
+  mutate(method = factor(method, levels = c("raw_rel", "merge_rel"),
+                         labels = c("raw panel A", "real merge (option 1)"))) %>%
+  ggplot(aes(x = modality, y = rel_strength, fill = method)) +
+  geom_col(position = position_dodge(width = 0.85), width = 0.8) +
+  labs(x = NULL, y = "Mean |cell| per channel, normalized to each method's max",
+       title = "Panel A raw vs real upstream source merge",
+       subtitle = "Merged graph re-runs Yen K-strongest paths with pooled source nodes") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "bottom", legend.title = element_blank())
+
+ggsave(file.path(supp_png, "panel_A_supp_real_merge_comparison.png"),
+       p_cmp, width = 9, height = 5, dpi = 300)
+ggsave(file.path(supp_pdf, "panel_A_supp_real_merge_comparison.pdf"),
+       p_cmp, width = 9, height = 5)
+
+p_cmp
+```
+
+```{r narrative, echo=FALSE}
+txt <- sprintf(
+"Panel A -- REAL upstream source merge (Option 1)
+==================================================
+
+Graph modification:
+  Multi-source modalities (%s) have their sensilla pooled into a single
+  virtual node '%s_merged', with outgoing edges = sum of the sensilla's
+  outgoing edge weights to each shared downstream neighbor. Single-source
+  modalities (DA1, VA1v, VA1d, auditory) are untouched.
+
+Path cache:
+  Re-run of Yen K-strongest paths (K=%d) from merged sources to all
+  mAL subtypes. Results cached at feather/strongest.paths.merged/.
+
+Each modality now contributes %d paths per (modality, target) pair.
+
+Mean |cell| per channel (normalized to each method's max):
+%s
+
+Interpretation:
+  Any remaining dominance of ppk channels is NOT driven by having
+  more sensilla; it reflects the genuine graph structure after pooling.
+",
+paste(multi_source_mods, collapse = ", "),
+multi_source_mods[1],
+n_paths_mal, n_paths_mal,
+paste(sprintf("  %-9s  raw=%.2f  merge=%.2f",
+              comparison$modality, comparison$raw_rel, comparison$merge_rel),
+      collapse = "\n")
+)
+writeLines(txt, file.path(supp_txt, "panel_A_supp_real_merge.txt"))
+cat(txt)
+```

@@ -1,0 +1,173 @@
+---
+title: "Figure 5I: mAL scenario discriminability (P1-style)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(patchwork)
+```
+
+## What this is
+
+Direct mAL analog of the P1 scenario-discriminability plots
+(`panel_I_p1_scenario_*.pdf`). For each mAL subtype we extract its
+signal-flow drive under the three encounter scenarios from `mal_all_combos`
+and ask which subtypes shift most across encounters. Uses the same 1D
+`spread = max - min` metric and the same argmax-coloring as the P1 version,
+so the two populations can be compared side-by-side.
+
+```{r drive-per-mal}
+scenarios <- c(
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"       = "DA1,ppk23",
+  "cVA + female (cVA+ppk25)"     = "DA1,ppk25"
+)
+scenario_colors <- c(
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"       = "#8E24AA",
+  "cVA + female (cVA+ppk25)"     = "#F57C00"
+)
+
+drive_long <- bind_rows(lapply(names(scenarios), function(nm) {
+  mal_all_combos %>%
+    filter(channels == scenarios[[nm]],
+           target_type %in% mal_subtypes) %>%
+    transmute(mAL = target_type, scenario = nm, drive = net_input)
+})) %>%
+  mutate(scenario = factor(scenario, levels = names(scenarios)))
+
+discrim <- drive_long %>%
+  group_by(mAL) %>%
+  summarise(
+    spread     = max(drive) - min(drive),
+    mean_drive = mean(drive),
+    sd_drive   = sd(drive),
+    argmax     = scenario[which.max(drive)],
+    argmin     = scenario[which.min(drive)],
+    .groups = "drop"
+  ) %>%
+  arrange(desc(spread)) %>%
+  mutate(argmax = factor(argmax, levels = names(scenarios)))
+
+cat("Top 10 most scenario-discriminating mAL subtypes:\n")
+print(head(discrim, 10))
+```
+
+## Bar chart: spread per mAL
+
+```{r bars, fig.width=12, fig.height=4}
+discrim_ord <- discrim %>% mutate(mAL = factor(mAL, levels = mAL))
+
+p_bar <- ggplot(discrim_ord, aes(x = mAL, y = spread, fill = argmax)) +
+  geom_col(width = 0.75) +
+  # Force every scenario into the legend with its color swatch even if unused
+  scale_fill_manual(
+    values = scenario_colors,
+    limits = names(scenarios),
+    breaks = names(scenarios),
+    drop   = FALSE,
+    name   = "Best-predicted scenario\n(argmax drive)",
+    guide  = guide_legend(override.aes = list(fill = unname(scenario_colors)))
+  ) +
+  labs(x = "mAL subtype (sorted by spread, high -> low)",
+       y = "Scenario discriminability\n(max drive - min drive)") +
+  theme_pub(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 7),
+        legend.position = "top")
+
+save_fig5_plot(p_bar, "panel_I_mal_scenario_spread_bar", width = 12, height = 4)
+print(p_bar)
+```
+
+## Scatter: mean drive vs spread (size = spread)
+
+```{r scatter, fig.width=8, fig.height=6}
+p_scatter <- ggplot(discrim, aes(x = mean_drive, y = spread,
+                                 size = spread, color = argmax)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_point(alpha = 0.8) +
+  ggrepel::geom_text_repel(aes(label = mAL), size = 2.6, color = "grey30",
+                            max.overlaps = 25, min.segment.length = 0) +
+  scale_color_manual(values = scenario_colors, drop = FALSE,
+                     name = "Best scenario",
+                     guide = guide_legend(override.aes = list(size = 4))) +
+  scale_size_continuous(range = c(1.5, 8), name = "Spread") +
+  labs(x = "Mean drive across scenarios",
+       y = "Spread (max - min)") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right")
+
+save_fig5_plot(p_scatter, "panel_I_mal_scenario_spread_scatter", width = 8, height = 6)
+print(p_scatter)
+```
+
+## Trajectories of top-15 most-discriminating mAL subtypes
+
+```{r trajectories, fig.width=10, fig.height=6}
+top_n <- 15
+top_mal <- head(discrim$mAL, top_n)
+
+traj <- drive_long %>% filter(mAL %in% top_mal) %>%
+  mutate(mAL = factor(mAL, levels = top_mal))
+
+p_traj <- ggplot(traj, aes(x = scenario, y = drive, group = mAL, color = mAL)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_line(linewidth = 0.7, alpha = 0.85) +
+  geom_point(size = 2) +
+  ggrepel::geom_text_repel(
+    data = traj %>% filter(scenario == levels(scenario)[3]),
+    aes(label = mAL), size = 2.7, hjust = -0.1, direction = "y",
+    nudge_x = 0.2, segment.size = 0.2, segment.color = "grey60"
+  ) +
+  scale_color_viridis_d(option = "C", end = 0.9, guide = "none") +
+  expand_limits(x = length(scenarios) + 1) +
+  labs(x = NULL, y = "Signal flow net input",
+       title = sprintf("Top %d most scenario-discriminating mAL subtypes", top_n)) +
+  theme_pub(base_size = 10) +
+  theme(plot.title = element_text(size = rel(1.05)))
+
+save_fig5_plot(p_traj, "panel_I_mal_scenario_trajectories", width = 10, height = 6)
+print(p_traj)
+```
+
+## Combined panel
+
+```{r combined, fig.width=14, fig.height=11}
+p_combined <- p_bar / (p_scatter | p_traj) +
+  plot_layout(heights = c(1, 1.4)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_I_mal_scenario_discriminability", width = 14, height = 11)
+print(p_combined)
+```
+
+```{r narrative, echo=FALSE}
+out <- panel_plot_dir("panel_I", "txt")
+top10 <- head(discrim, 10)
+counts <- discrim %>% count(argmax, name = "n")
+txt <- sprintf(
+"mAL scenario-discriminability (P1-style)
+=========================================
+For each of %d mAL subtypes the signal-flow drive (mal_all_combos$net_input)
+under three encounter scenarios was extracted; spread = max-min across scenarios.
+
+Top 10 most-discriminating mAL subtypes (by spread):
+%s
+
+Best-predicted scenario across all mAL subtypes (argmax-of-drive count):
+%s
+
+Plots saved to plots*/panel_I/{png,pdf}/panel_I_mal_scenario_{spread_bar, spread_scatter, trajectories, discriminability}.
+",
+nrow(discrim),
+paste(sprintf("  %-12s spread=%.4f  best=%s  worst=%s",
+              top10$mAL, top10$spread, top10$argmax, top10$argmin),
+      collapse = "\n"),
+paste(sprintf("  %s: %d", counts$argmax, counts$n), collapse = "\n")
+)
+writeLines(txt, file.path(out, "panel_I_mal_scenario_discriminability.txt"))
+cat(txt)
+```

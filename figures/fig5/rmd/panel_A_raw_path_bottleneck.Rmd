@@ -1,0 +1,115 @@
+---
+title: "Figure 5A: raw-synapse path-bottleneck version"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(pheatmap)
+```
+
+## What this is
+
+Raw-synapse-count analog of panel A. Panel A's cells are sums of
+path-strength products using **normalized** edge weights. Here we walk the
+same K-strongest paths but look up each edge's **raw synapse count** in
+`adj.matrix.raw`. Per-path "throughput" is defined as the bottleneck (min
+synapse count across edges of the path). Cell value = signed sum across all
+paths from that modality to that mAL (excitatory positive, inhibitory
+negative).
+
+```{r compute}
+# Build the signed bottleneck matrix (modality x mAL)
+# Walking mal_paths$path and looking up adj.matrix.raw[pre, post] per edge
+
+parse_path <- function(p) strsplit(p, " -> ", fixed = TRUE)[[1]]
+
+path_bottleneck <- function(p) {
+  toks <- parse_path(p)
+  if (length(toks) < 2) return(NA_real_)
+  synapses <- numeric(length(toks) - 1)
+  for (k in seq_len(length(toks) - 1)) {
+    a <- toks[k]; b <- toks[k + 1]
+    if (!(a %in% rownames(adj.matrix.raw)) ||
+        !(b %in% colnames(adj.matrix.raw))) {
+      return(NA_real_)
+    }
+    synapses[k] <- adj.matrix.raw[a, b]
+  }
+  min(synapses)
+}
+
+# This is the expensive step; vectorize via vapply
+cat("Computing bottleneck for", nrow(mal_paths), "paths...\n")
+mal_paths2 <- mal_paths %>% mutate(bottleneck = vapply(path, path_bottleneck, numeric(1)))
+cat("  done. range:", range(mal_paths2$bottleneck, na.rm = TRUE),
+    "  NA:", sum(is.na(mal_paths2$bottleneck)), "\n")
+
+# Signed aggregation per (modality, mAL):
+# MAX bottleneck per direction (= widest path available of each valence)
+widest_by_val <- function(val) {
+  mal_paths2 %>%
+    filter(valence == val) %>%
+    group_by(end, modality) %>%
+    summarise(widest = max(bottleneck, na.rm = TRUE), .groups = "drop") %>%
+    mutate(widest = ifelse(is.finite(widest), widest, 0)) %>%
+    pivot_wider(names_from = modality, values_from = widest, values_fill = 0) %>%
+    column_to_rownames("end") %>% as.matrix()
+}
+exc <- widest_by_val("excitatory")
+inh <- widest_by_val("inhibitory")
+
+fill <- function(m) {
+  mr <- setdiff(mal_subtypes, rownames(m))
+  if (length(mr)) m <- rbind(m, matrix(0, length(mr), ncol(m),
+                                       dimnames = list(mr, colnames(m))))
+  mc <- setdiff(modality_order, colnames(m))
+  if (length(mc)) m <- cbind(m, matrix(0, nrow(m), length(mc),
+                                       dimnames = list(rownames(m), mc)))
+  m[mal_subtypes, modality_order, drop = FALSE]
+}
+
+mat <- fill(exc) - fill(inh)
+cat("\nPanel A raw-bottleneck matrix (", nrow(mat), "x", ncol(mat), "):\n", sep="")
+cat("  range:", range(mat), "\n")
+```
+
+## Heatmap
+
+```{r heatmap, fig.width=8, fig.height=10}
+row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"), drop = FALSE]
+col_annot <- data.frame(modality_group = modality_group[colnames(mat)],
+                        row.names = colnames(mat))
+ann_colors <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors,
+  modality_group   = modality_group_colors
+)
+
+max_abs <- max(abs(mat)); if (!is.finite(max_abs) || max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100)
+
+for (ext in c("png", "pdf")) {
+  pheatmap(
+    mat,
+    annotation_row = row_annot, annotation_col = col_annot,
+    annotation_colors = ann_colors,
+    breaks = breaks, color = colors,
+    cluster_rows = TRUE, cluster_cols = FALSE,
+    clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+    fontsize_row = 7, fontsize_col = 10,
+    border_color = NA, cellwidth = 40, cellheight = 18,
+    gaps_col = c(3, 4, 5),
+    display_numbers = TRUE, number_format = "%.0f",
+    fontsize_number = 6,
+    filename = file.path(panel_plot_dir("panel_A_input_profiles_raw_synapses", ext),
+                         paste0("panel_A_input_profiles_raw_synapses.", ext)),
+    width = 8, height = 10, silent = TRUE
+  )
+}
+cat("saved panel_A_input_profiles_raw_synapses\n")
+```

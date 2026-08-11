@@ -1,0 +1,124 @@
+---
+title: "Figure 5J: raw-synapse mAL -> P1 heatmap"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this is
+
+Raw-synapse-count version of `panel_J_heatmap.pdf`. Rows = mAL subtypes,
+columns = P1 subtypes, cell value = signed synapse count (GABAergic mAL ->
+P1 shown as negative). The regular `panel_J_heatmap.pdf` uses
+input-normalized weights (fraction of each P1's total input). This version
+uses absolute synapse counts so the connection magnitudes are directly
+readable; it is complementary to the normalized version, not a replacement.
+
+```{r build}
+p1_subtypes <- unique(p1_all_combos$target_type)
+
+mal_rows <- intersect(mal_subtypes, rownames(adj.matrix.raw))
+p1_cols  <- intersect(p1_subtypes,  colnames(adj.matrix.raw))
+mat_raw  <- as.matrix(adj.matrix.raw[mal_rows, p1_cols])
+
+# Signed: negate rows whose mAL type is GABAergic
+sign_mult <- ifelse(mal_nt[mal_rows] == "GABA", -1, 1)
+mat_signed <- sweep(mat_raw, 1, sign_mult, "*")
+
+# Fill to full mAL_subtypes x p1_subtypes (zero-pad missing)
+mat_full <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+                   dimnames = list(mal_subtypes, p1_subtypes))
+mat_full[mal_rows, p1_cols] <- mat_signed
+
+cat("Raw-synapse signed matrix range:",
+    range(mat_full), "  non-zero cells:",
+    sum(mat_full != 0), "\n")
+
+# ppk23 response polarity for rows (same as panel_J)
+ppk23_vec <- mal_activation_matrix[mal_subtypes, "ppk23"]
+ppk23_group <- factor(
+  ifelse(ppk23_vec > 0, "ppk23-excited",
+         ifelse(ppk23_vec < 0, "ppk23-inhibited", "ppk23-none")),
+  levels = c("ppk23-excited", "ppk23-inhibited", "ppk23-none")
+)
+
+row_ord <- order(ppk23_group, -abs(rowSums(mat_full)))
+mat_ordered <- mat_full[row_ord, , drop = FALSE]
+ppk23_ordered <- ppk23_group[row_ord]
+
+row_annot <- data.frame(
+  ppk23_group       = ppk23_ordered,
+  neurotransmitter  = mal_nt[rownames(mat_ordered)],
+  row.names         = rownames(mat_ordered)
+)
+```
+
+## Heatmap
+
+```{r heatmap, fig.width=14, fig.height=6}
+ann_colors <- list(
+  ppk23_group      = c("ppk23-excited"   = "#B2182B",
+                       "ppk23-inhibited" = "#2166AC",
+                       "ppk23-none"      = "grey80"),
+  neurotransmitter = nt_colors
+)
+
+max_abs <- max(abs(mat_ordered)); if (max_abs == 0) max_abs <- 1
+breaks  <- seq(-max_abs, max_abs, length.out = 101)
+colors  <- colorRampPalette(c("#2166AC", "white", "#B2182B"))(100)
+
+n_cols <- ncol(mat_ordered)
+cw <- min(22, max(10, 500 / n_cols))
+fig_w <- max(12, n_cols * cw / 72 + 4)
+
+save_heatmap_fixed_annot(
+  mat        = mat_ordered,
+  row_annot  = row_annot,
+  col_annot  = data.frame(row.names = colnames(mat_ordered)),
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_J_heatmap_raw", "png"),
+                          "panel_J_heatmap_raw.png"),
+  width = fig_w, height = 6,
+  breaks = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 8, fontsize_col = 7,
+  border_color = NA, cellwidth = cw, cellheight = 15,
+  display_numbers = (n_cols <= 30),
+  number_format = "%.0f"
+)
+save_heatmap_fixed_annot(
+  mat        = mat_ordered,
+  row_annot  = row_annot,
+  col_annot  = data.frame(row.names = colnames(mat_ordered)),
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_J_heatmap_raw", "pdf"),
+                          "panel_J_heatmap_raw.pdf"),
+  width = fig_w, height = 6,
+  breaks = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 8, fontsize_col = 7,
+  border_color = NA, cellwidth = cw, cellheight = 15,
+  display_numbers = (n_cols <= 30),
+  number_format = "%.0f"
+)
+cat("Saved raw-synapse heatmap (", nrow(mat_ordered), "x", ncol(mat_ordered), ")\n")
+
+# Report top-5 strongest connections
+top <- which(abs(mat_full) > 0, arr.ind = TRUE)
+if (nrow(top) > 0) {
+  top_df <- data.frame(
+    mAL = rownames(mat_full)[top[, 1]],
+    P1  = colnames(mat_full)[top[, 2]],
+    signed_synapses = mat_full[top]
+  ) %>% arrange(desc(abs(signed_synapses))) %>% head(10)
+  cat("\nTop 10 strongest connections:\n")
+  print(top_df)
+}
+```

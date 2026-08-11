@@ -1,0 +1,431 @@
+---
+title: "Figure 5C: ppk23 Sign Reversal at mAL"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+```{r panel-description, echo=FALSE}
+description <- "
+Panel C: ppk23 pheromone pathways produce opposite effects at different mAL subtypes
+=====================================================================================
+Top: Paired bar chart showing ppk23 (gold) and ppk25 (tan) net path strength
+     per mAL subtype, ordered by ppk23 strength. ppk23 bars go NEGATIVE for
+     F-selective subtypes, revealing the GABAergic sign inversion through AN05B035.
+
+Bottom: Circuit diagram of two pathways:
+  - Direct: ppk23 -> AN09B017a-e -> broad-contact mAL (positive)
+  - Sign-inverted: ppk23 -> AN05B035 (GABA) -> AN09B017g -> F-selective mAL (negative)
+
+Data: Path strength (exc - inh) through K strongest connectome paths.
+"
+pdir <- panel_plot_dir("panel_C_description", "txt")
+writeLines(description, file.path(pdir, "panel_C_description.txt"))
+cat(description)
+```
+
+## Extract ppk23 and ppk25 path strengths
+
+```{r ppk-activations}
+# Get ppk23 and ppk25 signed activation (exc - inh path strength) for each mAL subtype
+ppk_data <- data.frame(
+  target_type = mal_subtypes,
+  ppk23 = mal_activation_matrix[mal_subtypes, "ppk23"],
+  ppk25 = mal_activation_matrix[mal_subtypes, "ppk25"],
+  stringsAsFactors = FALSE
+)
+
+# Add annotations
+ppk_data <- ppk_data %>%
+  mutate(
+    neurotransmitter = mal_nt[target_type]
+  ) %>%
+  arrange(ppk23)  # Order by ppk23 response
+
+cat("ppk23 range:", range(ppk_data$ppk23), "\n")
+cat("ppk25 range:", range(ppk_data$ppk25), "\n")
+cat("Subtypes with negative ppk23:", sum(ppk_data$ppk23 < 0), "\n")
+cat("Subtypes with positive ppk23:", sum(ppk_data$ppk23 > 0), "\n")
+```
+
+## Paired bar chart
+
+```{r paired-bars, fig.width=14, fig.height=6}
+# Reshape for ggplot
+ppk_long <- ppk_data %>%
+  pivot_longer(cols = c(ppk23, ppk25), names_to = "modality", values_to = "activation") %>%
+  mutate(
+    target_type = factor(target_type, levels = ppk_data$target_type),
+    modality = factor(modality, levels = c("ppk23", "ppk25"))
+  )
+
+p_bars <- ggplot(ppk_long, aes(x = target_type, y = activation, fill = modality)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.5, color = "black") +
+  scale_fill_manual(
+    values = c("ppk23" = "#FFD92F", "ppk25" = "#E5C494"),
+    labels = c("ppk23", "ppk25")
+  ) +
+  labs(x = "mAL subtype", y = "Net path strength (exc − inh)",
+       fill = "Sensory channel") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 6),
+    legend.position = "top",
+    panel.grid.major.x = element_blank()
+  )
+
+save_fig5_plot(p_bars, "panel_C_ppk23_sign_reversal", width = 14, height = 6)
+print(p_bars)
+```
+
+## ppk23 vs ppk25 scatter
+
+```{r scatter, fig.width=8, fig.height=8}
+p_scatter <- ggplot(ppk_data, aes(x = ppk23, y = ppk25, color = neurotransmitter)) +
+  geom_vline(xintercept = 0, linewidth = 0.3, linetype = "dashed", color = "grey50") +
+  geom_hline(yintercept = 0, linewidth = 0.3, linetype = "dashed", color = "grey50") +
+  geom_abline(slope = 1, intercept = 0, linewidth = 0.3,
+              linetype = "dotted", color = "grey70") +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(aes(label = target_type), size = 1.8,
+                            max.overlaps = Inf, min.segment.length = 0) +
+  scale_color_manual(values = nt_colors) +
+  labs(x = "ppk23 net path strength",
+       y = "ppk25 net path strength",
+       color = "Neurotransmitter") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "top")
+
+save_fig5_plot(p_scatter, "panel_C_ppk23_vs_ppk25_scatter", width = 8, height = 8)
+print(p_scatter)
+```
+
+## Combined panel: bars + scatter
+
+```{r combined, fig.width=16, fig.height=7}
+p_combined <- p_bars + p_scatter +
+  plot_layout(widths = c(1.5, 1)) +
+  plot_annotation(tag_levels = "a")
+
+save_fig5_plot(p_combined, "panel_C_combined", width = 16, height = 7)
+print(p_combined)
+```
+
+## Supplementary: GABA sign-inverter pool dual-channel sign inversion (ppk23 AND ppk25)
+
+```{r dual-channel-supp, fig.width=11, fig.height=11}
+# The GABA sign-inverter POOL (11 cells: AN05B021, AN05B023a-d, AN05B025,
+# AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b) receives direct
+# input from BOTH ppk23 AND ppk25 contact sensilla. The sign-inverted
+# drive observed at F-selective mAL subtypes is therefore carried by
+# BOTH channels, not only ppk23. This supplement makes that explicit
+# by aggregating across the whole pool rather than singling out AN05B035.
+
+stopifnot(exists("mal_paths"))
+
+# Pool of GABA sign-inverter types (replicates setup_mspecific.R's
+# gaba_sign_inverter_types definition; inlined here since panel_C sources
+# setup.R only).
+if (!exists("gaba_sign_inverter_types")) {
+  .gaba_type_pool_c <- mba %>%
+    dplyr::select(type, consensus_nt) %>%
+    dplyr::distinct() %>%
+    dplyr::group_by(type) %>% dplyr::slice(1) %>% dplyr::ungroup() %>%
+    dplyr::filter(!is.na(consensus_nt), consensus_nt == "gaba",
+                  grepl("^(AN05B|IN05)", type)) %>%
+    dplyr::pull(type)
+  .inh_interior_nodes_c <- mal_paths %>%
+    dplyr::filter(valence == "inhibitory",
+                  modality %in% c("ppk23","ppk25"),
+                  end %in% mal_subtypes) %>%
+    dplyr::pull(path) %>%
+    lapply(function(p) {
+      t <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+      if (length(t) <= 2) character(0) else t[-c(1, length(t))]
+    }) %>%
+    unlist() %>% unique()
+  gaba_sign_inverter_types <- intersect(.gaba_type_pool_c, .inh_interior_nodes_c)
+  rm(.gaba_type_pool_c, .inh_interior_nodes_c)
+}
+cat("GABA sign-inverter pool (n =", length(gaba_sign_inverter_types), "):\n  ",
+    paste(gaba_sign_inverter_types, collapse = ", "), "\n")
+
+parse_path_nodes <- function(p) strsplit(p, " -> ", fixed = TRUE)[[1]]
+
+path_via_gaba_si_local <- function(path_str) {
+  toks <- parse_path_nodes(path_str)
+  if (length(toks) <= 2) return(FALSE)
+  ints <- toks[-c(1, length(toks))]
+  any(ints %in% gaba_sign_inverter_types)
+}
+
+compute_gaba_si_contribution <- function(modality_label) {
+  # Per-mAL signed GABA sign-inverter pool contribution to <modality> drive.
+  # Pick out <modality>-originated paths whose interior traverses any pool
+  # member, sum strength, and negate (the pool is GABAergic -> sign-inverting).
+  paths_mod <- mal_paths %>%
+    filter(modality == modality_label, end %in% mal_subtypes)
+
+  paths_mod <- paths_mod %>%
+    rowwise() %>%
+    mutate(via_pool = path_via_gaba_si_local(path)) %>%
+    ungroup()
+
+  via_df <- paths_mod %>%
+    filter(via_pool) %>%
+    group_by(end) %>%
+    summarise(pool_raw = sum(strength, na.rm = TRUE), .groups = "drop")
+
+  # Signed GABA SI pool contribution = negated raw path strength (GABA inversion)
+  out <- data.frame(target_type = mal_subtypes, stringsAsFactors = FALSE) %>%
+    left_join(via_df, by = c("target_type" = "end")) %>%
+    mutate(pool_raw = coalesce(pool_raw, 0),
+           pool_signed = -pool_raw)
+  out
+}
+
+gaba_ppk23 <- compute_gaba_si_contribution("ppk23") %>%
+  rename(gaba_ppk23 = pool_signed) %>% select(target_type, gaba_ppk23)
+gaba_ppk25 <- compute_gaba_si_contribution("ppk25") %>%
+  rename(gaba_ppk25 = pool_signed) %>% select(target_type, gaba_ppk25)
+
+dual_df <- data.frame(
+  target_type = mal_subtypes,
+  ppk23_drive = mal_activation_matrix[mal_subtypes, "ppk23"],
+  ppk25_drive = mal_activation_matrix[mal_subtypes, "ppk25"],
+  stringsAsFactors = FALSE
+) %>%
+  left_join(gaba_ppk23, by = "target_type") %>%
+  left_join(gaba_ppk25, by = "target_type") %>%
+  arrange(ppk23_drive)
+
+# Enforce shared x-axis ordering across all four panels
+row_order <- dual_df$target_type
+dual_df$target_type <- factor(dual_df$target_type, levels = row_order)
+
+cat("GABA sign-inverter pool dual-channel contribution summary:\n")
+cat(sprintf("  ppk23 signed contribution range: [%.4f, %.4f]\n",
+            min(dual_df$gaba_ppk23), max(dual_df$gaba_ppk23)))
+cat(sprintf("  ppk25 signed contribution range: [%.4f, %.4f]\n",
+            min(dual_df$gaba_ppk25), max(dual_df$gaba_ppk25)))
+cat(sprintf("  subtypes with nonzero GABA-SI-ppk23 contribution: %d/%d\n",
+            sum(dual_df$gaba_ppk23 != 0), nrow(dual_df)))
+cat(sprintf("  subtypes with nonzero GABA-SI-ppk25 contribution: %d/%d\n",
+            sum(dual_df$gaba_ppk25 != 0), nrow(dual_df)))
+
+# Shared colour convention:
+#   Row 1 (ppk23 path drive)       -> red
+#   Row 2 (ppk25 path drive)       -> orange
+#   Row 3 (GABA SI pool -> ppk23)  -> dark blue (GABA / inversion)
+#   Row 4 (GABA SI pool -> ppk25)  -> dark blue (GABA / inversion)
+bar_fill_signed <- function(values, pos_col, neg_col) {
+  ifelse(values >= 0, pos_col, neg_col)
+}
+
+plot_signed_bars <- function(values_col, pos_col, neg_col, y_lab) {
+  df_i <- dual_df %>%
+    mutate(val = .data[[values_col]],
+           fill_col = bar_fill_signed(val, pos_col, neg_col))
+  ggplot(df_i, aes(x = target_type, y = val, fill = fill_col)) +
+    geom_col(width = 0.75) +
+    geom_hline(yintercept = 0, linewidth = 0.4, color = "black") +
+    scale_fill_identity() +
+    labs(x = NULL, y = y_lab) +
+    theme_pub(base_size = 10) +
+    theme(
+      axis.text.x = element_text(angle = 35, hjust = 1, size = 6),
+      panel.grid.major.x = element_blank()
+    )
+}
+
+# Unified Panel M palette:
+#   ppk23 channel              -> red (pos) / muted red (neg)
+#   ppk25 channel              -> orange (pos) / muted orange (neg)
+#   GABA SI pool contribution  -> dark blue (inverting GABA)
+#
+# Mirror of setup_mspecific.R's canonical `panel_M_palette` (inlined here
+# because panel_C sources setup.R only -- sourcing setup_mspecific.R would
+# also run its male-specific mAL filter, which would shrink mal_subtypes
+# used by the earlier chunks of this Rmd). Keep the hex codes in sync with
+# figures/fig5/setup_mspecific.R:panel_M_palette.
+if (!exists("panel_M_palette")) {
+  panel_M_palette <- c(
+    ppk23        = "#C0272D",  # red -- ppk23 contact-pheromone excitatory
+    ppk25        = "#F4A261",  # orange -- ppk25 contact-pheromone excitatory
+    gaba_si      = "#1F4E79"   # dark blue -- GABA sign-inverter pool
+  )
+}
+stopifnot(all(c("ppk23", "ppk25", "gaba_si") %in% names(panel_M_palette)))
+
+p1 <- plot_signed_bars("ppk23_drive",
+                       pos_col = unname(panel_M_palette["ppk23"]),   # #C0272D
+                       neg_col = "#7A1A1F",
+                       y_lab = "ppk23 path drive\n(exc \u2212 inh)")
+p2 <- plot_signed_bars("ppk25_drive",
+                       pos_col = unname(panel_M_palette["ppk25"]),   # #F4A261
+                       neg_col = "#B16A2D",
+                       y_lab = "ppk25 path drive\n(exc \u2212 inh)")
+p3 <- plot_signed_bars("gaba_ppk23",
+                       pos_col = "#6790B8",
+                       neg_col = unname(panel_M_palette["gaba_si"]), # #1F4E79
+                       y_lab = "GABA sign-inverter signed\ncontrib. to ppk23 drive")
+p4 <- plot_signed_bars("gaba_ppk25",
+                       pos_col = "#6790B8",
+                       neg_col = unname(panel_M_palette["gaba_si"]), # #1F4E79
+                       y_lab = "GABA sign-inverter signed\ncontrib. to ppk25 drive")
+
+# Strip x-axis labels from top 3 panels, keep bottom-most
+p1 <- p1 + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+p2 <- p2 + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+p3 <- p3 + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+p4 <- p4 + labs(x = "mAL_m subtype (sorted by ppk23 path drive)")
+
+p_dual <- p1 / p2 / p3 / p4 +
+  plot_layout(heights = c(1, 1, 1, 1.15)) +
+  plot_annotation(
+    title    = "GABA sign-inverter pool inverts BOTH ppk23 and ppk25 contact-pheromone channels",
+    subtitle = sprintf(
+      "Rows a-b: raw channel drives. Rows c-d: GABA sign-inverter pool routed component (n=%d pool members; dark blue where inhibitory).",
+      length(gaba_sign_inverter_types)),
+    tag_levels = "a",
+    theme = theme(
+      plot.title    = element_text(size = 12, face = "bold"),
+      plot.subtitle = element_text(size = 10, color = "grey25")
+    )
+  )
+
+# Write straight to panel_M/pdf/ via panel_plot_dir("panel_M", "pdf")
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+ggsave(file.path(pdf_dir, "panel_M_C_dual_channel.pdf"),
+       plot = p_dual, width = 11, height = 11)
+ggsave(file.path(png_dir, "panel_M_C_dual_channel.png"),
+       plot = p_dual, width = 11, height = 11, dpi = 300)
+message(sprintf("  Wrote: %s", file.path(pdf_dir, "panel_M_C_dual_channel.pdf")))
+
+# Mirror the Panel M dual-channel figure into plots_mspecific/ so that the
+# male-specific Panel M directory stays in sync with this supplementary view.
+pdf_dir_ms <- file.path(fig5_dir, "plots_mspecific", "panel_M", "pdf")
+png_dir_ms <- file.path(fig5_dir, "plots_mspecific", "panel_M", "png")
+dir.create(pdf_dir_ms, recursive = TRUE, showWarnings = FALSE)
+dir.create(png_dir_ms, recursive = TRUE, showWarnings = FALSE)
+ggsave(file.path(pdf_dir_ms, "panel_M_C_dual_channel.pdf"),
+       plot = p_dual, width = 11, height = 11)
+ggsave(file.path(png_dir_ms, "panel_M_C_dual_channel.png"),
+       plot = p_dual, width = 11, height = 11, dpi = 300)
+message(sprintf("  Wrote: %s", file.path(pdf_dir_ms, "panel_M_C_dual_channel.pdf")))
+
+print(p_dual)
+```
+
+## Panel narrative
+
+```{r narrative, echo=FALSE}
+n_neg_ppk23 <- sum(ppk_data$ppk23 < 0)
+n_pos_ppk23 <- sum(ppk_data$ppk23 > 0)
+n_pos_ppk25 <- sum(ppk_data$ppk25 > 0)
+most_neg <- ppk_data$target_type[which.min(ppk_data$ppk23)]
+most_pos <- ppk_data$target_type[which.max(ppk_data$ppk23)]
+ppk23_range <- range(ppk_data$ppk23)
+ppk25_range <- range(ppk_data$ppk25)
+
+neg_ppk23_types <- ppk_data %>% filter(ppk23 < 0) %>% pull(target_type)
+pos_ppk23_types <- ppk_data %>% filter(ppk23 > 0) %>% pull(target_type)
+
+n_neg_ppk25 <- sum(dual_df$gaba_ppk25 < 0)
+n_neg_gaba_ppk23 <- sum(dual_df$gaba_ppk23 < 0)
+
+narrative <- sprintf(
+"PANEL C: Dual-Channel Sign Reversal at mAL via the GABA sign-inverter pool
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Left: Paired bar chart showing ppk23 (gold) and ppk25 (tan) net path strength
+for each mAL subtype, ordered by ppk23 response from most negative to most
+positive. The zero line separates subtypes where ppk23 paths are net-inhibitory
+(bars extending left/down) from those where ppk23 is net-excitatory.
+
+Right: Scatter plot of ppk23 vs ppk25 net path strength, colored by
+neurotransmitter. The quadrants separate subtypes by their response polarity
+to each pheromone channel.
+
+UPDATED FINDING (DUAL-CHANNEL GABA SIGN-INVERTER POOL INPUT)
+------------------------------------------------------------
+Contact-pheromone sign reversal is NOT carried by a single neuron: it is
+distributed across an 11-cell GABA sign-inverter POOL (AN05B021, AN05B023a-d,
+AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b). AN05B035 is
+the highest-throughput member, but its siblings collectively carry a
+comparable share of the inhibitory ppk23/ppk25 routing. Pool members receive
+direct input from BOTH ppk23 and ppk25 contact sensilla; because the pool is
+GABAergic, paths from EITHER channel that pass through any pool member are
+sign-inverted before reaching their mAL_m targets.
+
+The supplementary figure alongside this panel (panel_M/pdf/panel_M_C_dual_channel.pdf)
+makes this explicit: row (a) ppk23 path drive, row (b) ppk25 path drive, row
+(c) the GABA sign-inverter pool's signed contribution to ppk23 drive, row (d)
+the same pool's signed contribution to ppk25 drive -- all sharing the same
+mAL_m x-axis (sorted by ppk23 path drive). Rows (c) and (d) carry the same
+negative-going signature, demonstrating that the pool's inhibitory imprint is
+present on BOTH contact channels. Accordingly, sign reversal should be framed
+as a property of the distributed GABA sign-inverter bottleneck, not as an
+AN05B035-specific or ppk23-specific phenomenon.
+
+KEY OBSERVATIONS
+----------------
+1. %d of %d mAL subtypes have NEGATIVE ppk23 net path strength, meaning
+   ppk23 pheromone input is effectively inhibitory at these neurons.
+   The most negative is %s (ppk23 = %.4f).
+
+2. %d subtypes have positive ppk23, with %s being the strongest
+   (ppk23 = %.4f).
+
+3. ppk25 is positive in %d subtypes -- nearly all mAL neurons receive
+   net-excitatory ppk25 pheromone input.
+
+4. ppk23 ranges from %.4f to %.4f; ppk25 ranges from %.4f to %.4f.
+
+5. Subtypes with negative ppk23 (%s) cluster in the
+   negative-ppk23 / positive-ppk25 quadrant, while subtypes with positive
+   ppk23 (%s) show positive responses to both channels.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The ppk23 sign reversal is a circuit-level computation, not a receptor-level
+property. ppk23 sensory neurons (WG4, LgLG1a, etc.) make excitatory synapses,
+but a distributed pool of GABAergic ascending/interneurons (the GABA
+sign-inverter pool: AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a,
+IN05B002, IN05B011a, IN05B011b) intercepts these signals and re-routes them
+through an inhibitory relay to specific AN09B017 variants. Subtypes wired
+through this inhibitory relay receive ppk23 as a net-negative signal.
+
+This creates two functionally opposite mAL subpopulations:
+  - ppk23-inhibited: excited by female (ppk25) but INHIBITED by male (ppk23)
+    pheromones. These neurons could encode 'female-only' contact.
+  - ppk23-excited: excited by both ppk23 and ppk25. These neurons could
+    encode 'any conspecific contact' regardless of sex.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel C reveals the most surprising finding of the path analysis: the same
+pheromone receptor (ppk23) produces opposite effects at different mAL subtypes.
+This builds directly on Panel B's AN09B017 relay architecture (which showed
+the GABA sign-inverter inhibitory branch) and provides the mechanistic basis
+for the subtype diversity shown in Panel A. The sign reversal is further
+decomposed into its excitatory and inhibitory components in Panel E.
+",
+n_neg_ppk23, nrow(ppk_data), most_neg, ppk23_range[1],
+n_pos_ppk23, most_pos, ppk23_range[2],
+n_pos_ppk25,
+ppk23_range[1], ppk23_range[2], ppk25_range[1], ppk25_range[2],
+paste(neg_ppk23_types, collapse = ", "),
+paste(pos_ppk23_types, collapse = ", ")
+)
+
+save_panel_narrative("panel_C", narrative)
+cat(narrative)
+```

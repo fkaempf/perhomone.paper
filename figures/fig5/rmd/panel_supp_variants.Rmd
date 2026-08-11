@@ -1,0 +1,146 @@
+---
+title: "Figure 5 supplementary heatmap variants (raw / normalized)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(pheatmap)
+```
+
+Produces four supplementary heatmap variants that complement the main panels:
+
+- Panel K: raw-synapse version (main is input-normalized)
+- Panel G: input-normalized version (main is signed synapse counts)
+- Panel D: input-normalized version (main is signed synapse counts)
+- Panel A: raw direct synapse counts from sensory sources to mAL
+  (main is K-strongest-path signed strength)
+
+```{r common}
+save_one <- function(mat, name, row_annot = NA, col_annot = NA,
+                     ann_colors = list(),
+                     diverging = TRUE,
+                     cluster_rows = FALSE, cluster_cols = TRUE,
+                     display_numbers = FALSE, number_format = "%.2f",
+                     cellwidth = 20, cellheight = 16,
+                     fontsize_row = 10, fontsize_col = 9,
+                     width = 10, height = 7) {
+  n_colors <- 100
+  if (diverging) {
+    max_abs <- max(abs(mat)); if (!is.finite(max_abs) || max_abs == 0) max_abs <- 1
+    breaks <- seq(-max_abs, max_abs, length.out = n_colors + 1)
+    colors <- colorRampPalette(c("#2166AC", "white", "#B2182B"))(n_colors)
+  } else {
+    max_v <- max(mat); if (!is.finite(max_v) || max_v == 0) max_v <- 1
+    breaks <- seq(0, max_v, length.out = n_colors + 1)
+    colors <- colorRampPalette(c("white", "#FDD49E", "#FDBB84",
+                                  "#EF6548", "#D7301F", "#990000"))(n_colors)
+  }
+  png_out <- file.path(panel_plot_dir(name, "png"), paste0(name, ".png"))
+  pdf_out <- file.path(panel_plot_dir(name, "pdf"), paste0(name, ".pdf"))
+  for (f in c(png_out, pdf_out)) {
+    pheatmap(mat,
+             annotation_row = row_annot, annotation_col = col_annot,
+             annotation_colors = ann_colors,
+             breaks = breaks, color = colors,
+             cluster_rows = cluster_rows, cluster_cols = cluster_cols,
+             clustering_distance_rows = "euclidean",
+             clustering_distance_cols = "euclidean",
+             clustering_method = "ward.D2",
+             fontsize_row = fontsize_row, fontsize_col = fontsize_col,
+             border_color = NA, cellwidth = cellwidth, cellheight = cellheight,
+             display_numbers = display_numbers, number_format = number_format,
+             filename = f, width = width, height = height, silent = TRUE)
+  }
+  cat("saved", name, "\n")
+}
+```
+
+## Panel K raw (AN09B017 + AN05B035 -> mAL, raw synapses)
+
+```{r panel-K-raw}
+relay_types <- c("AN09B017a","AN09B017b","AN09B017c","AN09B017d",
+                 "AN09B017e","AN09B017f","AN09B017g","AN05B035")
+relay_rows <- intersect(relay_types, rownames(adj.matrix.raw))
+mal_cols   <- intersect(mal_subtypes, colnames(adj.matrix.raw))
+matK <- matrix(0, length(relay_types), length(mal_subtypes),
+               dimnames = list(relay_types, mal_subtypes))
+matK[relay_rows, mal_cols] <- as.matrix(adj.matrix.raw[relay_rows, mal_cols])
+cat("panel K raw: max syn =", max(matK), " nonzero =", sum(matK != 0), "\n")
+save_one(matK, "panel_K_heatmap_raw",
+         diverging = FALSE,
+         cluster_cols = TRUE,
+         display_numbers = TRUE, number_format = "%.0f",
+         cellwidth = 22, cellheight = 20,
+         width = 12, height = 5)
+```
+
+## Panel G normalized (mAL <-> mAL input-normalized)
+
+```{r panel-G-normed}
+mal_rows <- intersect(mal_subtypes, rownames(adj.matrix))
+matG <- as.matrix(adj.matrix[mal_rows, mal_rows])
+# Apply sign based on presynaptic NT
+sign_mult <- ifelse(mal_nt[mal_rows] == "GABA", -1, 1)
+matG <- sweep(matG, 1, sign_mult, "*")
+# Pad to full set
+matG_full <- matrix(0, length(mal_subtypes), length(mal_subtypes),
+                    dimnames = list(mal_subtypes, mal_subtypes))
+matG_full[mal_rows, mal_rows] <- matG
+cat("panel G normed: range =", range(matG_full), " nonzero =", sum(matG_full != 0), "\n")
+save_one(matG_full, "panel_G_lateral_heatmap_normed",
+         diverging = TRUE,
+         cluster_rows = TRUE, cluster_cols = TRUE,
+         cellwidth = 16, cellheight = 16,
+         width = 10, height = 9)
+```
+
+## Panel D normalized (mAL -> P1 input-normalized)
+
+```{r panel-D-normed}
+p1_subtypes <- unique(p1_all_combos$target_type)
+mal_rows <- intersect(mal_subtypes, rownames(adj.matrix))
+p1_cols  <- intersect(p1_subtypes,  colnames(adj.matrix))
+matD <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+               dimnames = list(mal_subtypes, p1_subtypes))
+matD[mal_rows, p1_cols] <- as.matrix(adj.matrix[mal_rows, p1_cols])
+# Sign by NT of mAL
+sign_mult <- ifelse(mal_nt[mal_subtypes] == "GABA", -1, 1)
+matD <- sweep(matD, 1, sign_mult, "*")
+cat("panel D normed: range =", range(matD), " nonzero =", sum(matD != 0), "\n")
+save_one(matD, "panel_D_mal_to_p1_normed",
+         diverging = TRUE,
+         cluster_rows = TRUE, cluster_cols = TRUE,
+         cellwidth = 14, cellheight = 16,
+         width = 14, height = 8)
+```
+
+## Panel A raw direct synapses (sensory sources -> mAL)
+
+```{r panel-A-raw}
+# Aggregate raw synapse counts from each modality's source neurons to each mAL subtype
+matA <- matrix(0, length(mal_subtypes), length(modality_order),
+               dimnames = list(mal_subtypes, modality_order))
+for (mod in modality_order) {
+  sources <- channel_neurons[[mod]]
+  sources <- intersect(sources, rownames(adj.matrix.raw))
+  if (length(sources) == 0) next
+  mal_cols <- intersect(mal_subtypes, colnames(adj.matrix.raw))
+  if (length(mal_cols) == 0) next
+  sub <- as.matrix(adj.matrix.raw[sources, mal_cols, drop = FALSE])
+  if (length(sources) > 1) {
+    matA[mal_cols, mod] <- colSums(sub)
+  } else {
+    matA[mal_cols, mod] <- as.numeric(sub)
+  }
+}
+cat("panel A raw direct synapses: max =", max(matA),
+    " non-zero cells =", sum(matA != 0), "\n")
+save_one(matA, "panel_A_input_profiles_raw_synapses",
+         diverging = FALSE,
+         cluster_rows = TRUE, cluster_cols = FALSE,
+         display_numbers = TRUE, number_format = "%.0f",
+         cellwidth = 26, cellheight = 14,
+         width = 8, height = 10)
+```

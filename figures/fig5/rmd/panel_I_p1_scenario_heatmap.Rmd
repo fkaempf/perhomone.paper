@@ -1,0 +1,95 @@
+---
+title: "Figure 5I: P1 scenario heatmap (P1 analog of panel_I_scenario_heatmap)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this is
+
+P1 analog of `panel_I_scenario_heatmap.pdf` — a diverging heatmap of
+signal-flow `net_input` per P1 subtype under the three encounter scenarios.
+Rows = scenarios, columns = P1 subtypes (clustered for readability), color =
+net input (blue = inhibited, red = excited).
+
+```{r build-matrix}
+scenarios <- c(
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"       = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"     = "DA1+ppk25"
+)
+scenario_colors <- c(
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"       = "#8E24AA",
+  "cVA + female (cVA+ppk25)"     = "#F57C00"
+)
+
+p1_subtypes <- unique(p1_all_combos$target_type)
+
+scenario_data_sf <- list()
+for (nm in names(scenarios)) {
+  d <- p1_all_combos %>%
+    filter(combination == scenarios[[nm]]) %>%
+    select(target_type, net_input)
+  scenario_data_sf[[nm]] <- setNames(d$net_input, d$target_type)
+}
+
+sf_scenario_p1_mat <- do.call(rbind, lapply(scenario_data_sf, function(v) v[p1_subtypes]))
+rownames(sf_scenario_p1_mat) <- names(scenarios)
+sf_scenario_p1_mat[is.na(sf_scenario_p1_mat)] <- 0
+
+cat("Signal flow P1 scenario matrix (3 x", ncol(sf_scenario_p1_mat), "):\n")
+print(round(sf_scenario_p1_mat[, 1:min(10, ncol(sf_scenario_p1_mat))], 3))
+```
+
+## Heatmap
+
+```{r heatmap, fig.width=14, fig.height=5}
+max_abs <- max(abs(sf_scenario_p1_mat))
+if (max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "white", "#B2182B"))(100)
+
+row_annot <- data.frame(encounter = names(scenarios), row.names = names(scenarios))
+col_annot <- data.frame(row.names = colnames(sf_scenario_p1_mat))
+ann_colors <- list(encounter = scenario_colors)
+
+n_cols <- ncol(sf_scenario_p1_mat)
+cw <- min(25, max(11, 500 / n_cols))
+fig_w <- max(12, n_cols * cw / 72 + 4)
+
+save_heatmap_fixed_annot(
+  mat        = sf_scenario_p1_mat,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_I_p1_scenario_heatmap", "png"),
+                          "panel_I_p1_scenario_heatmap.png"),
+  width = fig_w, height = 5,
+  breaks = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 11, fontsize_col = 7,
+  border_color = NA, cellwidth = cw, cellheight = 26
+)
+save_heatmap_fixed_annot(
+  mat        = sf_scenario_p1_mat,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  filename   = file.path(panel_plot_dir("panel_I_p1_scenario_heatmap", "pdf"),
+                          "panel_I_p1_scenario_heatmap.pdf"),
+  width = fig_w, height = 5,
+  breaks = breaks, color = colors,
+  cluster_rows = FALSE, cluster_cols = TRUE,
+  clustering_distance_cols = "euclidean",
+  clustering_method = "ward.D2",
+  fontsize_row = 11, fontsize_col = 7,
+  border_color = NA, cellwidth = cw, cellheight = 26
+)
+cat("Saved P1 scenario heatmap (", nrow(sf_scenario_p1_mat), "x", ncol(sf_scenario_p1_mat), ")\n")
+```

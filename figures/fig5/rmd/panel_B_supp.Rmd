@@ -1,0 +1,80 @@
+---
+title: "Figure 5B supp: AN09B017 input composition as pies vs ppk asymmetry"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(scatterpie)
+```
+
+## What this is
+
+Per-mAL pie-chart scatter.
+
+- **x** = ppk23 - ppk25 path-based drive (male minus female contact). Positive = ppk23-dominant, negative = ppk25-dominant.
+- **y** = % of mAL's total input contributed by all AN09B017 variants combined.
+- **pie** at each mAL's (x, y) = composition of that mAL's AN09B017 input broken down by variant (a-g). Slice area = fraction of AN09B017 input that variant supplies.
+- **pie radius** = constant (purely visual); use y-axis value to read total AN09B017 contribution instead of radius.
+
+```{r build}
+an09_types <- c("AN09B017a","AN09B017b","AN09B017c","AN09B017d",
+                "AN09B017e","AN09B017f","AN09B017g")
+an09_present <- intersect(an09_types, rownames(adj.matrix))
+mal_present  <- intersect(mal_subtypes, colnames(adj.matrix))
+
+w <- as.matrix(adj.matrix[an09_present, mal_present])
+
+df_wide <- tibble(
+  mAL       = mal_present,
+  total_pct = colSums(w) * 100,
+  delta_ppk = mal_activation_matrix[mal_present, "ppk23"] -
+              mal_activation_matrix[mal_present, "ppk25"]
+)
+# Attach per-variant fractions as columns
+for (v in an09_present) {
+  df_wide[[v]] <- ifelse(colSums(w) > 0, w[v, ] / colSums(w), 0)
+}
+print(df_wide)
+```
+
+## Pie scatter
+
+```{r plot, fig.width=10, fig.height=8}
+an09_palette <- setNames(
+  RColorBrewer::brewer.pal(max(3, length(an09_present)), "Set1")[seq_along(an09_present)],
+  an09_present
+)
+
+# Pie radius chosen relative to x/y axis ranges; each pie shows fractions as slices
+x_range <- diff(range(df_wide$delta_ppk))
+y_range <- diff(range(df_wide$total_pct))
+pie_r   <- x_range * 0.04    # ~4% of x axis span
+
+p <- ggplot() +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_scatterpie(data = df_wide,
+                  aes(x = delta_ppk, y = total_pct, r = pie_r),
+                  cols = an09_present,
+                  color = "grey30", linewidth = 0.15) +
+  coord_equal(ratio = x_range / y_range) +
+  scale_fill_manual(values = an09_palette, name = "AN09B017 variant") +
+  ggrepel::geom_text_repel(data = df_wide,
+                           aes(x = delta_ppk, y = total_pct, label = mAL),
+                           size = 2.8, color = "grey25",
+                           max.overlaps = 30, min.segment.length = 0,
+                           box.padding = 0.6, point.padding = pie_r) +
+  labs(
+    x = expression(ppk23 - ppk25 ~ "(male - female contact drive)"),
+    y = "Total AN09B017 input to mAL (% of mAL's total input)",
+    title = "AN09B017 input composition per mAL vs ppk asymmetry"
+  ) +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right",
+        plot.title.position = "plot")
+
+save_fig5_plot(p, "panel_B_an09_dominance_vs_ppk_asymmetry", width = 10, height = 8)
+print(p)
+```

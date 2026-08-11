@@ -1,0 +1,228 @@
+---
+title: "Figure 5A — Supplementary: intermediate-node variants collapsed"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this does
+
+The raw path cache distinguishes fine-grained neuron variants along the relay chain — e.g. `AN09B017a`, `AN09B017b`, ..., `AN09B017g` (7 variants), `AN05B102a/b/c`, etc. The mAL target column in panel A is already at its finest granularity (`mAL_m3a`, `mAL_m3b`, ...), and the user wants to keep those intact.
+
+This supplement asks: **what if we treat each intermediate neuron group as a single aggregate node** (pool AN09B017a–g into AN09B017, AN05B102a–c into AN05B102, etc.), leaving only the sensory source (first hop) and the mAL target (last hop) at their original granularity?
+
+Mechanic: each path is a node sequence. We strip trailing lowercase letters from every **intermediate** node. Paths that collapse to the same sequence get deduplicated — strengths are **summed** across the collapsed variants (biologically: the effective strongest path through "AN09B017" is the pooled contribution of its subvariants that share the same downstream route).
+
+```{r out-dirs}
+supp_png <- panel_plot_dir("panel_A", "png", "supp")
+supp_pdf <- panel_plot_dir("panel_A", "pdf", "supp")
+supp_txt <- panel_plot_dir("panel_A", "txt", "supp")
+```
+
+## Collapse intermediate nodes in each path
+
+```{r collapse-paths}
+collapse_intermediate <- function(path_string) {
+  toks <- strsplit(path_string, " -> ", fixed = TRUE)[[1]]
+  if (length(toks) <= 2) return(paste(toks, collapse = " -> "))
+  # strip trailing single lowercase letter on the intermediate nodes
+  toks[-c(1, length(toks))] <- sub("([a-z])$", "", toks[-c(1, length(toks))])
+  paste(toks, collapse = " -> ")
+}
+
+collapse_paths <- function(paths_df) {
+  paths_df %>%
+    mutate(path_collapsed = vapply(path, collapse_intermediate, character(1))) %>%
+    # Within each (end, modality, valence, collapsed path), the variants
+    # collapse to one logical path. Sum their strengths.
+    group_by(start, end, modality, valence, path_collapsed) %>%
+    summarise(strength = sum(strength, na.rm = TRUE),
+              hops     = first(hops),
+              .groups  = "drop") %>%
+    rename(path = path_collapsed)
+}
+
+paths_raw_collapsed <- collapse_paths(mal_paths)
+
+# Path-count summary before vs after
+before <- mal_paths %>% count(modality, name = "n_before")
+after  <- paths_raw_collapsed %>% count(modality, name = "n_after")
+cat("Path counts per modality (before vs after collapsing intermediates):\n")
+print(full_join(before, after, by = "modality"))
+
+# How many unique intermediate node names disappeared
+unique_nodes_raw <- unique(unlist(strsplit(mal_paths$path, " -> ", fixed = TRUE)))
+unique_nodes_collapsed <- unique(unlist(strsplit(paths_raw_collapsed$path, " -> ", fixed = TRUE)))
+cat(sprintf("\nDistinct node labels in paths:  raw = %d   collapsed = %d   (reduction = %d)\n",
+            length(unique_nodes_raw), length(unique_nodes_collapsed),
+            length(unique_nodes_raw) - length(unique_nodes_collapsed)))
+```
+
+## Helper: activation matrix from any path set (filters to mal_subtypes)
+
+```{r matrix-helper}
+activation_matrix_from <- function(paths_df) {
+  paths_df <- paths_df %>% filter(end %in% mal_subtypes)
+
+  per_valence <- function(val) {
+    paths_df %>%
+      filter(valence == val) %>%
+      group_by(end, modality) %>%
+      summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+      pivot_wider(names_from = modality, values_from = total, values_fill = 0) %>%
+      column_to_rownames("end") %>% as.matrix()
+  }
+  exc <- per_valence("excitatory")
+  inh <- per_valence("inhibitory")
+
+  fill <- function(m) {
+    mr <- setdiff(mal_subtypes, rownames(m))
+    if (length(mr)) m <- rbind(m, matrix(0, length(mr), ncol(m),
+                                         dimnames = list(mr, colnames(m))))
+    mc <- setdiff(modality_order, colnames(m))
+    if (length(mc)) m <- cbind(m, matrix(0, nrow(m), length(mc),
+                                         dimnames = list(rownames(m), mc)))
+    m[mal_subtypes, modality_order, drop = FALSE]
+  }
+  fill(exc) - fill(inh)
+}
+
+plot_supp_heatmap <- function(mat, name, subtitle) {
+  row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"), drop = FALSE]
+  col_annot <- data.frame(modality_group = modality_group[colnames(mat)],
+                          row.names = colnames(mat))
+  ann_colors <- list(
+    neurotransmitter = nt_colors,
+    dimorphism       = dimorphism_colors,
+    modality_group   = modality_group_colors
+  )
+  n_colors <- 100
+  max_abs <- max(abs(mat)); if (max_abs == 0) max_abs <- 1
+  breaks <- seq(-max_abs, max_abs, length.out = n_colors + 1)
+  colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                                "white",
+                                "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(n_colors)
+
+  png_file <- file.path(supp_png, paste0(name, ".png"))
+  pdf_file <- file.path(supp_pdf, paste0(name, ".pdf"))
+
+  for (f in c(png_file, pdf_file)) {
+    pheatmap::pheatmap(
+      mat,
+      annotation_row = row_annot, annotation_col = col_annot,
+      annotation_colors = ann_colors,
+      breaks = breaks, color = colors,
+      cluster_rows = TRUE, cluster_cols = FALSE,
+      clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+      fontsize_row = 6, fontsize_col = 10, border_color = NA,
+      cellwidth = 30, cellheight = 14, gaps_col = c(3, 4, 5),
+      main = subtitle,
+      filename = f, width = 8, height = 10
+    )
+  }
+  cat(sprintf("Saved %s   range [%.4f, %.4f]\n", name, min(mat), max(mat)))
+  invisible(mat)
+}
+```
+
+## Heatmap 1 — from raw paths, intermediates collapsed
+
+```{r lvl1-raw}
+mat_raw <- activation_matrix_from(paths_raw_collapsed)
+plot_supp_heatmap(mat_raw, "panel_A_supp_interm_collapse_raw",
+                  "Intermediate-node variants collapsed (from raw paths)")
+```
+
+## Heatmap 2 — from merged-source paths, intermediates also collapsed
+
+```{r lvl1-merged}
+merged_cache_dir <- file.path(feather_dir, "strongest.paths.merged")
+mat_merge <- NULL
+if (dir.exists(merged_cache_dir) && length(list.files(merged_cache_dir)) > 0) {
+  load_merged <- function() {
+    out <- list()
+    for (mod in modality_order) {
+      lbl <- modality_file_labels[[mod]]
+      fname <- file.path(merged_cache_dir,
+        sprintf("strongest.%d.paths.%s_merged.2.%s.feather",
+                n_paths_mal, lbl, target_name_mal))
+      if (!file.exists(fname)) next
+      df <- read_feather(fname)
+      df <- drop_list_cols(df)
+      df$modality <- mod
+      out[[mod]] <- df
+    }
+    bind_rows(out)
+  }
+  mal_paths_merged <- load_merged()
+
+  if (nrow(mal_paths_merged) > 0) {
+    paths_merged_collapsed <- collapse_paths(mal_paths_merged)
+    mat_merge <- activation_matrix_from(paths_merged_collapsed)
+    plot_supp_heatmap(mat_merge, "panel_A_supp_interm_collapse_merged",
+                      "Intermediate-node variants collapsed AND sources merged")
+  } else {
+    cat("No merged paths found; skipping combined heatmap.\n")
+  }
+} else {
+  cat("Merged cache not present. Run panel_A_supp_real_merge.Rmd first.\n")
+}
+```
+
+## Summary
+
+```{r summary, echo=FALSE}
+rows <- list(
+  tibble(method = "raw (panel A)",           modality = colnames(mal_activation_matrix),
+         mean_abs = colMeans(abs(mal_activation_matrix))),
+  tibble(method = "intermediates collapsed", modality = colnames(mat_raw),
+         mean_abs = colMeans(abs(mat_raw)))
+)
+if (!is.null(mat_merge)) {
+  rows <- c(rows, list(
+    tibble(method = "intermediates + sources merged", modality = colnames(mat_merge),
+           mean_abs = colMeans(abs(mat_merge)))
+  ))
+}
+summary_df <- bind_rows(rows) %>%
+  group_by(method) %>% mutate(rel = mean_abs / max(mean_abs)) %>% ungroup() %>%
+  mutate(modality = factor(modality, levels = modality_order))
+
+write.csv(summary_df, file.path(supp_txt, "panel_A_supp_interm_collapse_summary.csv"),
+          row.names = FALSE)
+print(summary_df %>% select(method, modality, rel) %>%
+      pivot_wider(names_from = method, values_from = rel))
+
+txt <- sprintf(
+"Panel A supplement -- intermediate-node variants collapsed
+===========================================================
+
+Collapse rule: for each cached path, strip trailing single lowercase letter
+from every *intermediate* node (not the sensory source, not the mAL target).
+Example: AN09B017a/b/c/d/e/f/g all collapse to AN09B017.
+
+Paths that become identical after collapsing are deduplicated; their
+strengths are summed (biologically: the effective aggregate AN09B017 neuron
+contributes the pooled synaptic drive of its variants along the shared
+downstream route).
+
+Distinct node labels along paths:
+  raw         : %d
+  collapsed   : %d
+  reduction   : %d
+
+Heatmaps:
+  - panel_A_supp_interm_collapse_raw       (from mal_paths, intermediates collapsed)
+  - panel_A_supp_interm_collapse_merged    (from merged-source cache, intermediates also collapsed)
+
+Note: mAL targets are kept at their finest granularity (mAL_m3a, mAL_m3b, ...)
+so the heatmap is directly comparable to the main panel A.
+",
+length(unique_nodes_raw), length(unique_nodes_collapsed),
+length(unique_nodes_raw) - length(unique_nodes_collapsed))
+writeLines(txt, file.path(supp_txt, "panel_A_supp_interm_collapse.txt"))
+cat(txt)
+```

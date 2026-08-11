@@ -1,0 +1,115 @@
+---
+title: "Figure 5A: top-K widest paths (sum and mean bottleneck)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(pheatmap)
+```
+
+## What this is
+
+Two additional raw-synapse aggregations of Panel A, sitting between the
+"single widest path" (A-SUPP) and "max-flow" (A-SUPP-2) extremes:
+
+- **Sum of top-K widest bottlenecks**: pick the K paths with highest
+  bottleneck per valence, sum their bottleneck synapse counts. Treats routes
+  as parallel pipes. Double-counts when paths share bottleneck edges.
+- **Mean of top-K widest bottlenecks**: same K paths, mean instead of sum.
+  Represents "typical capacity of the strongest K routes", robust to
+  parallel-route redundancy.
+
+K = 10 for both.
+
+```{r compute}
+K <- 10
+
+parse_path <- function(p) strsplit(p, " -> ", fixed = TRUE)[[1]]
+path_bottleneck <- function(p) {
+  toks <- parse_path(p)
+  if (length(toks) < 2) return(NA_real_)
+  synapses <- adj.matrix.raw[cbind(toks[-length(toks)], toks[-1])]
+  if (any(!is.finite(synapses))) return(NA_real_)
+  min(synapses)
+}
+
+cat("Computing bottlenecks for", nrow(mal_paths), "paths...\n")
+mp <- mal_paths %>%
+  filter(end %in% mal_subtypes) %>%
+  mutate(bn = vapply(path, path_bottleneck, numeric(1)))
+
+agg <- function(fn, label) {
+  exc <- mp %>% filter(valence == "excitatory") %>%
+    group_by(end, modality) %>%
+    arrange(desc(bn)) %>%
+    slice_head(n = K) %>%
+    summarise(v = fn(bn, na.rm = TRUE), .groups = "drop") %>%
+    mutate(v = ifelse(is.finite(v), v, 0)) %>%
+    pivot_wider(names_from = modality, values_from = v, values_fill = 0) %>%
+    column_to_rownames("end") %>% as.matrix()
+  inh <- mp %>% filter(valence == "inhibitory") %>%
+    group_by(end, modality) %>%
+    arrange(desc(bn)) %>%
+    slice_head(n = K) %>%
+    summarise(v = fn(bn, na.rm = TRUE), .groups = "drop") %>%
+    mutate(v = ifelse(is.finite(v), v, 0)) %>%
+    pivot_wider(names_from = modality, values_from = v, values_fill = 0) %>%
+    column_to_rownames("end") %>% as.matrix()
+
+  fill <- function(m) {
+    mr <- setdiff(mal_subtypes, rownames(m))
+    if (length(mr)) m <- rbind(m, matrix(0, length(mr), ncol(m), dimnames = list(mr, colnames(m))))
+    mc <- setdiff(modality_order, colnames(m))
+    if (length(mc)) m <- cbind(m, matrix(0, nrow(m), length(mc), dimnames = list(rownames(m), mc)))
+    m[mal_subtypes, modality_order, drop = FALSE]
+  }
+  fill(exc) - fill(inh)
+}
+
+mat_sum  <- agg(sum,  "sum")
+mat_mean <- agg(mean, "mean")
+cat("sum  range:", range(mat_sum),  "\n")
+cat("mean range:", range(mat_mean), "\n")
+```
+
+## Heatmaps
+
+```{r plot}
+make_plot <- function(mat, name, fmt = "%.0f") {
+  row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"), drop = FALSE]
+  col_annot <- data.frame(modality_group = modality_group[colnames(mat)],
+                          row.names = colnames(mat))
+  ann_colors <- list(
+    neurotransmitter = nt_colors,
+    dimorphism       = dimorphism_colors,
+    modality_group   = modality_group_colors
+  )
+  max_abs <- max(abs(mat)); if (!is.finite(max_abs) || max_abs == 0) max_abs <- 1
+  breaks <- seq(-max_abs, max_abs, length.out = 101)
+  colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                                "white",
+                                "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100)
+  for (ext in c("png", "pdf")) {
+    pheatmap(
+      mat,
+      annotation_row = row_annot, annotation_col = col_annot,
+      annotation_colors = ann_colors,
+      breaks = breaks, color = colors,
+      cluster_rows = TRUE, cluster_cols = FALSE,
+      clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+      fontsize_row = 7, fontsize_col = 10,
+      border_color = NA, cellwidth = 40, cellheight = 18,
+      gaps_col = c(3, 4, 5),
+      display_numbers = TRUE, number_format = fmt, fontsize_number = 5,
+      filename = file.path(panel_plot_dir(name, ext), paste0(name, ".", ext)),
+      width = 8, height = 10, silent = TRUE
+    )
+  }
+  cat("saved", name, "\n")
+}
+
+make_plot(mat_sum,  "panel_A_input_profiles_topK_sum",  fmt = "%.0f")
+make_plot(mat_mean, "panel_A_input_profiles_topK_mean", fmt = "%.0f")
+```

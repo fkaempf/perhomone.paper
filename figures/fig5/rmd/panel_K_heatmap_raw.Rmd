@@ -1,0 +1,128 @@
+---
+title: "Figure 5K: raw-synapse AN09B017+AN05B035 -> mAL heatmap"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this is
+
+Raw-synapse-count version of `panel_K_heatmap.pdf`. Rows = AN09B017 variants
+a-g plus AN05B035 (the GABAergic sign inverter). Columns = mAL subtypes.
+Values = **raw synapse count** (from `adj.matrix.raw`), unsigned (the relay
+identity is reported in the row annotation).
+
+```{r build}
+an09_types <- c("AN09B017a", "AN09B017b", "AN09B017c", "AN09B017d",
+                "AN09B017e", "AN09B017f", "AN09B017g")
+relay_types <- c(an09_types, "AN05B035")
+relay_rows_present <- intersect(relay_types, rownames(adj.matrix.raw))
+mal_cols_present   <- intersect(mal_subtypes,  colnames(adj.matrix.raw))
+
+mat_raw <- as.matrix(adj.matrix.raw[relay_rows_present, mal_cols_present])
+# Pad to full row/col sets
+mat <- matrix(0, length(relay_types), length(mal_subtypes),
+              dimnames = list(relay_types, mal_subtypes))
+mat[relay_rows_present, mal_cols_present] <- mat_raw
+cat("Raw synapse range:", range(mat), " non-zero cells:", sum(mat != 0), "\n")
+
+relay_nt <- sapply(relay_types, function(t) {
+  r <- mba %>% filter(type == t) %>% pull(consensus_nt)
+  if (length(r) == 0) return("unknown")
+  r <- r[!is.na(r) & r != ""]
+  if (length(r) == 0) "unknown" else names(sort(table(r), decreasing = TRUE))[1]
+})
+
+# Per-AN09 input-selectivity label (reused from panel K definition)
+relay_selectivity <- sapply(relay_types, function(t) {
+  if (t == "AN05B035") return("sign_inverter")
+  ppk23 <- conn %>% filter(post_type == t, pre_type == "ppk23") %>%
+    summarise(w = sum(weight, na.rm = TRUE)) %>% pull(w)
+  ppk25 <- conn %>% filter(post_type == t, pre_type == "ppk25") %>%
+    summarise(w = sum(weight, na.rm = TRUE)) %>% pull(w)
+  if (length(ppk23) == 0) ppk23 <- 0
+  if (length(ppk25) == 0) ppk25 <- 0
+  ratio <- log2((ppk23 + 1) / (ppk25 + 1))
+  if (ratio > 1)      "ppk23-biased"
+  else if (ratio < -1) "ppk25-biased"
+  else                 "balanced"
+})
+
+row_annot <- data.frame(
+  neurotransmitter  = relay_nt,
+  input_selectivity = relay_selectivity,
+  row.names         = relay_types
+)
+
+mal_dim <- setNames(mal_dimorphism[mal_subtypes], mal_subtypes)
+col_annot <- data.frame(
+  dimorphism = mal_dim[mal_subtypes],
+  row.names  = mal_subtypes
+)
+
+selectivity_colors <- c(
+  "ppk23-biased" = "#D62728",
+  "ppk25-biased" = "#2CA02C",
+  "balanced"     = "#1F77B4",
+  "sign_inverter"= "#000000"
+)
+relay_nt_colors <- nt_colors[intersect(names(nt_colors), unique(relay_nt))]
+if (!"unknown" %in% names(relay_nt_colors) && "unknown" %in% relay_nt)
+  relay_nt_colors <- c(relay_nt_colors, unknown = "grey60")
+
+ann_colors <- list(
+  neurotransmitter  = relay_nt_colors,
+  input_selectivity = selectivity_colors,
+  dimorphism        = dimorphism_colors
+)
+```
+
+## Heatmap
+
+```{r heatmap, fig.width=12, fig.height=5}
+max_val <- max(mat); if (max_val == 0) max_val <- 1
+breaks  <- seq(0, max_val, length.out = 101)
+colors  <- colorRampPalette(c("white", "#FDD49E", "#FDBB84", "#EF6548",
+                               "#D7301F", "#990000"))(100)
+
+n_cols <- ncol(mat)
+cw <- min(28, max(14, 500 / n_cols))
+fig_w <- max(10, n_cols * cw / 72 + 4)
+
+for (ext in c("png", "pdf")) {
+  save_heatmap_fixed_annot(
+    mat        = mat,
+    row_annot  = row_annot,
+    col_annot  = col_annot,
+    ann_colors = ann_colors,
+    filename   = file.path(panel_plot_dir("panel_K_heatmap_raw", ext),
+                            paste0("panel_K_heatmap_raw.", ext)),
+    width = fig_w, height = 5,
+    breaks = breaks, color = colors,
+    cluster_rows = FALSE, cluster_cols = TRUE,
+    clustering_distance_cols = "euclidean",
+    clustering_method = "ward.D2",
+    fontsize_row = 11, fontsize_col = 10,
+    border_color = NA, cellwidth = cw, cellheight = 22,
+    display_numbers = TRUE, number_format = "%.0f"
+  )
+}
+
+cat("Saved raw-synapse heatmap (", nrow(mat), "x", ncol(mat),
+    "); max = ", max_val, "\n", sep="")
+
+# Top connections
+top <- which(mat > 0, arr.ind = TRUE)
+if (nrow(top) > 0) {
+  top_df <- data.frame(
+    relay = rownames(mat)[top[, 1]],
+    mAL   = colnames(mat)[top[, 2]],
+    syn   = mat[top]
+  ) %>% arrange(desc(syn)) %>% head(10)
+  cat("\nTop 10 relay -> mAL connections (raw synapses):\n")
+  print(top_df)
+}
+```

@@ -1,0 +1,163 @@
+---
+title: "Figure 5L: mAL + P1 ppk selectivity in shared coordinate system"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this is
+
+Two overlay plots that put mAL and P1 subtypes on the same coordinate system,
+directly answering "does ppk selectivity survive the synapse from mAL to P1?".
+
+- **Path-based**: x = ppk23 drive, y = ppk25 drive.
+  mAL ppk23/ppk25 = columns of `mal_activation_matrix`.
+  P1 ppk23/ppk25 = `mal_activation_matrix[, ppk] %*% mal_p1_signed`.
+- **Signal-flow**: x = ppk23-alone net input, y = (ppk23+ppk25) co-activation
+  net input (same axes as `panel_L_*_sf_ppk_selectivity.pdf`).
+
+Shape/color distinguishes the two populations.
+
+```{r build-path}
+p1_subtypes <- unique(p1_all_combos$target_type)
+
+mal_rows_present <- intersect(mal_subtypes, rownames(adj.matrix))
+p1_cols_present  <- intersect(p1_subtypes,  colnames(adj.matrix))
+mal_p1_signed    <- matrix(0, length(mal_subtypes), length(p1_subtypes),
+                           dimnames = list(mal_subtypes, p1_subtypes))
+mal_p1_signed[mal_rows_present, p1_cols_present] <-
+  as.matrix(adj.matrix[mal_rows_present, p1_cols_present])
+sign_mult <- ifelse(mal_nt[mal_subtypes] == "GABA", -1, 1)
+mal_p1_signed <- sweep(mal_p1_signed, 1, sign_mult, "*")
+
+mal_path <- tibble(
+  type  = mal_subtypes,
+  pop   = "mAL",
+  ppk23 = mal_activation_matrix[mal_subtypes, "ppk23"],
+  ppk25 = mal_activation_matrix[mal_subtypes, "ppk25"]
+)
+p1_path <- tibble(
+  type  = p1_subtypes,
+  pop   = "P1",
+  ppk23 = as.numeric(mal_activation_matrix[mal_subtypes, "ppk23"] %*% mal_p1_signed),
+  ppk25 = as.numeric(mal_activation_matrix[mal_subtypes, "ppk25"] %*% mal_p1_signed)
+)
+path_df <- bind_rows(mal_path, p1_path) %>%
+  filter(abs(ppk23) > 1e-6 | abs(ppk25) > 1e-6) %>%
+  mutate(pop = factor(pop, levels = c("mAL", "P1")))
+
+cat("Path-based combined: ", nrow(path_df), "subtypes total\n")
+cat("ppk23 range:", range(path_df$ppk23), "\n")
+cat("ppk25 range:", range(path_df$ppk25), "\n")
+```
+
+## Overlay scatter — path-based
+
+```{r path-scatter, fig.width=9, fig.height=8}
+pop_colors <- c("mAL" = "#1F77B4", "P1" = "#D62728")
+
+# Label top-N per population by distance from origin
+label_set <- path_df %>%
+  mutate(d = sqrt(ppk23^2 + ppk25^2)) %>%
+  group_by(pop) %>%
+  slice_max(d, n = 12) %>%
+  pull(type)
+
+p_path <- ggplot(path_df, aes(x = ppk23, y = ppk25,
+                              color = pop, shape = pop)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey60", linewidth = 0.3) +
+  geom_point(size = 3, alpha = 0.85) +
+  ggrepel::geom_text_repel(
+    data = path_df %>% filter(type %in% label_set),
+    aes(label = type), size = 2.8, color = "grey20",
+    max.overlaps = 30, min.segment.length = 0
+  ) +
+  scale_color_manual(values = pop_colors, name = "Population") +
+  scale_shape_manual(values = c("mAL" = 16, "P1" = 17), name = "Population") +
+  coord_fixed(ratio = 1) +
+  labs(x = "ppk23 path drive",
+       y = "ppk25 path drive",
+       title = "mAL and P1 ppk selectivity in shared path-based coordinate system") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right",
+        plot.title.position = "plot")
+
+save_fig5_plot(p_path, "panel_L_mal_and_p1_ppk_selectivity", width = 9, height = 8)
+print(p_path)
+```
+
+## Signal-flow version
+
+```{r build-sf}
+# x = ppk23 alone net_input;  y = ppk23 + ppk25 co-activation net_input.
+mal_sf <- tibble(
+  type  = rownames(mal_sf_net_input_matrix),
+  pop   = "mAL",
+  ppk23_sf       = mal_sf_net_input_matrix[, "ppk23"],
+  ppk23_ppk25_sf = setNames(
+    mal_all_combos %>%
+      filter(combination == "ppk25",
+             target_type %in% rownames(mal_sf_net_input_matrix)) %>%
+      pull(net_input),
+    mal_all_combos %>%
+      filter(combination == "ppk25",
+             target_type %in% rownames(mal_sf_net_input_matrix)) %>%
+      pull(target_type)
+  )[rownames(mal_sf_net_input_matrix)]
+) %>% filter(type %in% mal_subtypes)
+
+p1_sf <- tibble(
+  type  = rownames(p1_sf_activation_matrix),
+  pop   = "P1",
+  ppk23_sf = p1_sf_activation_matrix[, "ppk23"],
+  ppk23_ppk25_sf = setNames(
+    p1_all_combos %>% filter(combination == "ppk25") %>% pull(net_input),
+    p1_all_combos %>% filter(combination == "ppk25") %>% pull(target_type)
+  )[rownames(p1_sf_activation_matrix)]
+)
+
+sf_df <- bind_rows(mal_sf, p1_sf) %>%
+  filter(abs(ppk23_sf) > 1e-4 | abs(ppk23_ppk25_sf) > 1e-4) %>%
+  mutate(pop = factor(pop, levels = c("mAL", "P1")))
+
+cat("Signal-flow combined: ", nrow(sf_df), "subtypes total\n")
+```
+
+```{r sf-scatter, fig.width=9, fig.height=8}
+label_set_sf <- sf_df %>%
+  mutate(d = sqrt(ppk23_sf^2 + ppk23_ppk25_sf^2)) %>%
+  group_by(pop) %>%
+  slice_max(d, n = 12) %>%
+  pull(type)
+
+p_sf <- ggplot(sf_df, aes(x = ppk23_sf, y = ppk23_ppk25_sf,
+                          color = pop, shape = pop)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.2, color = "grey70") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey60", linewidth = 0.3) +
+  geom_point(size = 3, alpha = 0.85) +
+  ggrepel::geom_text_repel(
+    data = sf_df %>% filter(type %in% label_set_sf),
+    aes(label = type), size = 2.8, color = "grey20",
+    max.overlaps = 30, min.segment.length = 0
+  ) +
+  scale_color_manual(values = pop_colors, name = "Population") +
+  scale_shape_manual(values = c("mAL" = 16, "P1" = 17), name = "Population") +
+  coord_fixed(ratio = 1) +
+  labs(x = "ppk23 alone (signal flow net input)",
+       y = "ppk25 alone (signal flow net input)",
+       title = "mAL and P1 ppk selectivity in shared signal-flow coordinate system") +
+  theme_pub(base_size = 10) +
+  theme(legend.position = "right",
+        plot.title.position = "plot")
+
+save_fig5_plot(p_sf, "panel_L_mal_and_p1_sf_ppk_selectivity", width = 9, height = 8)
+print(p_sf)
+```

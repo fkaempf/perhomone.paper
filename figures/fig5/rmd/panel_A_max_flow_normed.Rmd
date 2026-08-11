@@ -1,0 +1,114 @@
+---
+title: "Figure 5A: max-flow input-normalized version"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(pheatmap)
+library(igraph)
+```
+
+## What this is
+
+Input-normalized max-flow version of Panel A. Same procedure as
+`panel_A_input_profiles_max_flow` but with edge capacities taken from
+`adj.matrix` (input-normalized weight = fraction of postsynaptic neuron's
+input budget) instead of raw synapse counts. This interprets each edge as a
+channel capacity expressed as input-normalized synapse fractions, so the
+max-flow result is in the same units as panel A's path-strength products.
+
+```{r compute}
+parse_path <- function(p) strsplit(p, " -> ", fixed = TRUE)[[1]]
+
+all_edges_for_paths <- function(paths_df) {
+  edges <- lapply(paths_df$path, function(p) {
+    toks <- parse_path(p)
+    if (length(toks) < 2) return(NULL)
+    data.frame(from = toks[-length(toks)], to = toks[-1], stringsAsFactors = FALSE)
+  })
+  bind_rows(edges) %>% distinct(from, to)
+}
+
+compute_max_flow <- function(paths_df, sources, target) {
+  if (nrow(paths_df) == 0) return(0)
+  ed <- all_edges_for_paths(paths_df)
+  if (nrow(ed) == 0) return(0)
+  ed$w <- adj.matrix[cbind(ed$from, ed$to)]   # input-normalized
+  ed <- ed %>% filter(is.finite(w), w > 0)
+  if (nrow(ed) == 0) return(0)
+
+  present_sources <- intersect(sources, unique(c(ed$from, ed$to)))
+  if (length(present_sources) == 0) return(0)
+  ss <- data.frame(from = "__SS__", to = present_sources, w = 1e9)
+  ed_full <- rbind(ed, ss)
+
+  g <- graph_from_data_frame(ed_full, directed = TRUE)
+  if (!(target %in% V(g)$name) || !("__SS__" %in% V(g)$name)) return(0)
+  flow <- max_flow(g, source = "__SS__", target = target, capacity = E(g)$w)
+  as.numeric(flow$value)
+}
+
+modalities <- modality_order
+mat_exc <- matrix(0, length(mal_subtypes), length(modalities),
+                  dimnames = list(mal_subtypes, modalities))
+mat_inh <- mat_exc
+
+cat("Computing input-normalized max-flow for",
+    length(mal_subtypes) * length(modalities), "pairs...\n")
+t0 <- Sys.time()
+for (mal in mal_subtypes) {
+  for (mod in modalities) {
+    srcs <- channel_neurons[[mod]]
+    sub <- mal_paths %>% filter(modality == mod, end == mal)
+    if (nrow(sub) == 0) next
+    mat_exc[mal, mod] <- compute_max_flow(sub %>% filter(valence == "excitatory"),
+                                          srcs, mal)
+    mat_inh[mal, mod] <- compute_max_flow(sub %>% filter(valence == "inhibitory"),
+                                          srcs, mal)
+  }
+}
+cat("done in", as.numeric(difftime(Sys.time(), t0, units = "secs")), "s\n")
+
+mat <- mat_exc - mat_inh
+cat("net range:", range(mat), "\n")
+```
+
+## Heatmap
+
+```{r heatmap, fig.width=8, fig.height=10}
+row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"), drop = FALSE]
+col_annot <- data.frame(modality_group = modality_group[colnames(mat)],
+                        row.names = colnames(mat))
+ann_colors <- list(
+  neurotransmitter = nt_colors,
+  dimorphism       = dimorphism_colors,
+  modality_group   = modality_group_colors
+)
+
+max_abs <- max(abs(mat)); if (!is.finite(max_abs) || max_abs == 0) max_abs <- 1
+breaks <- seq(-max_abs, max_abs, length.out = 101)
+colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                              "white",
+                              "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(100)
+
+for (ext in c("png", "pdf")) {
+  pheatmap(
+    mat,
+    annotation_row = row_annot, annotation_col = col_annot,
+    annotation_colors = ann_colors,
+    breaks = breaks, color = colors,
+    cluster_rows = TRUE, cluster_cols = FALSE,
+    clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+    fontsize_row = 7, fontsize_col = 10,
+    border_color = NA, cellwidth = 40, cellheight = 18,
+    gaps_col = c(3, 4, 5),
+    display_numbers = TRUE, number_format = "%.3f", fontsize_number = 5,
+    filename = file.path(panel_plot_dir("panel_A_input_profiles_max_flow_normed", ext),
+                         paste0("panel_A_input_profiles_max_flow_normed.", ext)),
+    width = 8, height = 10, silent = TRUE
+  )
+}
+cat("saved panel_A_input_profiles_max_flow_normed\n")
+```

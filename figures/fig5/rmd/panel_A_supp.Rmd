@@ -1,0 +1,392 @@
+---
+title: "Figure 5A — Supplementary: path-count confound checks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## Why this supplement exists
+
+Panel A plots the **sum of net path strengths** from each sensory modality to each mAL subtype. The cache stores different numbers of paths per modality:
+
+| modality | paths / (modality, target) |
+|---|---|
+| DA1, VA1v, VA1d, auditory | 50 |
+| visual | ~350 |
+| ppk23, ppk25 | ~500 |
+
+ppk and visual aggregate ~10× more paths per pair than DA1 simply because those modalities have more source neurons (each source contributes its own strongest-path set). This risks inflating ppk/visual values purely through sampling — not biology.
+
+This supplement runs four alternative aggregation schemes and compares each re-clustered heatmap to the raw panel A. If the story survives, the main figure holds; if it doesn't, the main figure needs a methods-section caveat or a switch to one of these normalizations.
+
+```{r out-dirs}
+supp_png <- panel_plot_dir("panel_A", "png", "supp")
+supp_pdf <- panel_plot_dir("panel_A", "pdf", "supp")
+supp_txt <- panel_plot_dir("panel_A", "txt", "supp")
+cat("Output dirs:\n  ", supp_png, "\n  ", supp_pdf, "\n")
+```
+
+```{r restrict-paths-to-active-subtypes}
+# setup_mspecific.R shrinks mal_subtypes to male-specific only but does NOT
+# filter mal_paths — so aggregations over mal_paths would still include
+# non-male-specific targets. Restrict paths to whatever mal_subtypes is now.
+n_before <- length(unique(mal_paths$end))
+mal_paths <- mal_paths %>% filter(end %in% mal_subtypes)
+n_after  <- length(unique(mal_paths$end))
+cat(sprintf("mal_paths restricted: %d -> %d distinct target subtypes\n",
+            n_before, n_after))
+cat("Active mal_subtypes (", length(mal_subtypes), "):\n", sep = "")
+cat(" ", paste(mal_subtypes, collapse = ", "), "\n")
+```
+
+## Diagnostic 0 — tail mass of the path-strength distribution
+
+How much of each modality's total path-strength lives in the top-50-per-pair head vs the tail? If top-50 ≥ 90% the count-inflation concern is cosmetic; if top-50 ≤ 70% the current panel A is leaning on redundant sampling.
+
+```{r tail-mass}
+tail_mass <- mal_paths %>%
+  group_by(modality, end) %>%
+  arrange(desc(strength)) %>%
+  mutate(rank = row_number()) %>%
+  summarise(
+    top50_sum = sum(strength[rank <= 50]),
+    total_sum = sum(strength),
+    n_paths   = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(modality) %>%
+  summarise(
+    top50_frac = sum(top50_sum) / sum(total_sum),
+    mean_n_paths = mean(n_paths),
+    .groups = "drop"
+  ) %>%
+  mutate(modality = factor(modality, levels = modality_order))
+
+print(tail_mass)
+
+p_tail <- ggplot(tail_mass, aes(x = modality, y = top50_frac, fill = modality)) +
+  geom_col() +
+  geom_hline(yintercept = 0.9, linetype = "dashed") +
+  geom_hline(yintercept = 0.7, linetype = "dotted") +
+  geom_text(aes(label = sprintf("%.2f\n(n=%.0f)", top50_frac, mean_n_paths)),
+            vjust = -0.2, size = 3) +
+  scale_y_continuous(limits = c(0, 1.05), expand = c(0, 0)) +
+  labs(x = NULL, y = "Fraction of total path-strength in top 50/pair",
+       title = "Does the top-50 head capture the signal?",
+       subtitle = "Dashed = 0.9 (head-dominant), dotted = 0.7 (tail-substantial)") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1))
+
+ggsave(file.path(supp_png, "panel_A_supp_tail_mass.png"), p_tail, width = 7, height = 4, dpi = 300)
+ggsave(file.path(supp_pdf, "panel_A_supp_tail_mass.pdf"), p_tail, width = 7, height = 4)
+writeLines(capture.output(print(tail_mass)), file.path(supp_txt, "panel_A_supp_tail_mass.txt"))
+p_tail
+```
+
+## Helper: compute mat from a path set
+
+```{r helpers}
+compute_activation_matrix <- function(paths_df, cell_scale = NULL) {
+  exc <- paths_df %>%
+    filter(valence == "excitatory") %>%
+    group_by(end, modality) %>%
+    summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = modality, values_from = total, values_fill = 0) %>%
+    column_to_rownames("end") %>% as.matrix()
+  inh <- paths_df %>%
+    filter(valence == "inhibitory") %>%
+    group_by(end, modality) %>%
+    summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = modality, values_from = total, values_fill = 0) %>%
+    column_to_rownames("end") %>% as.matrix()
+
+  # Ensure both matrices align on all mAL types x all modalities
+  all_rows <- mal_subtypes
+  all_cols <- intersect(modality_order, union(colnames(exc), colnames(inh)))
+  fill <- function(m) {
+    missing_r <- setdiff(all_rows, rownames(m))
+    if (length(missing_r)) m <- rbind(m, matrix(0, length(missing_r), ncol(m),
+                                                dimnames = list(missing_r, colnames(m))))
+    missing_c <- setdiff(all_cols, colnames(m))
+    if (length(missing_c)) m <- cbind(m, matrix(0, nrow(m), length(missing_c),
+                                                dimnames = list(rownames(m), missing_c)))
+    m[all_rows, all_cols, drop = FALSE]
+  }
+  mat <- fill(exc) - fill(inh)
+
+  if (!is.null(cell_scale)) {
+    # cell_scale is a named vector keyed by modality (applied per column)
+    # OR a matrix of the same shape (applied elementwise)
+    if (is.matrix(cell_scale)) {
+      mat <- mat / cell_scale[rownames(mat), colnames(mat)]
+      mat[!is.finite(mat)] <- 0
+    } else {
+      for (m in names(cell_scale)) if (m %in% colnames(mat)) {
+        mat[, m] <- mat[, m] / cell_scale[m]
+      }
+    }
+  }
+  mat
+}
+
+plot_supp_heatmap <- function(mat, name, subtitle) {
+  row_annot <- mal_annot[rownames(mat), c("neurotransmitter", "dimorphism"), drop = FALSE]
+  col_annot <- data.frame(
+    modality_group = modality_group[colnames(mat)],
+    row.names = colnames(mat)
+  )
+  ann_colors <- list(
+    neurotransmitter = nt_colors,
+    dimorphism       = dimorphism_colors,
+    modality_group   = modality_group_colors
+  )
+  n_colors <- 100
+  max_abs <- max(abs(mat))
+  if (max_abs == 0) max_abs <- 1
+  breaks <- seq(-max_abs, max_abs, length.out = n_colors + 1)
+  colors <- colorRampPalette(c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0",
+                                "white",
+                                "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"))(n_colors)
+
+  png_file <- file.path(supp_png, paste0(name, ".png"))
+  pdf_file <- file.path(supp_pdf, paste0(name, ".pdf"))
+
+  pheatmap::pheatmap(
+    mat,
+    annotation_row = row_annot,
+    annotation_col = col_annot,
+    annotation_colors = ann_colors,
+    breaks = breaks,
+    color = colors,
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    clustering_distance_rows = "euclidean",
+    clustering_method = "ward.D2",
+    fontsize_row = 6,
+    fontsize_col = 10,
+    border_color = NA,
+    cellwidth = 30,
+    cellheight = 14,
+    gaps_col = c(3, 4, 5),
+    main = subtitle,
+    filename = png_file, width = 8, height = 10
+  )
+  pheatmap::pheatmap(
+    mat,
+    annotation_row = row_annot,
+    annotation_col = col_annot,
+    annotation_colors = ann_colors,
+    breaks = breaks,
+    color = colors,
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    clustering_distance_rows = "euclidean",
+    clustering_method = "ward.D2",
+    fontsize_row = 6,
+    fontsize_col = 10,
+    border_color = NA,
+    cellwidth = 30,
+    cellheight = 14,
+    gaps_col = c(3, 4, 5),
+    main = subtitle,
+    filename = pdf_file, width = 8, height = 10
+  )
+  cat("Saved:", name, "  range:", sprintf("[%.4f, %.4f]", min(mat), max(mat)), "\n")
+  invisible(mat)
+}
+```
+
+## Check 1 — cap at top-50 paths per (modality, target) pair
+
+Equalizes the number of paths summed across modalities. If DA1 has 50 paths and ppk23 has 500, take only the top 50 by strength for each.
+
+```{r check1}
+paths_top50 <- mal_paths %>%
+  group_by(end, modality) %>%
+  slice_max(order_by = strength, n = 50, with_ties = FALSE) %>%
+  ungroup()
+
+cat("Path counts after cap:\n")
+paths_top50 %>% group_by(modality) %>% summarise(n = n()) %>% print()
+
+mat_c1 <- compute_activation_matrix(paths_top50)
+plot_supp_heatmap(mat_c1, "panel_A_supp_check1_top50_per_pair",
+                  "Check 1: top-50 paths per (modality, target) pair")
+```
+
+## Check 2 — normalize by number of source neurons per modality
+
+Each modality has a different number of source sensory neurons (ppk23 has many sensilla; DA1 has 1 glomerulus-equivalent aggregate). Dividing each column by the source-neuron count puts every channel on a per-source-neuron footing.
+
+```{r check2}
+n_sources <- mal_paths %>%
+  group_by(modality) %>%
+  summarise(n_sources = n_distinct(start), .groups = "drop") %>%
+  { setNames(.$n_sources, .$modality) }
+
+cat("Source-neuron counts per modality:\n"); print(n_sources)
+
+mat_c2 <- compute_activation_matrix(mal_paths, cell_scale = n_sources)
+plot_supp_heatmap(mat_c2, "panel_A_supp_check2_per_source_neuron",
+                  "Check 2: divide by n source neurons per modality")
+```
+
+## Check 3 — normalize by total paths per modality
+
+Divide each column by the total number of paths aggregated across all mAL targets for that modality. Compares modalities on a "strength per available path" basis.
+
+```{r check3}
+n_paths_mod <- mal_paths %>%
+  group_by(modality) %>%
+  summarise(n_paths = n(), .groups = "drop") %>%
+  { setNames(.$n_paths, .$modality) }
+
+cat("Total paths per modality:\n"); print(n_paths_mod)
+
+mat_c3 <- compute_activation_matrix(mal_paths, cell_scale = n_paths_mod)
+plot_supp_heatmap(mat_c3, "panel_A_supp_check3_per_total_paths",
+                  "Check 3: divide by total paths per modality")
+```
+
+## Check 5 — simulate upstream source aggregation (route-deduplication)
+
+Mimics what would happen if each modality had a **single aggregate source node** (as DA1 does with `ORN_DA1`) instead of 10 separate sensilla. We strip the source from each path, dedupe routes that share an identical downstream sequence across sensilla (keeping the strongest), and then cap at top-50 per (modality, target). Two sensilla that both reach a target via the same intermediate neurons no longer double-count.
+
+```{r check5}
+paths_with_route <- mal_paths %>%
+  mutate(downstream = sub("^[^>]+-> ", "", path))  # drop "<source> -> "
+
+paths_dedup <- paths_with_route %>%
+  group_by(end, modality, valence, downstream) %>%
+  slice_max(order_by = strength, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+paths_merged <- paths_dedup %>%
+  group_by(end, modality) %>%
+  slice_max(order_by = strength, n = 50, with_ties = FALSE) %>%
+  ungroup()
+
+cat("Path counts per modality after source-aggregation simulation:\n")
+paths_merged %>% group_by(modality) %>% summarise(n = n()) %>% print()
+
+mat_c5 <- compute_activation_matrix(paths_merged)
+plot_supp_heatmap(mat_c5, "panel_A_supp_check5_source_merge",
+                  "Check 5: simulated upstream source merge (route-dedup + top-50)")
+```
+
+## Check 4 — normalize by paths per (modality, target) pair (→ mean path strength)
+
+Divide each cell by the number of paths summed INTO that cell. Converts the sum to a mean path strength — directly comparable across modalities regardless of how many paths contributed.
+
+```{r check4}
+n_paths_pair <- mal_paths %>%
+  group_by(end, modality) %>%
+  summarise(n_paths = n(), .groups = "drop") %>%
+  pivot_wider(names_from = modality, values_from = n_paths, values_fill = 0) %>%
+  column_to_rownames("end") %>% as.matrix()
+# align shape
+n_paths_pair_full <- matrix(0, length(mal_subtypes), length(modality_order),
+                            dimnames = list(mal_subtypes, modality_order))
+shared_r <- intersect(rownames(n_paths_pair), rownames(n_paths_pair_full))
+shared_c <- intersect(colnames(n_paths_pair), colnames(n_paths_pair_full))
+n_paths_pair_full[shared_r, shared_c] <- n_paths_pair[shared_r, shared_c]
+
+# Replace zeros with NA so division doesn't blow up; cells with no paths stay 0 below
+scale_mat <- n_paths_pair_full
+scale_mat[scale_mat == 0] <- NA_real_
+
+mat_c4 <- compute_activation_matrix(mal_paths, cell_scale = scale_mat)
+plot_supp_heatmap(mat_c4, "panel_A_supp_check4_mean_path_strength",
+                  "Check 4: per-pair mean path strength")
+```
+
+## Cross-method comparison
+
+Column-means of each matrix give a coarse "how strong does this channel look?" ranking under each scheme. If the rankings agree qualitatively, the main panel A is robust. If they disagree, the normalization choice is doing heavy lifting.
+
+```{r comparison}
+channel_summary <- bind_rows(
+  tibble(method = "raw (panel A)",                modality = colnames(mal_activation_matrix),
+         mean_abs = colMeans(abs(mal_activation_matrix))),
+  tibble(method = "C1: top-50/pair cap",          modality = colnames(mat_c1),
+         mean_abs = colMeans(abs(mat_c1))),
+  tibble(method = "C2: per source neuron",        modality = colnames(mat_c2),
+         mean_abs = colMeans(abs(mat_c2))),
+  tibble(method = "C3: per total paths",          modality = colnames(mat_c3),
+         mean_abs = colMeans(abs(mat_c3))),
+  tibble(method = "C4: per-pair mean strength",   modality = colnames(mat_c4),
+         mean_abs = colMeans(abs(mat_c4))),
+  tibble(method = "C5: source-merge simulation",  modality = colnames(mat_c5),
+         mean_abs = colMeans(abs(mat_c5)))
+) %>%
+  group_by(method) %>%
+  mutate(mean_abs_rel = mean_abs / max(mean_abs)) %>%
+  ungroup() %>%
+  mutate(modality = factor(modality, levels = modality_order),
+         method   = factor(method, levels = c("raw (panel A)", "C1: top-50/pair cap",
+                                              "C2: per source neuron",
+                                              "C3: per total paths",
+                                              "C4: per-pair mean strength",
+                                              "C5: source-merge simulation")))
+
+p_cmp <- ggplot(channel_summary, aes(x = modality, y = mean_abs_rel, fill = method)) +
+  geom_col(position = position_dodge(width = 0.85), width = 0.8) +
+  labs(x = NULL, y = "Mean |cell| per channel, normalized to each method's max",
+       title = "Channel-strength ranking under different aggregation schemes",
+       subtitle = "If all bars within a modality are similar, that channel's ranking is robust.") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "bottom",
+        legend.title = element_blank())
+
+ggsave(file.path(supp_png, "panel_A_supp_method_comparison.png"), p_cmp, width = 9, height = 5, dpi = 300)
+ggsave(file.path(supp_pdf, "panel_A_supp_method_comparison.pdf"), p_cmp, width = 9, height = 5)
+
+write.csv(channel_summary,
+          file.path(supp_txt, "panel_A_supp_channel_summary.csv"),
+          row.names = FALSE)
+
+p_cmp
+```
+
+## Summary
+
+```{r narrative, echo=FALSE}
+summary_txt <- sprintf(
+"Panel A supplement -- path-count confound checks
+=================================================
+
+Top-50 fraction per modality (Diagnostic 0):
+%s
+
+Interpretation thresholds:
+  > 0.9  head-dominant -- count inflation is cosmetic.
+  0.7-0.9  partial inflation -- consider reporting Check 1 or 4 alongside.
+  < 0.7  tail-substantial -- raw panel A is leaning on redundant sampling.
+
+Heatmaps produced (all in plots/panel_A/supp/):
+  - panel_A_supp_check1_top50_per_pair            (equal K across modalities)
+  - panel_A_supp_check2_per_source_neuron         (divide by n sensory sources)
+  - panel_A_supp_check3_per_total_paths           (divide by total paths / modality)
+  - panel_A_supp_check4_mean_path_strength        (per-pair mean strength)
+
+Cross-method comparison bar plot:
+  - panel_A_supp_method_comparison
+
+If all four checks preserve the same qualitative pattern (same clustering groups,
+same sign pattern for ppk23 sign reversal, same dominance of ppk25 in the
+male-specific ensemble), the raw panel A is robust. If Check 1 or 4 reshuffles
+the story, the methods section should use the corresponding normalized variant
+(or show both).
+",
+paste(sprintf("  %s: %.3f (mean n per pair %.0f)",
+              tail_mass$modality, tail_mass$top50_frac, tail_mass$mean_n_paths),
+      collapse = "\n")
+)
+writeLines(summary_txt, file.path(supp_txt, "panel_A_supp_summary.txt"))
+cat(summary_txt)
+```

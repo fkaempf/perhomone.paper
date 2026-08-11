@@ -1,0 +1,195 @@
+---
+title: "Figure 5B supp v3: AN09B017 input composition — annotated quadrants"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(scatterpie)
+library(ggplot2)
+library(dplyr)
+```
+
+## What this is (v3)
+
+Per-mAL pie-chart scatter with interpretive quadrant backgrounds, guide lines, brighter
+AN09B017 variant palette, and an inline example annotation.
+
+- **x** = ppk23 - ppk25 path-based drive (male minus female contact). Positive = ppk23-dominant (male-contact), negative = ppk25-dominant (female-contact).
+- **y** = % of mAL's total input contributed by all AN09B017 variants combined.
+- **pie slice area** = fraction of AN09B017 input from each variant (a-g).
+- Horizontal guide at `median(y)` marks the threshold for *strong AN09B017 coupling*.
+- Vertical guide at `x = 0` marks *ppk balanced*.
+
+```{r build}
+an09_types <- c("AN09B017a","AN09B017b","AN09B017c","AN09B017d",
+                "AN09B017e","AN09B017f","AN09B017g")
+an09_present <- intersect(an09_types, rownames(adj.matrix))
+mal_present  <- intersect(mal_subtypes, colnames(adj.matrix))
+
+w <- as.matrix(adj.matrix[an09_present, mal_present])
+
+df_wide <- tibble(
+  mAL       = mal_present,
+  total_pct = colSums(w) * 100,
+  delta_ppk = mal_activation_matrix[mal_present, "ppk23"] -
+              mal_activation_matrix[mal_present, "ppk25"]
+)
+# Attach per-variant fractions as columns
+for (v in an09_present) {
+  df_wide[[v]] <- ifelse(colSums(w) > 0, w[v, ] / colSums(w), 0)
+}
+print(df_wide)
+```
+
+## Pie scatter with quadrant annotations
+
+```{r plot, fig.width=12, fig.height=9}
+# --- Brighter, more distinct palette (Dark2 -> Set2 fallback) ----------------
+base_pal <- RColorBrewer::brewer.pal(8, "Dark2")
+if (length(an09_present) > length(base_pal)) {
+  base_pal <- c(base_pal, RColorBrewer::brewer.pal(8, "Set2"))
+}
+an09_palette <- setNames(base_pal[seq_along(an09_present)], an09_present)
+
+# --- Axis geometry -----------------------------------------------------------
+x_pad   <- diff(range(df_wide$delta_ppk)) * 0.08
+y_pad   <- diff(range(df_wide$total_pct)) * 0.08
+x_min   <- min(df_wide$delta_ppk) - x_pad
+x_max   <- max(df_wide$delta_ppk) + x_pad
+y_min   <- min(0, min(df_wide$total_pct) - y_pad)
+y_max   <- max(df_wide$total_pct) + y_pad
+y_med   <- median(df_wide$total_pct)
+x_range <- x_max - x_min
+y_range <- y_max - y_min
+pie_r   <- x_range * 0.035
+
+# --- Quadrant background tiles ----------------------------------------------
+quad_df <- tibble(
+  xmin = c(0,     x_min, x_min, 0),
+  xmax = c(x_max, 0,     0,     x_max),
+  ymin = c(y_med, y_med, y_min, y_min),
+  ymax = c(y_max, y_max, y_med, y_med),
+  fill = c("#FDE9D9", "#D9E8FD", "#F2F2F2", "#F2F2F2")  # TR warm, TL cool, bot grey
+)
+
+quad_labels <- tibble(
+  x = c(x_max - x_pad * 0.5,
+        x_min + x_pad * 0.5,
+        x_max - x_pad * 0.5,
+        x_min + x_pad * 0.5),
+  y = c(y_max - y_pad * 0.2,
+        y_max - y_pad * 0.2,
+        y_min + y_pad * 0.2,
+        y_min + y_pad * 0.2),
+  hjust = c(1, 0, 1, 0),
+  label = c(
+    "male-contact-driven mAL\nstrong AN09B017 input",
+    "female-contact-driven mAL\nstrong AN09B017 input",
+    "weak AN09B017 involvement\n(ppk23-dominant)",
+    "weak AN09B017 involvement\n(ppk25-dominant)"
+  ),
+  col = c("#B45F06", "#1F4E79", "grey45", "grey45")
+)
+
+# --- Identify example a-d dominant dot --------------------------------------
+ad_cols <- intersect(c("AN09B017a","AN09B017b","AN09B017c","AN09B017d"), an09_present)
+if (length(ad_cols) > 0) {
+  df_wide$ad_share <- rowSums(df_wide[, ad_cols, drop = FALSE])
+  ex_idx <- which.max(df_wide$ad_share * (df_wide$total_pct > y_med))
+  if (length(ex_idx) == 0 || df_wide$ad_share[ex_idx] < 0.5) {
+    ex_idx <- which.max(df_wide$ad_share)
+  }
+  example_row <- df_wide[ex_idx, ]
+  ex_label <- sprintf(
+    "e.g. %s: %.0f%% of its AN09B017\ninput is from a-d variants",
+    example_row$mAL, example_row$ad_share * 100
+  )
+} else {
+  example_row <- df_wide[1, ]
+  ex_label <- ""
+}
+
+# --- Build plot --------------------------------------------------------------
+p <- ggplot() +
+  # quadrant tinted backgrounds
+  geom_rect(data = quad_df,
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = quad_df$fill, alpha = 0.55, inherit.aes = FALSE) +
+  # guide lines
+  geom_hline(yintercept = y_med,
+             linewidth = 0.45, color = "grey40", linetype = "dashed") +
+  geom_vline(xintercept = 0,
+             linewidth = 0.45, color = "grey40", linetype = "dashed") +
+  # inline guide labels
+  annotate("text", x = 0, y = y_max - y_pad * 0.05,
+           label = "ppk balanced", angle = 90,
+           hjust = 1, vjust = -0.4, size = 3, color = "grey30",
+           fontface = "italic") +
+  annotate("text", x = x_max, y = y_med,
+           label = sprintf("median y = %.1f%%  (strong-coupling threshold)", y_med),
+           hjust = 1, vjust = -0.4, size = 3, color = "grey30",
+           fontface = "italic") +
+  # quadrant annotation labels
+  geom_text(data = quad_labels,
+            aes(x = x, y = y, label = label, hjust = hjust),
+            vjust = 1, size = 3.4, fontface = "bold",
+            color = quad_labels$col, lineheight = 0.95) +
+  # pies
+  geom_scatterpie(data = df_wide,
+                  aes(x = delta_ppk, y = total_pct, r = pie_r),
+                  cols = an09_present,
+                  color = "grey25", linewidth = 0.2) +
+  coord_equal(ratio = x_range / y_range,
+              xlim = c(x_min, x_max), ylim = c(y_min, y_max),
+              expand = FALSE) +
+  scale_fill_manual(values = an09_palette, name = "AN09B017 variant") +
+  ggrepel::geom_text_repel(data = df_wide,
+                           aes(x = delta_ppk, y = total_pct, label = mAL),
+                           size = 2.9, color = "grey20",
+                           max.overlaps = 30, min.segment.length = 0,
+                           box.padding = 0.7, point.padding = pie_r,
+                           segment.color = "grey55", segment.size = 0.25) +
+  # example interpretation annotation
+  annotate("curve",
+           x = example_row$delta_ppk + x_range * 0.18,
+           y = example_row$total_pct + y_range * 0.12,
+           xend = example_row$delta_ppk + pie_r * 1.1,
+           yend = example_row$total_pct + pie_r * 0.5,
+           curvature = -0.25, arrow = arrow(length = unit(0.15, "cm")),
+           color = "grey25", linewidth = 0.35) +
+  annotate("label",
+           x = example_row$delta_ppk + x_range * 0.18,
+           y = example_row$total_pct + y_range * 0.13,
+           label = ex_label, hjust = 0, vjust = 0,
+           size = 3.1, color = "grey10",
+           label.size = 0.25, fill = "white",
+           fontface = "italic", lineheight = 0.95) +
+  labs(
+    x = expression(ppk23 - ppk25 ~ "(male - female contact drive)"),
+    y = "Total AN09B017 input to mAL (% of mAL's total input)",
+    title = "AN09B017 input composition per mAL vs ppk asymmetry"
+  ) +
+  theme_pub(base_size = 11) +
+  theme(legend.position = "right",
+        plot.title.position = "plot",
+        panel.grid.major = element_line(linewidth = 0.2, color = "grey92"),
+        panel.grid.minor = element_blank())
+
+save_fig5_plot(p, "panel_B_an09_dominance_vs_ppk_asymmetry_v3",
+               width = 12, height = 9)
+
+# Also drop the PDF directly into the curated "single panels" folder
+single_panels_dir <- file.path(
+  fig5_dir,
+  "my_selection_that_makes_halfway_sense_mspecific",
+  "single panels"
+)
+dir.create(single_panels_dir, recursive = TRUE, showWarnings = FALSE)
+ggsave(file.path(single_panels_dir, "panel_B_an09_dominance_vs_ppk_asymmetry_v3.pdf"),
+       plot = p + theme_pub(base_size = 11),
+       width = 12, height = 9)
+
+print(p)
+```

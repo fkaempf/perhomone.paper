@@ -79,7 +79,7 @@ print(p_mal_scatter)
 
 # Get ppk23+ppk25 coactivation from all_combos (n_channels == 2)
 mal_coact <- mal_all_combos %>%
-  filter(combination == "ppk23+ppk25") %>%
+  filter(combination == "ppk25") %>%
   select(target_type, net_input) %>%
   rename(ppk23_ppk25_sf = net_input)
 
@@ -108,7 +108,7 @@ p_mal_sf_scatter <- ggplot(mal_sf_ppk[has_sf_drive, ],
                             max.overlaps = 20, min.segment.length = 0) +
   scale_color_manual(values = dimorphism_colors) +
   labs(x = "ppk23 alone (signal flow net input)",
-       y = "ppk23 + ppk25 coactivation (signal flow net input)",
+       y = "ppk25 alone (signal flow net input)",
        color = "Dimorphism") +
   theme_pub(base_size = 10) +
   theme(legend.position = "top")
@@ -126,7 +126,7 @@ print(p_mal_sf_scatter)
 
 # Get ppk23+ppk25 coactivation for P1
 p1_coact <- p1_all_combos %>%
-  filter(combination == "ppk23+ppk25") %>%
+  filter(combination == "ppk25") %>%
   select(target_type, net_input) %>%
   rename(ppk23_ppk25_sf = net_input)
 
@@ -150,7 +150,7 @@ p_p1_sf_scatter <- ggplot(p1_sf_ppk[has_p1_drive, ],
   ggrepel::geom_text_repel(aes(label = type), size = 2.2,
                             max.overlaps = 30, min.segment.length = 0) +
   labs(x = "ppk23 alone (signal flow net input)",
-       y = "ppk23 + ppk25 coactivation (signal flow net input)") +
+       y = "ppk25 alone (signal flow net input)") +
   theme_pub(base_size = 10) +
   theme(legend.position = "top")
 

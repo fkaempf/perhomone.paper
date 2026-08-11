@@ -1,0 +1,152 @@
+---
+title: "Figure 5B supp v5: AN09B017 input composition as horizontal stacked bars"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+## What this is (v5)
+
+Replaces the v0 pie-scatter with **horizontal stacked bars** — one bar per mAL (rows
+sorted by delta_ppk, most ppk23-biased at the top, most ppk25-biased at the bottom).
+Bar length = total_pct (% of mAL's total input from all AN09B017 variants combined).
+Segments stacked inside each bar = fraction of that AN09B017 input contributed by
+each variant (a-g). A small coloured dot to the right of each bar encodes the sign
+of delta_ppk (red = ppk23-biased, blue = ppk25-biased) along with its numeric value.
+
+- **y** = mAL subtype (ordered by delta_ppk desc)
+- **x** = total_pct (% of mAL input that comes from AN09B017)
+- **fill** = AN09B017 variant (a-g), each segment width = variant's share of the
+  AN09B017 input to that mAL, scaled so the full stack sums to total_pct
+- **right-hand dot + label** = delta_ppk (ppk23 - ppk25)
+
+```{r build}
+an09_types <- c("AN09B017a","AN09B017b","AN09B017c","AN09B017d",
+                "AN09B017e","AN09B017f","AN09B017g")
+an09_present <- intersect(an09_types, rownames(adj.matrix))
+mal_present  <- intersect(mal_subtypes, colnames(adj.matrix))
+
+w <- as.matrix(adj.matrix[an09_present, mal_present])
+
+df_wide <- tibble(
+  mAL       = mal_present,
+  total_pct = colSums(w) * 100,
+  delta_ppk = mal_activation_matrix[mal_present, "ppk23"] -
+              mal_activation_matrix[mal_present, "ppk25"]
+)
+# Attach per-variant absolute contribution to total_pct (so segments sum to total_pct)
+col_tot <- colSums(w)
+for (v in an09_present) {
+  df_wide[[v]] <- ifelse(col_tot > 0, (w[v, ] / col_tot) * df_wide$total_pct, 0)
+}
+print(df_wide)
+```
+
+## Horizontal stacked bars
+
+```{r plot, fig.width=11, fig.height=9}
+# --- Palette: bright, distinct ---------------------------------------------
+base_pal <- RColorBrewer::brewer.pal(8, "Dark2")
+if (length(an09_present) > length(base_pal)) {
+  base_pal <- c(base_pal, RColorBrewer::brewer.pal(8, "Set2"))
+}
+an09_palette <- setNames(base_pal[seq_along(an09_present)], an09_present)
+
+# --- Long form for stacked bars --------------------------------------------
+mal_order <- df_wide %>% arrange(delta_ppk) %>% pull(mAL)
+# (lowest delta at bottom of factor levels -> because ggplot plots factor level 1 at
+#  bottom, and we want ppk23-biased at TOP, we keep ascending here so that the TOP
+#  row is the max delta.)
+
+df_long <- df_wide %>%
+  select(mAL, all_of(an09_present)) %>%
+  pivot_longer(cols = all_of(an09_present),
+               names_to = "variant", values_to = "pct_share") %>%
+  mutate(mAL = factor(mAL, levels = mal_order),
+         variant = factor(variant, levels = an09_present))
+
+df_tot <- df_wide %>%
+  mutate(mAL = factor(mAL, levels = mal_order),
+         delta_sign = ifelse(delta_ppk >= 0, "ppk23-biased", "ppk25-biased"))
+
+# --- Dot + label x position (a bit past max bar length) ---------------------
+x_bar_max <- max(df_wide$total_pct)
+x_pad     <- x_bar_max * 0.08
+x_dot     <- x_bar_max + x_pad * 0.6
+x_label   <- x_bar_max + x_pad * 1.4
+x_right   <- x_bar_max + x_pad * 3.0   # plot x upper limit
+
+# --- Plot -------------------------------------------------------------------
+p <- ggplot() +
+  # stacked bars
+  geom_col(data = df_long,
+           aes(x = pct_share, y = mAL, fill = variant),
+           width = 0.78, color = "grey25", linewidth = 0.15) +
+  # delta_ppk sign dot
+  geom_point(data = df_tot,
+             aes(x = x_dot, y = mAL, color = delta_sign),
+             size = 3.2) +
+  # delta_ppk numeric label
+  geom_text(data = df_tot,
+            aes(x = x_label, y = mAL,
+                label = sprintf("%+.2f", delta_ppk)),
+            hjust = 0, size = 3.0, color = "grey15", family = "mono") +
+  scale_fill_manual(values = an09_palette, name = "AN09B017 variant") +
+  scale_color_manual(
+    values = c("ppk23-biased" = "#D7301F", "ppk25-biased" = "#2166AC"),
+    name   = expression(Delta == ppk23 - ppk25),
+    breaks = c("ppk23-biased", "ppk25-biased"),
+    labels = c("ppk23 > ppk25 (male contact)",
+               "ppk25 > ppk23 (female contact)")
+  ) +
+  scale_x_continuous(
+    name   = "AN09B017 input to mAL  (% of mAL's total input)",
+    limits = c(0, x_right),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_discrete(name = NULL) +
+  # axis annotation: which end is which
+  annotate("text",
+           x = x_bar_max * 0.5,
+           y = length(mal_order) + 0.9,
+           label = paste0("Rows sorted by ",
+                          "\u0394ppk = ppk23 \u2212 ppk25  ",
+                          "(top: ppk23-biased  \u2192  bottom: ppk25-biased)"),
+           hjust = 0.5, vjust = 0.5,
+           size = 3.2, fontface = "italic", color = "grey25") +
+  coord_cartesian(clip = "off",
+                  ylim = c(0.5, length(mal_order) + 1.4)) +
+  labs(title = "AN09B017 variant composition per mAL, sorted by ppk asymmetry") +
+  theme_pub(base_size = 11) +
+  theme(
+    legend.position  = "right",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank(),
+    axis.text.y        = element_text(size = rel(0.95)),
+    axis.text.x        = element_text(angle = 0, hjust = 0.5),
+    plot.title.position = "plot",
+    plot.margin      = margin(14, 10, 6, 6)
+  )
+
+save_fig5_plot(p, "panel_B_an09_dominance_vs_ppk_asymmetry_v5",
+               width = 11, height = 9)
+
+# Also drop the PDF directly into the curated "single panels" folder
+single_panels_dir <- file.path(
+  fig5_dir,
+  "my_selection_that_makes_halfway_sense_mspecific",
+  "single panels"
+)
+dir.create(single_panels_dir, recursive = TRUE, showWarnings = FALSE)
+ggsave(file.path(single_panels_dir, "panel_B_an09_dominance_vs_ppk_asymmetry_v5.pdf"),
+       plot = p + theme_pub(base_size = 11),
+       width = 11, height = 9)
+
+print(p)
+```

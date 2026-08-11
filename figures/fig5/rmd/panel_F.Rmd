@@ -35,15 +35,15 @@ cat(description)
 ```{r scenario-data}
 # Define the 3 scenarios (lone male excluded: male contact always co-occurs with cVA)
 scenarios <- c(
-  "Female encounter" = "ppk23+ppk25",
-  "cVA + male"      = "DA1+ppk23",
-  "cVA + female"    = "DA1+ppk23+ppk25"
+  "Female (ppk25)" = "ppk25",
+  "cVA + male (cVA+ppk23)"      = "DA1+ppk23",
+  "cVA + female (cVA+ppk25)"    = "DA1+ppk25"
 )
 
 scenario_colors <- c(
-  "Female encounter" = "#D73027",
-  "cVA + male"      = "#8E24AA",
-  "cVA + female"    = "#F57C00"
+  "Female (ppk25)" = "#D73027",
+  "cVA + male (cVA+ppk23)"      = "#8E24AA",
+  "cVA + female (cVA+ppk25)"    = "#F57C00"
 )
 
 # Build scenario matrix from signed activation (exc - inh path strengths)
@@ -116,7 +116,7 @@ for (i in seq_along(scenarios)) {
 }
 
 # Order by cVA + male net input (lowest to highest)
-ordered_sf <- names(sort(sf_scenario_mat["cVA + male", ]))
+ordered_sf <- names(sort(sf_scenario_mat["cVA + male (cVA+ppk23)", ]))
 
 sf_scenario_long <- as.data.frame(sf_scenario_mat) %>%
   rownames_to_column("scenario") %>%
@@ -149,9 +149,9 @@ print(p_sf_parallel)
 ```{r scenario-diff, fig.width=14, fig.height=6}
 # Show how scenarios differ pairwise
 diff_mat <- rbind(
-  "cVA+female - cVA+male"  = scenario_mat["cVA + female", ] - scenario_mat["cVA + male", ],
-  "cVA+female - Female"    = scenario_mat["cVA + female", ] - scenario_mat["Female encounter", ],
-  "cVA+male - Female"      = scenario_mat["cVA + male", ] - scenario_mat["Female encounter", ]
+  "cVA+female - cVA+male"  = scenario_mat["cVA + female (cVA+ppk25)", ] - scenario_mat["cVA + male (cVA+ppk23)", ],
+  "cVA+female - Female"    = scenario_mat["cVA + female (cVA+ppk25)", ] - scenario_mat["Female (ppk25)", ],
+  "cVA+male - Female"      = scenario_mat["cVA + male (cVA+ppk23)", ] - scenario_mat["Female (ppk25)", ]
 )
 
 diff_long <- as.data.frame(diff_mat) %>%
@@ -280,18 +280,18 @@ scenario_stats <- data.frame(
 
 # Cosine similarities between scenario pairs
 cos_sim <- function(a, b) sum(a * b) / (sqrt(sum(a^2)) * sqrt(sum(b^2)))
-sim_female_cva_male <- cos_sim(scenario_mat["Female encounter", ],
-                               scenario_mat["cVA + male", ])
-sim_female_cva_female <- cos_sim(scenario_mat["Female encounter", ],
-                                  scenario_mat["cVA + female", ])
-sim_cva_male_cva_female <- cos_sim(scenario_mat["cVA + male", ],
-                                    scenario_mat["cVA + female", ])
+sim_female_cva_male <- cos_sim(scenario_mat["Female (ppk25)", ],
+                               scenario_mat["cVA + male (cVA+ppk23)", ])
+sim_female_cva_female <- cos_sim(scenario_mat["Female (ppk25)", ],
+                                  scenario_mat["cVA + female (cVA+ppk25)", ])
+sim_cva_male_cva_female <- cos_sim(scenario_mat["cVA + male (cVA+ppk23)", ],
+                                    scenario_mat["cVA + female (cVA+ppk25)", ])
 
 most_active_scenario <- scenario_stats$scenario[which.max(scenario_stats$n_active)]
 least_active_scenario <- scenario_stats$scenario[which.min(scenario_stats$n_active)]
 
 # Which subtypes gain the most from ppk25 addition in cVA context
-cva_sex_diff <- scenario_mat["cVA + female", ] - scenario_mat["cVA + male", ]
+cva_sex_diff <- scenario_mat["cVA + female (cVA+ppk25)", ] - scenario_mat["cVA + male (cVA+ppk23)", ]
 top_gainers <- names(sort(cva_sex_diff, decreasing = TRUE))[1:3]
 
 narrative <- sprintf(

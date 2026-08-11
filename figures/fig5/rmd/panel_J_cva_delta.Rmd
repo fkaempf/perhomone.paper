@@ -1,0 +1,141 @@
+---
+title: "Figure 5J: cVA-gain scatter per P1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup.R")
+```
+
+## What this panel shows
+
+For each P1 courtship command neuron, we quantify how much cVA (the volatile DA1 signal) adds to its drive in two contexts:
+
+- **x-axis**: Δ drive when cVA is added to the **female contact** signal
+  `drive(DA1 + ppk23 + ppk25) - drive(ppk23 + ppk25)`
+- **y-axis**: Δ drive when cVA is added to the **male contact** signal
+  `drive(DA1 + ppk23) - drive(ppk23)`
+
+Drive is the signal-flow net input predicted by `p1_all_combos` (the nonlinear propagation model). Using the nonlinear model is what makes the x vs y information non-trivial: under a purely linear channel sum, both Δs would equal the DA1 contribution and every point would lie on the y = x diagonal.
+
+Points above the diagonal: cVA has a **bigger** effect during male contact than during female contact (cVA-gain is male-selective at that P1).
+Points below the diagonal: cVA-gain is female-selective.
+Points near the origin: P1 subtypes whose cVA sensitivity is negligible in either context.
+
+```{r compute-deltas}
+pick <- function(channels_str) {
+  p1_all_combos %>%
+    filter(channels == channels_str) %>%
+    select(target_type, net_input) %>%
+    deframe()
+}
+
+drive_female         <- pick("ppk25")
+drive_female_plus_cva <- pick("DA1,ppk25")
+drive_male           <- pick("ppk23")
+drive_male_plus_cva   <- pick("DA1,ppk23")
+
+# Align on the P1 subtype set (all should be present, but be defensive)
+p1_all <- Reduce(intersect, list(names(drive_female), names(drive_female_plus_cva),
+                                 names(drive_male),   names(drive_male_plus_cva)))
+
+delta_df <- tibble(
+  P1              = p1_all,
+  delta_cva_female = drive_female_plus_cva[p1_all] - drive_female[p1_all],
+  delta_cva_male   = drive_male_plus_cva[p1_all]   - drive_male[p1_all]
+)
+
+# Summarize
+cat("Per-P1 Δ range (female context): [",
+    sprintf("%.4f, %.4f", min(delta_df$delta_cva_female), max(delta_df$delta_cva_female)), "]\n")
+cat("Per-P1 Δ range (male context)  : [",
+    sprintf("%.4f, %.4f", min(delta_df$delta_cva_male),   max(delta_df$delta_cva_male)),   "]\n")
+cat("Spearman correlation x vs y: ",
+    cor(delta_df$delta_cva_female, delta_df$delta_cva_male, method = "spearman"), "\n", sep = "")
+cat("Mean vertical deviation from y = x: ",
+    mean(delta_df$delta_cva_male - delta_df$delta_cva_female), "\n")
+```
+
+## Scatter: cVA gain per P1
+
+```{r plot-scatter}
+# Label a handful of outliers / interesting P1s
+delta_df <- delta_df %>%
+  mutate(
+    diagonal_dev = delta_cva_male - delta_cva_female,
+    abs_total    = abs(delta_cva_male) + abs(delta_cva_female)
+  )
+
+top_label <- delta_df %>%
+  arrange(desc(abs(diagonal_dev))) %>%
+  slice_head(n = 8) %>%
+  pull(P1)
+top_strong <- delta_df %>%
+  arrange(desc(abs_total)) %>%
+  slice_head(n = 8) %>%
+  pull(P1)
+# Also label the bottom-left cluster (cVA suppresses P1 in both contexts)
+bottom_left <- delta_df %>%
+  filter(delta_cva_female < 0 & delta_cva_male < 0) %>%
+  pull(P1)
+to_label <- Reduce(union, list(top_label, top_strong, bottom_left))
+
+ax_lim <- range(c(delta_df$delta_cva_female, delta_df$delta_cva_male))
+ax_pad <- diff(ax_lim) * 0.05
+ax_lim <- ax_lim + c(-ax_pad, ax_pad)
+
+p <- ggplot(delta_df, aes(x = delta_cva_female, y = delta_cva_male)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_vline(xintercept = 0, linewidth = 0.3, color = "grey70") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(size = 3, alpha = 0.85, color = "#455A64") +
+  ggrepel::geom_text_repel(
+    data = delta_df %>% filter(P1 %in% to_label),
+    aes(label = P1), size = 3, max.overlaps = 20, min.segment.length = 0
+  ) +
+  scale_x_continuous(limits = ax_lim) +
+  scale_y_continuous(limits = ax_lim) +
+  coord_fixed(ratio = 1, xlim = ax_lim, ylim = ax_lim) +
+  labs(
+    x = "Δ drive when cVA added to female contact\n[drive(DA1+ppk25) - drive(ppk25)]",
+    y = "Δ drive when cVA added to male contact\n[drive(DA1+ppk23) - drive(ppk23)]",
+    title = "cVA gain per P1 courtship command neuron",
+    subtitle = "Above diagonal: cVA gain is larger during male contact. Below: larger during female contact."
+  ) +
+  theme_pub(base_size = 10) +
+  theme(plot.title = element_text(size = rel(1.2)))
+
+save_fig5_plot(p, "panel_J_cva_delta_scatter", width = 8, height = 8)
+print(p)
+```
+
+```{r narrative, echo=FALSE}
+save_panel_narrative("panel_J_cva_delta", sprintf(
+"Panel J (cVA-gain scatter) -- per-P1 characterization
+======================================================
+For each of %d P1 courtship command neurons, the scatter plots two quantities
+from the signal-flow model:
+  x = net_input[DA1+ppk23+ppk25] - net_input[ppk23+ppk25]
+  y = net_input[DA1+ppk23]       - net_input[ppk23]
+
+Dashed line: y = x. In a strictly linear channel-sum model both deltas would
+be identical (equal to DA1's contribution to P1) and every point would lie
+exactly on this line. Deviation above/below the diagonal reflects the
+nonlinearity of the signal-flow propagation: cVA has a context-dependent
+effect on P1 drive depending on whether male or female contact pheromone
+signals are simultaneously active.
+
+Range summaries:
+  delta_cva_female: [%.4f, %.4f]
+  delta_cva_male  : [%.4f, %.4f]
+  Spearman rho(x, y) = %.3f
+  Mean(y - x) = %.4f   (positive = male-context cVA gain dominates; negative = female-context dominates)
+",
+nrow(delta_df),
+min(delta_df$delta_cva_female), max(delta_df$delta_cva_female),
+min(delta_df$delta_cva_male),   max(delta_df$delta_cva_male),
+cor(delta_df$delta_cva_female, delta_df$delta_cva_male, method = "spearman"),
+mean(delta_df$delta_cva_male - delta_df$delta_cva_female)
+))
+```

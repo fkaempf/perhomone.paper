@@ -101,19 +101,218 @@ f <- syn %>% filter(is_focus)
 scene$position <- c(mean(f$x), mean(f$y), mean(f$z))
 overview_url <- write_scene(scene, sprintf("%s_overview.json", CASE))
 
+# --- cluster diagrams for the menu page --------------------------------------
+# Built from the same annotated synapses as the scenes, so the figures and the
+# point layers can never disagree. Three views of one matrix:
+#   raw   synapse counts
+#   norm  as a fraction of that target's TOTAL input (all sources, focus or not)
+#   comp  renormalised so each column sums to 1 - profile shape, scale removed
+suppressMessages({ library(pheatmap); library(viridisLite); library(grid) })
+
+case_dir <- file.path(ng_dir, CASE)
+dir.create(case_dir, showWarnings = FALSE, recursive = TRUE)
+
+raw <- syn %>% filter(is_focus) %>% count(partner_group, target_type) %>%
+  xtabs(n ~ partner_group + target_type, data = .)
+raw <- raw[FOCUS[FOCUS %in% rownames(raw)], , drop = FALSE]
+
+tot_in <- syn %>% count(target_type)
+tot_in <- setNames(tot_in$n, tot_in$target_type)
+
+norm <- sweep(raw, 2, tot_in[colnames(raw)], "/")
+comp <- prop.table(raw, 2)
+
+# Column names share a long prefix (AN09B017a..g), which collides at any sensible
+# cell width. Strip the common prefix onto the title and label the columns by what
+# actually differs.
+cn     <- colnames(raw)
+prefix <- ""
+for (i in seq_len(min(nchar(cn)))) {
+  if (length(unique(substr(cn, 1, i))) == 1) prefix <- substr(cn[1], 1, i) else break
+}
+short <- if (nchar(prefix)) substring(cn, nchar(prefix) + 1) else cn
+colnames(raw) <- colnames(norm) <- colnames(comp) <- short
+family <- if (nchar(prefix)) prefix else CASE_LABEL
+
+# Clustering is computed once and shared: raw -> norm -> comp differ only by a
+# per-column rescaling, and correlation distance is scale-free, so all three
+# produce the identical tree. The page draws the matrices itself (dark, in one
+# row, with hover readout), so R only emits the numbers and the dendrogram.
+hc  <- hclust(as.dist(1 - cor(comp)), method = "ward.D2")
+ord <- hc$order
+
+raw <- raw[, ord, drop = FALSE]
+norm <- norm[, ord, drop = FALSE]
+comp <- comp[, ord, drop = FALSE]
+
+# hclust -> plottable segments, in leaf-position / height coordinates
+hc_segments <- function(hc) {
+  pos_of <- function(k) if (k < 0) which(hc$order == -k) else mx[k]
+  h_of   <- function(k) if (k < 0) 0 else hc$height[k]
+  mx <- numeric(nrow(hc$merge))
+  segs <- list()
+  for (i in seq_len(nrow(hc$merge))) {
+    a <- hc$merge[i, 1]; b <- hc$merge[i, 2]
+    xa <- pos_of(a); xb <- pos_of(b); h <- hc$height[i]
+    mx[i] <- (xa + xb) / 2
+    segs[[length(segs) + 1]] <- c(xa, h_of(a), xa, h)
+    segs[[length(segs) + 1]] <- c(xb, h_of(b), xb, h)
+    segs[[length(segs) + 1]] <- c(xa, h, xb, h)
+  }
+  m <- do.call(rbind, segs)
+  colnames(m) <- c("x1", "y1", "x2", "y2")
+  as.data.frame(m)
+}
+
+# xtabs results carry class "table", which jsonlite cannot serialise
+as_plain <- function(x) matrix(as.numeric(x), nrow(x), ncol(x))
+
+fig_data <- list(
+  rows = rownames(comp),
+  cols = colnames(comp),
+  family = family,
+  alias  = alias_of(paste0(family, colnames(comp))),
+  tree = list(segs = hc_segments(hc), maxh = max(hc$height)),
+  panels = list(
+    list(key = "raw",  title = "Raw synapse count",
+         sub = "absolute wiring strength",
+         unit = "syn", values = as_plain(raw)),
+    list(key = "norm", title = "Fraction of total input",
+         sub = "counting every source, not just these",
+         unit = "pct", values = as_plain(norm)),
+    list(key = "comp", title = "Composition",
+         sub = "each column sums to 1",
+         unit = "pct", values = as_plain(comp))
+  )
+)
+
+fig_json <- jsonlite::toJSON(fig_data, auto_unbox = TRUE, digits = 6)
+
+# --- T1 bilaterality of the TARGET neurons -----------------------------------
+# An ascending neuron receives in the VNC, so its laterality is read off where its
+# POSTsynapses sit: contra = the smaller of the two T1 leg neuropils divided by the
+# total. 0 means every input synapse is on one side.
+bilat_cache <- file.path(DERIVED, paste0(CASE, "_t1_bilaterality.rds"))
+if (file.exists(bilat_cache)) {
+  bilat <- readRDS(bilat_cache)
+} else {
+  suppressMessages({ library(neuprintr) })
+  neuprint_login(server = MCNS_SERVER, dataset = MCNS_DATASET)
+  ri <- neuprint_get_roiInfo(bodies$bodyid, dataset = MCNS_DATASET)
+  z  <- function(v) if (is.null(v)) 0 else ifelse(is.na(v), 0, v)
+  L  <- z(ri[["LegNp(T1)(L).post"]]); R <- z(ri[["LegNp(T1)(R).post"]])
+  bilat <- data.frame(bodyid = ri$bodyid,
+                      t1_minor = pmin(L, R), t1_major = pmax(L, R)) %>%
+    mutate(contra = ifelse(t1_major > 0, t1_minor / (t1_minor + t1_major), NA_real_))
+  saveRDS(bilat, bilat_cache)
+}
+
+per_body <- per_body %>% left_join(bilat, by = "bodyid")
+
+# a type counts as unilateral only if every one of its bodies is
+uni_types <- per_body %>%
+  summarise(uni = all(contra < 0.01, na.rm = TRUE), .by = type) %>%
+  filter(uni) %>% pull(type)
+
+# --- literature names, straight from the maleCNS synonyms annotation ---------
+syn_cache <- file.path(DERIVED, paste0(CASE, "_synonyms.rds"))
+if (file.exists(syn_cache)) {
+  alias_tbl <- readRDS(syn_cache)
+} else {
+  suppressMessages(library(malecns))
+  alias_tbl <- mcns_body_annotations() %>%
+    filter(type %in% TARGET_TYPES, !is.na(synonyms), nzchar(synonyms)) %>%
+    distinct(type, synonyms)
+  saveRDS(alias_tbl, syn_cache)
+}
+
+# entries look like "Yu 2010: vAB3" - the name after the colon, the citation before
+TYPE_ALIAS <- setNames(trimws(sub("^[^:]*:", "", alias_tbl$synonyms)), alias_tbl$type)
+ALIAS_CITE <- unique(trimws(sub(":.*$", "", alias_tbl$synonyms)))
+
+alias_types <- intersect(names(TYPE_ALIAS), TARGET_TYPES)
+alias_note <- if (length(alias_types)) {
+  sprintf(" <b>%s</b> %s recorded in the maleCNS <code>synonyms</code> annotation as %s (%s).",
+          paste(alias_types, collapse = " and "),
+          if (length(alias_types) > 1) "are" else "is",
+          paste(unique(TYPE_ALIAS[alias_types]), collapse = ", "),
+          paste(ALIAS_CITE, collapse = "; "))
+} else ""
+
+bilat_note <- if (length(uni_types)) {
+  sprintf("Unilateral in T1: %s. All other types receive T1 input on both sides.",
+          paste(uni_types, collapse = ", "))
+} else {
+  "Every type here receives T1 input on both sides."
+}
+bilat_note <- paste0(bilat_note, alias_note)
+
+# --- Billy's receptor assignment ---------------------------------------------
+# Reproduced from Billy's figure. This is a light-level receptor-to-type call and
+# is NOT derived from any connectivity on this page - it is shown so the two can
+# be compared, and is labelled as his throughout.
+BILLY <- list(
+  list(tone = "m",    receptor = "ppk23+",        detects = "Males",
+       group = "M cells", grouped = c("LgLG1a", "LgLG6", "LgLG7"), extra = "WG4"),
+  list(tone = "both", receptor = "Ir52a+;Ir52b+<br>Gr33a+", detects = "Both",
+       group = NA,        grouped = character(0),
+       extra = c("LgLG2", "WG1", "LgAG1")),
+  list(tone = "f",    receptor = "ppk23+;ppk25+", detects = "Females",
+       group = "F cells", grouped = c("LgLG1b", "LgLG5", "LgLG8"), extra = "WG3")
+)
+
+# a type used by the current case is outlined, so the assignment connects to the
+# rest of the page without the page adopting its claims
+chip <- function(x) sprintf('<span class="ty%s">%s</span>',
+                            ifelse(x %in% FOCUS, " used", ""), x)
+
+billy_rows <- paste(vapply(BILLY, function(r) {
+  types <- paste0(
+    if (length(r$grouped))
+      sprintf('<div class="grp"><div class="grp-items">%s</div><div class="grp-lbl">%s</div></div>',
+              paste(vapply(r$grouped, chip, character(1)), collapse = ""), r$group)
+    else "",
+    paste(vapply(r$extra, chip, character(1)), collapse = ""))
+  sprintf('<tr class="%s"><td class="rec"><i>%s</i></td><td class="det">%s</td><td>%s</td></tr>',
+          r$tone, r$receptor, r$detects, types)
+}, character(1)), collapse = "\n")
+
 # --- menu page ---------------------------------------------------------------
-rows <- paste(sprintf(
-  '<tr><td><a href="%s">%s %s</a></td><td>%s</td><td>%d</td><td>%d</td></tr>',
-  per_body$url, per_body$type, per_body$bodyid, per_body$soma_side,
-  per_body$n_syn, per_body$n_focus), collapse = "\n")
+# one column per focus type, so the table carries the same numbers as the figures
+fc <- syn %>% filter(is_focus) %>% count(bodyid, partner_group) %>%
+  xtabs(n ~ bodyid + partner_group, data = .)
+for (tp in setdiff(FOCUS, colnames(fc))) fc <- cbind(fc, 0)
+colnames(fc)[colnames(fc) == ""] <- setdiff(FOCUS, colnames(fc))
+fc <- fc[, FOCUS, drop = FALSE]
+
+thead <- paste0('<tr><th>Neuron</th><th>Side</th><th>T1 contra</th>',
+                '<th>Input syn</th><th>Focus syn</th>',
+                paste(sprintf("<th>%s</th>", FOCUS), collapse = ""), "</tr>")
+
+rows <- paste(vapply(seq_len(nrow(per_body)), function(i) {
+  b <- as.character(per_body$bodyid[i])
+  v <- if (b %in% rownames(fc)) as.integer(fc[b, ]) else rep(0L, length(FOCUS))
+  paste0("<tr>",
+         sprintf('<td><a href="%s">%s %s</a>%s</td>', per_body$url[i],
+                 per_body$type[i], per_body$bodyid[i],
+                 ifelse(nzchar(alias_of(per_body$type[i])),
+                        sprintf(' <span class="alias">%s</span>',
+                                alias_of(per_body$type[i])), "")),
+         sprintf("<td>%s</td>", per_body$soma_side[i]),
+         sprintf("<td>%s</td>", ifelse(is.na(per_body$contra[i]), "-",
+                                       sprintf("%.0f%%", 100 * per_body$contra[i]))),
+         sprintf("<td>%d</td>", per_body$n_syn[i]),
+         sprintf("<td>%d</td>", per_body$n_focus[i]),
+         paste(sprintf("<td>%d</td>", v), collapse = ""),
+         "</tr>")
+}, character(1)), collapse = "\n")
 
 # built from focus_cols so the legend cannot drift from the scene colours
 legend <- paste(sprintf(
-  '<span class="sw" style="background:%s%s"></span>%s',
-  unname(focus_cols), c("", rep(";margin-left:1rem", length(focus_cols) - 1)),
-  names(focus_cols)), collapse = "\n")
+  '<li><span class="sw" style="background:%s"></span>%s</li>',
+  unname(focus_cols), names(focus_cols)), collapse = "\n")
 
-html <- sprintf('<!doctype html>
+html_head <- sprintf('<!doctype html>
 <meta charset="utf-8">
 <title>%s - Clio-NG scenes</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -129,11 +328,62 @@ html <- sprintf('<!doctype html>
  .big:hover{border-color:#0b5fa5;background:#f7fbff}
  .big b{color:#0b5fa5}
  table{border-collapse:collapse;width:100%%}
- th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid #ececec}
+ th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid #ececec;
+       white-space:nowrap}
  th{font-weight:600;color:#555;font-size:.85rem;text-transform:uppercase;
     letter-spacing:.03em}
- td:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
- .legend{margin:1.5rem 0 0;font-size:.9rem;color:#555}
+ th:nth-child(n+3),td:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
+ .legend{margin:1.25rem 0 0;padding:0;list-style:none;font-size:.85rem;
+         display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;align-items:center}
+ .legend li{margin:0;white-space:nowrap}
+ .legend .bi{color:#666;font-size:.85rem}
+ h2{font-size:1.05rem;margin:2.75rem 0 .35rem;font-weight:600}
+ p.note{color:#555;margin:0 0 1.25rem;font-size:.92rem}
+ /* the plots keep their own dark ground in both colour schemes, to match the
+    neuroglancer scenes they describe */
+ .figs{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;
+       background:#0b0e13;border-radius:11px;padding:1.4rem 1.2rem;justify-items:center;
+       width:min(1180px,94vw);position:relative;left:50%%;transform:translateX(-50%%)}
+ @media (max-width:820px){.figs{grid-template-columns:1fr}}
+ .pnl{width:100%%}
+ .pnl h3{margin:0 0 .1rem;font-size:.9rem;font-weight:600;color:#e8edf4}
+ .pnl p{margin:0 0 .6rem;font-size:.76rem;color:#8b95a5}
+ .pnl{display:flex;flex-direction:column;align-items:center;text-align:center}
+ .pnl svg{display:block;width:100%%;height:auto;overflow:visible}
+ #scenes th{cursor:pointer;user-select:none}
+ #scenes th:hover{color:#0b5fa5}
+ #scenes th.sorted::after{content:" \\2195";font-size:.8em;opacity:.6}
+ .pnl .cell{stroke:#0b0e13;stroke-width:1}
+ .pnl .cell:hover{stroke:#fff;stroke-width:1.5}
+ .lbl{fill:#c3cbd8;font:10px system-ui,sans-serif}
+ .lbl.dim{fill:#7d8798}
+ .lbl.alias-lbl{fill:#ffd166;font-weight:600}
+ .lbl.sm{font-size:8px;font-weight:400}
+ .alias{display:inline-block;margin-left:.35rem;padding:0 .3rem;border-radius:4px;
+        background:#ffd166;color:#3a2f00;font-size:.72rem;font-weight:600;
+        vertical-align:1px}
+ .tree{stroke:#5b6675;fill:none;stroke-width:1}
+ #tip{position:fixed;pointer-events:none;background:#161b22;color:#e8edf4;
+      border:1px solid #30363d;border-radius:6px;padding:.3rem .5rem;
+      font:12px system-ui,sans-serif;opacity:0;transition:opacity .1s;z-index:9}
+ table.billy{border-collapse:collapse;width:auto;max-width:26rem;
+             margin:.25rem 0 .5rem;font-size:.8rem}
+ table.billy th{font-size:.68rem;padding:.2rem .55rem;letter-spacing:.02em}
+ table.billy td{padding:.3rem .55rem;border-bottom:1px solid rgba(0,0,0,.1);
+                vertical-align:middle;white-space:normal;line-height:1.35}
+ table.billy tr.m    td{background:#fbf6cf}
+ table.billy tr.both td{background:#f6efd6}
+ table.billy tr.f    td{background:#f7dfe3}
+ table.billy .rec,table.billy .det{color:#2b2b2b;text-align:left;font-size:.8rem}
+ .ty{display:block;font-size:.78rem;color:#2b2b2b;line-height:1.45;
+      padding-left:.4rem;box-shadow:inset 2px 0 0 transparent}
+ .ty.used{font-weight:700;box-shadow:inset 2px 0 0 #0b5fa5}
+ .grp{border:1px dashed #9a9a9a;border-radius:4px;padding:.12rem .3rem;
+      margin-bottom:.15rem;display:flex;align-items:center;gap:.4rem}
+ .grp-lbl{font-size:.7rem;color:#555;white-space:nowrap}
+ @media (prefers-color-scheme:dark){
+  table.billy td{border-bottom-color:rgba(255,255,255,.1)}
+ }
  .sw{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;
      margin-right:.35rem;vertical-align:-1px}
  @media (prefers-color-scheme:dark){
@@ -141,8 +391,16 @@ html <- sprintf('<!doctype html>
   a{color:#6fb3ef} .big{border-color:#333} .big b{color:#6fb3ef}
   .big:hover{border-color:#6fb3ef;background:#1b2430}
   th,td{border-bottom-color:#2a2a2a} th,.legend,p.sub{color:#aaa}
+  p.note{color:#c2c8d2}
+  /* the page is already dark, so the figures need no card of their own -
+     without this the panel ground reads as a second, slightly different black */
+  .figs{background:transparent;padding-left:0;padding-right:0}
+  .pnl .cell{stroke:#141414}
  }
-</style>
+</style>',
+  CASE_LABEL)
+
+html_body <- sprintf('
 <h1>%s sensory input</h1>
 <p class="sub">Clio-NG scenes for the male CNS (male-cns:v0.9). The neuron is red;
 input synapses are point annotations, one layer per presynaptic sensory type.
@@ -155,15 +413,166 @@ them in the layer bar.</p>
   types overlaid.
 </a>
 
-<table>
-<tr><th>Neuron</th><th>Side</th><th>Input syn</th><th>Of the focus types</th></tr>
+<h2>Input structure</h2>
+<p class="note">The same synapses as the scenes, collapsed to type level and
+clustered on the target axis. Correlation distance, Ward.D2 linkage. The three
+panels differ only by a per-column rescaling, and correlation is scale-free, so
+they share one dendrogram, and only the colour scale changes. Hover a cell for
+the exact value.</p>
+
+<div id="figs" class="figs"></div>
+<p class="note" style="margin-top:.6rem">%s</p>
+<script id="figdata" type="application/json">%s</script>
+
+<h2>Receptor assignment</h2>
+<p class="note"><b>Billy&rsquo;s assignment, reproduced here.</b> This is a
+light-level receptor-to-type call and is not derived from any of the
+connectivity on this page. Types outlined below are the ones used as focus
+inputs here; the rest are shown for completeness.</p>
+
+<table class="billy">
+<tr><th>Receptor</th><th>Detects</th><th>mCNS type</th></tr>
 %s
 </table>
 
-<p class="legend">
+<h2>Scenes</h2>
+
+<table id="scenes">
+<thead>%s</thead>
+<tbody>
 %s
-</p>',
-  CASE_LABEL, CASE_LABEL, overview_url, nrow(per_body), rows, legend)
+</tbody>
+</table>
+<p class="note" style="margin-top:.5rem">Click a column header to sort.</p>
+
+<ul class="legend">
+%s
+</ul>
+
+',
+  CASE_LABEL, overview_url, nrow(per_body), bilat_note, fig_json, billy_rows,
+  thead, rows, legend)
+
+# not passed through sprintf: the whole thing exceeds sprintf's 8192-char
+# format limit, and the script needs its per-cent signs unescaped anyway
+html_js <- '<div id="tip"></div>
+<script>
+(function () {
+  var D = JSON.parse(document.getElementById("figdata").textContent);
+  var NS = "http://www.w3.org/2000/svg";
+  // CW == CH so the cells stay square at any rendered size: the viewBox scales
+  // uniformly, so a square here is a square on screen
+  var CW = 30, CH = 30, TREE = 30, PADL = 8, PADT = 4, LBLW = 46, LBLH = 28;
+
+  // viridis, sampled - reads well on a dark ground at both ends
+  var RAMP = ["#440154","#472d7b","#3b528b","#2c728e","#21918c",
+              "#28ae80","#5ec962","#addc30","#fde725"];
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function hex(c) { return [parseInt(c.substr(1,2),16), parseInt(c.substr(3,2),16), parseInt(c.substr(5,2),16)]; }
+  function colour(t) {
+    if (!(t > 0)) return "#12161d";                 // exact zero reads as ground
+    var i = Math.min(RAMP.length - 2, Math.floor(t * (RAMP.length - 1)));
+    var f = t * (RAMP.length - 1) - i, a = hex(RAMP[i]), b = hex(RAMP[i + 1]);
+    return "rgb(" + Math.round(lerp(a[0],b[0],f)) + "," + Math.round(lerp(a[1],b[1],f)) +
+           "," + Math.round(lerp(a[2],b[2],f)) + ")";
+  }
+
+  var tip = document.getElementById("tip");
+  function el(n, at) { var e = document.createElementNS(NS, n);
+    for (var k in at) e.setAttribute(k, at[k]); return e; }
+
+  function fmt(v, unit) {
+    return unit === "pct" ? (100 * v).toFixed(v < 0.1 ? 1 : 0) + "%" : Math.round(v) + " syn";
+  }
+
+  // click-to-sort. Numeric columns sort numerically, text columns alphabetically;
+  // "24%" and "1,191" both parse, and a non-numeric cell falls back to text.
+  var tbl = document.getElementById("scenes");
+  if (tbl) {
+    var dir = {};
+    tbl.querySelectorAll("th").forEach(function (th, idx) {
+      th.addEventListener("click", function () {
+        var body = tbl.tBodies[0];
+        var rws = Array.prototype.slice.call(body.rows);
+        dir[idx] = -(dir[idx] || 1);
+        var num = rws.every(function (r) {
+          var t = r.cells[idx].textContent.replace(/[%,]/g, "").trim();
+          return t === "-" || t === "" || !isNaN(parseFloat(t));
+        });
+        rws.sort(function (a, b) {
+          var x = a.cells[idx].textContent.trim(), y = b.cells[idx].textContent.trim();
+          if (num) {
+            var nx = parseFloat(x.replace(/[%,]/g, "")) || 0;
+            var ny = parseFloat(y.replace(/[%,]/g, "")) || 0;
+            return (nx - ny) * dir[idx];
+          }
+          return x.localeCompare(y) * dir[idx];
+        });
+        rws.forEach(function (r) { body.appendChild(r); });
+        tbl.querySelectorAll("th").forEach(function (o) { o.classList.remove("sorted"); });
+        th.classList.add("sorted");
+      });
+    });
+  }
+
+  D.panels.forEach(function (P) {
+    var nr = D.rows.length, nc = D.cols.length;
+    var W = LBLW + nc * CW + PADL, H = TREE + nr * CH + LBLH + PADT;
+    var wrap = document.createElement("div");
+    wrap.className = "pnl";
+    wrap.innerHTML = "<h3>" + P.title + "</h3><p>" + P.sub + "</p>";
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H });
+
+    // shared dendrogram, scaled into the TREE band
+    D.tree.segs.forEach(function (s) {
+      var sx = function (x) { return LBLW + (x - 0.5) * CW; };
+      var sy = function (y) { return TREE - (y / D.tree.maxh) * (TREE - 4) + PADT; };
+      svg.appendChild(el("line", { x1: sx(s.x1), y1: sy(s.y1), x2: sx(s.x2), y2: sy(s.y2),
+                                   "class": "tree" }));
+    });
+
+    // cells - each panel scaled to its own maximum, since the units differ
+    var max = 0;
+    P.values.forEach(function (r) { r.forEach(function (v) { if (v > max) max = v; }); });
+    P.values.forEach(function (row, i) {
+      row.forEach(function (v, j) {
+        var c = el("rect", { x: LBLW + j * CW, y: TREE + PADT + i * CH,
+                             width: CW, height: CH, "class": "cell", fill: colour(v / max) });
+        c.addEventListener("mousemove", function (e) {
+          var al = D.alias && D.alias[j] ? " (" + D.alias[j] + ")" : "";
+          tip.textContent = D.rows[i] + " \u2192 " + D.family + D.cols[j] + al + "  " + fmt(v, P.unit);
+          tip.style.opacity = 1;
+          tip.style.left = (e.clientX + 12) + "px";
+          tip.style.top  = (e.clientY + 12) + "px";
+        });
+        c.addEventListener("mouseleave", function () { tip.style.opacity = 0; });
+        svg.appendChild(c);
+      });
+    });
+
+    D.rows.forEach(function (r, i) {
+      svg.appendChild(el("text", { x: LBLW - 6, y: TREE + PADT + i * CH + CH / 2 + 3.5,
+                                   "text-anchor": "end", "class": "lbl" })).textContent = r;
+    });
+    D.cols.forEach(function (c, j) {
+      var al = D.alias && D.alias[j];
+      svg.appendChild(el("text", { x: LBLW + j * CW + CW / 2, y: TREE + PADT + nr * CH + 12,
+                                   "text-anchor": "middle",
+                                   "class": al ? "lbl alias-lbl" : "lbl dim" })).textContent = c;
+      if (al) {
+        svg.appendChild(el("text", { x: LBLW + j * CW + CW / 2, y: TREE + PADT + nr * CH + 22,
+                                     "text-anchor": "middle", "class": "lbl alias-lbl sm" }))
+           .textContent = al;
+      }
+    });
+
+    wrap.appendChild(svg);
+    document.getElementById("figs").appendChild(wrap);
+  });
+})();
+</script>'
+
+html <- paste0(html_head, html_body, html_js)
 
 dir.create(file.path(ng_dir, CASE), showWarnings = FALSE)
 write(html, file.path(ng_dir, CASE, "index.html"))

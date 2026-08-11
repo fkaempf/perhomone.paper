@@ -144,7 +144,7 @@ exceed ~0.8% of any target's input, which renders as the same dark floor as a
 true zero. Pruning on peak impact rather than volume is what removes them:
 
 ```{r prune_rows}
-MIN_IMPACT <- 0.00   # a pre type must supply this fraction of some target's input
+MIN_IMPACT <- 0.01   # a pre type must supply this fraction of some target's input
 
 dropped <- rownames(m)[apply(m, 1, max) < MIN_IMPACT]
 m <- m[apply(m, 1, max) >= MIN_IMPACT, , drop = FALSE]

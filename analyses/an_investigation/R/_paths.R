@@ -28,7 +28,7 @@ MCNS_SERVER  <- "https://neuprint-cns.janelia.org"
 # Every cache file, plot and neuroglancer scene is prefixed with the case name,
 # so the two cases never overwrite each other.
 CASES <- list(
-  an05b023 = list(
+  an05b023bc = list(
     targets = c("AN05B023b", "AN05B023c"),
     focus   = c("WG3", "WG4", "LgLG1a", "LgLG1b")
   ),
@@ -42,7 +42,7 @@ CASES <- list(
   )
 )
 
-CASE <- Sys.getenv("AN_CASE", "an05b023")
+CASE <- Sys.getenv("AN_CASE", "an05b023bc")
 if (!CASE %in% names(CASES)) {
   stop("unknown AN_CASE '", CASE, "' - one of: ", paste(names(CASES), collapse = ", "))
 }
@@ -82,12 +82,36 @@ WEB_COLS <- WEB_PALETTE[FOCUS]
 # --- case-derived paths and labels ------------------------------------------
 SYN_RAW    <- file.path(RAW,     paste0(CASE, "_input_synapses.feather"))
 SYN_ANN    <- file.path(DERIVED, paste0(CASE, "_input_synapses_annotated.feather"))
-CASE_LABEL <- paste(TARGET_TYPES, collapse = " / ")
+# Compact label: AN09B017a, AN09B017b, ... -> "AN09B017a-g". Listing seven full
+# type names is unreadable in a page title.
+CASE_LABEL <- local({
+  n <- length(TARGET_TYPES)
+  if (n == 1) return(TARGET_TYPES)
+  pre <- ""
+  for (i in seq_len(min(nchar(TARGET_TYPES)))) {
+    if (length(unique(substr(TARGET_TYPES, 1, i))) == 1) pre <- substr(TARGET_TYPES[1], 1, i)
+    else break
+  }
+  if (!nchar(pre)) return(paste(TARGET_TYPES, collapse = " / "))
+  suf <- substring(TARGET_TYPES, nchar(pre) + 1)
+  if (n == 2) paste0(pre, suf[1], "/", suf[2])
+  else paste0(pre, suf[1], "-", suf[n])
+})
 
 # one colour per target type, for the overview scene
 TARGET_COLS <- setNames(
   grDevices::hcl.colors(max(2, length(TARGET_TYPES)), "Dark 3")[seq_along(TARGET_TYPES)],
   TARGET_TYPES)
+
+# --- literature aliases -----------------------------------------------------
+# Connectome type names that the pheromone literature knows under another name.
+# Kept here rather than inline so the figures, the table and the prose cannot
+# drift apart.
+# Populated in 03 from the maleCNS `synonyms` annotation, not hardcoded, so the
+# page reports what the dataset actually records (e.g. "Yu 2010: vAB3").
+TYPE_ALIAS <- character(0)
+
+alias_of <- function(x) unname(ifelse(x %in% names(TYPE_ALIAS), TYPE_ALIAS[x], ""))
 
 # raw coordinates are 8 nm voxels
 vox_to_um <- function(v) v * 8 / 1000

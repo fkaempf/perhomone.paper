@@ -55,7 +55,20 @@ CASES <- list(
     links   = list(list(
       label = "Gen1 MCFO: R56C09",
       url   = "https://gen1mcfo.janelia.org/cgi-bin/view_gen1mcfo_imagery.cgi?line=R56C09",
-      note  = "the line used for PPN1 in Kallman et al. 2015"))
+      note  = paste0("the line used for PPN1 in ",
+                     "<a href=\"https://elifesciences.org/articles/11188\" rel=\"noopener\">",
+                     "Kallman et al. 2015</a>. The labelled morphology looks like ",
+                     "<b>AN05B102a</b>"))),
+    # MCFO imagery for that line, hotlinked from the Janelia FlyLight S3 bucket
+    # w/h are the intrinsic pixel sizes; rot turns the portrait VNC stack on its
+    # side so all three panels are landscape and the row fills the text column
+    images  = list(
+      list(cap = "Prothoracic, multichannel MIP", w = 686, h = 685, rot = FALSE,
+           url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-prothoracic-GAL4-multichannel_mip.png"),
+      list(cap = "VNC, aligned to JRC2018 VNC Unisex", w = 573, h = 1119, rot = TRUE,
+           url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-vnc-GAL4-JRC2018_VNC_Unisex-aligned_stack.png"),
+      list(cap = "Central brain, aligned to JRC2018 Unisex 20x HR", w = 1210, h = 566, rot = FALSE,
+           url = "https://s3.amazonaws.com/janelia-flylight-imagery/Gen1+MCFO/R56C09/R56C09-20190730_61_F1-m-40x-central-GAL4-JRC2018_Unisex_20x_HR-aligned_stack.png"))
   )
 )
 

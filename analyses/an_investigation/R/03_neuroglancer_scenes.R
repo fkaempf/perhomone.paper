@@ -259,13 +259,70 @@ bilat_note <- if (length(uni_types)) {
 }
 bilat_note <- paste0(bilat_note, alias_note)
 
-# external references declared by the case, e.g. driver-line imagery
+# external references declared by the case, e.g. driver-line imagery. On their own
+# line rather than trailing the laterality sentence, where they were easy to miss.
 case_links <- CASES[[CASE]]$links
 if (length(case_links)) {
-  bilat_note <- paste0(bilat_note, " ",
+  bilat_note <- paste0(bilat_note,
+    '</p><p class="note reflink">',
     paste(vapply(case_links, function(l)
-      sprintf('<a href="%s" rel="noopener">%s</a> &ndash; %s.', l$url, l$label, l$note),
-      character(1)), collapse = " "))
+      sprintf('<span class="reftag">ref</span><a href="%s" rel="noopener">%s</a> &ndash; %s.',
+              l$url, l$label, l$note),
+      character(1)), collapse = "<br>"))
+}
+
+# line imagery, hotlinked from the source bucket rather than copied into the site.
+# Each one links through to the full-size file.
+# --- embeddable 3d scene ------------------------------------------------------
+# The representative body: the aliased type if the case has one (so the embed
+# shows the neuron the literature name refers to), else the first target type.
+# layout 3d with slices off, so the iframe opens on the morphology rather than
+# on EM planes.
+embed_type <- if (length(alias_types)) alias_types[1] else TARGET_TYPES[1]
+embed_body <- syn %>% filter(target_type == embed_type, is_focus) %>%
+  count(bodyid, sort = TRUE) %>% slice_head(n = 1) %>% pull(bodyid)
+
+embed_url <- NULL
+if (length(embed_body)) {
+  es <- make_mcns_scene(embed_body, title = sprintf("%s %s", embed_type, embed_body))
+  es$layers[[2]]$segments            <- as.list(as.character(embed_body))
+  es$layers[[2]]$segmentDefaultColor <- "#ff0000"
+  es$layers[[2]]$segmentColors       <- setNames(list("#ff0000"), as.character(embed_body))
+  ep <- syn %>% filter(bodyid == embed_body, is_focus)
+  es$position        <- c(mean(ep$x), mean(ep$y), mean(ep$z))
+  es$projectionScale <- fit_scale(ep)
+  es$layout          <- "3d"
+  es$showSlices      <- FALSE
+  es$showAxisLines   <- FALSE
+  embed_url <- write_scene(es, sprintf("%s_embed.json", CASE))
+}
+
+case_images <- CASES[[CASE]]$images
+mcfo_html <- if (length(case_images)) {
+  # Each panel is flexed in proportion to its displayed aspect ratio, so the row
+  # fills the text column with every panel the same height. A rotated image keeps
+  # its layout box unrotated, so the box carries the post-rotation aspect and the
+  # image is absolutely centred inside it at the reciprocal width.
+  paste0('<div class="mcfo">',
+    paste(vapply(case_images, function(im) {
+      asp <- if (isTRUE(im$rot)) im$h / im$w else im$w / im$h
+      sprintf(
+        '<figure style="flex:%.3f"><a class="box%s" style="aspect-ratio:%.3f" href="%s" rel="noopener"><img src="%s" alt="%s" loading="lazy"%s></a><figcaption>%s</figcaption></figure>',
+        asp, if (isTRUE(im$rot)) " rot" else "", asp, im$url, im$url, im$cap,
+        if (isTRUE(im$rot)) sprintf(' style="width:%.2f%%"', 100 / asp) else "",
+        im$cap)
+    }, character(1)), collapse = ""),
+    '</div>')
+} else ""
+
+# a live Clio-NG viewer beside the fixed imagery, same row, same height, so the
+# light-level morphology and the EM reconstruction can be compared directly
+if (!is.null(embed_url)) {
+  frame <- sprintf(
+    '<figure style="flex:1.35"><div class="box ngbox" style="aspect-ratio:1.35"><iframe src="%s" loading="lazy" allowfullscreen title="%s %s"></iframe></div><figcaption>%s %s, interactive. <a href="%s" rel="noopener">open full</a></figcaption></figure>',
+    embed_url, embed_type, embed_body, embed_type, embed_body, embed_url)
+  mcfo_html <- if (nzchar(mcfo_html)) sub('</div>$', paste0(frame, '</div>'), mcfo_html)
+               else paste0('<div class="mcfo">', frame, '</div>')
 }
 
 # --- Billy's receptor assignment ---------------------------------------------
@@ -350,6 +407,8 @@ the exact value.</p>
   sprintf('<p class="note">%s</p>', bilat_note)
 }
 
+figs_section <- paste0(figs_section, mcfo_html)
+
 billy_section <- if (SHOW_BILLY) sprintf('<h2>Receptor assignment</h2>
 <p class="note"><b>Billy&rsquo;s assignment, reproduced here.</b> This is a
 light-level receptor-to-type call and is not derived from any of the
@@ -389,6 +448,24 @@ html_head <- sprintf('<!doctype html>
  .legend .bi{color:#666;font-size:.85rem}
  h2{font-size:1.05rem;margin:2.75rem 0 .35rem;font-weight:600}
  p.note{color:#555;margin:0 0 1.25rem;font-size:.92rem}
+ p.reflink{margin-top:.5rem}
+ .mcfo{display:flex;gap:.7rem;align-items:flex-start;justify-content:center;
+        margin:.5rem 0 1.6rem}
+ .mcfo figure{margin:0;min-width:0}
+ .mcfo .box{display:block;position:relative;width:100%%;overflow:hidden;
+            background:#000;border:1px solid #d8d8d8;border-radius:7px}
+ .mcfo .box img{display:block;width:100%%;height:auto}
+ .mcfo .ngbox iframe{position:absolute;inset:0;width:100%%;height:100%%;border:0;
+                     display:block}
+ .mcfo .box.rot img{position:absolute;top:50%%;left:50%%;height:auto;
+                    transform:translate(-50%%,-50%%) rotate(90deg)}
+ .mcfo figcaption{color:#666;font-size:.72rem;margin-top:.3rem;line-height:1.3}
+ @media (prefers-color-scheme:dark){
+  .mcfo .box{border-color:#333} .mcfo figcaption{color:#9aa3b0}
+ }
+ .reftag{display:inline-block;margin-right:.45rem;padding:0 .35rem;border-radius:4px;
+         background:#0b5fa5;color:#fff;font-size:.68rem;font-weight:600;
+         text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
  /* the plots keep their own dark ground in both colour schemes, to match the
     neuroglancer scenes they describe */
  .figs{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;

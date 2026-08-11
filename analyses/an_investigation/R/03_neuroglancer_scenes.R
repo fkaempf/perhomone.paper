@@ -300,7 +300,7 @@ if (length(embed_body)) {
                         else c(mean(ep$x), mean(ep$y), mean(ep$z))
   es$projectionScale <- if (!is.null(embed_cfg$scale)) embed_cfg$scale else fit_scale(ep)
   if (!is.null(embed_cfg$orientation)) es$projectionOrientation <- embed_cfg$orientation
-  es$layout          <- "3d"
+  es$layout          <- list(type = "3d", orthographicProjection = TRUE)
   es$showSlices      <- FALSE
   es$showAxisLines   <- FALSE
   # the embed is for looking, not for driving: close every panel so the frame
@@ -474,7 +474,11 @@ html_head <- sprintf('<!doctype html>
  .ngrow figure{margin:0}
  .ngrow .box{position:relative;width:100%%;height:420px;overflow:hidden;background:#000;
              border:1px solid #d8d8d8;border-radius:7px}
- .ngrow .box iframe{position:absolute;inset:0;width:100%%;height:100%%;border:0;display:block}
+ /* Clio-NG keeps its layer bar regardless of the panel flags in the state, and a
+    cross-origin frame cannot be restyled, so the frame is grown by the bar height
+    and pulled up: the bar is clipped by the box overflow instead. */
+ .ngrow .box iframe{position:absolute;left:0;top:-38px;width:100%%;
+                    height:calc(100%% + 38px);border:0;display:block}
  .ngrow figcaption{color:#666;font-size:.75rem;margin-top:.35rem}
  @media (prefers-color-scheme:dark){
   .ngrow .box{border-color:#333} .ngrow figcaption{color:#9aa3b0}

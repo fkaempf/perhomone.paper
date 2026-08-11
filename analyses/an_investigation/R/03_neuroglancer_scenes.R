@@ -483,7 +483,11 @@ html_head <- sprintf('<!doctype html>
  .ngrow .box iframe{position:absolute;left:0;top:-48px;
                     width:200%%;height:calc(200%% + 96px);
                     transform:scale(.5);transform-origin:0 0;
-                    z-index:1;border:0;display:block}
+                    z-index:1;border:0;display:block;outline:none}
+ /* clicking an iframe focuses it and the browser draws a focus ring, which is
+    the pale outline that appears around the viewer on click or hover */
+ .ngrow .box iframe:focus,.ngrow .box iframe:focus-visible{outline:none}
+ .ngrow .box:focus-within{outline:none}
  /* the axis letters and the panel toggle survive every state flag, so they are
     covered by patches in matching black */
  /* z-index is required: the transform on the iframe promotes it to its own

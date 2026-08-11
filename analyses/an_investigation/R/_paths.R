@@ -63,9 +63,9 @@ CASES <- list(
     # camera for the embedded viewer, matched by hand to the VNC panel beside it
     # so the two show the neuron from the same angle
     embed   = list(body = 12286,
-                   position    = c(50449.55859375, 60314.4921875, 98856.40625),
+                   position    = c(50944, 42487, 102036),
                    orientation = c(0.5, -0.5, -0.5, -0.5),
-                   scale       = 43291.67542688914),
+                   scale       = 24000),
     # w/h are the intrinsic pixel sizes; rot turns the portrait VNC stack on its
     # side so all three panels are landscape and the row fills the text column
     images  = list(

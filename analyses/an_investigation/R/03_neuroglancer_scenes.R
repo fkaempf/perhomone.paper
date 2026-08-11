@@ -303,6 +303,13 @@ if (length(embed_body)) {
   es$layout          <- "3d"
   es$showSlices      <- FALSE
   es$showAxisLines   <- FALSE
+  # the embed is for looking, not for driving: close every panel so the frame
+  # opens on the neuron rather than on neuroglancer's chrome
+  es$selectedLayer   <- list(visible = FALSE)
+  es$layerListPanel  <- list(visible = FALSE)
+  es$selection       <- list(visible = FALSE)
+  es$helpPanel       <- list(visible = FALSE)
+  es$settingsPanel   <- list(visible = FALSE)
   embed_url <- write_scene(es, sprintf("%s_embed.json", CASE))
 }
 

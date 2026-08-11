@@ -1,0 +1,346 @@
+---
+title: "Figure 5 Panel M: AN05B035 morphology with ppk23/ppk25-biased synapses"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+suppressMessages({
+  library(nat)
+  library(neuprintr)
+  library(rgl)
+  library(dplyr)
+  library(tibble)
+  library(ggplot2)
+  library(Matrix)
+})
+
+options(rgl.useNULL = TRUE)
+
+out_root   <- "/Users/fkampf/Documents/pheromone.paper/figures/fig5/panel_M"
+out_notes  <- file.path(out_root, "notes")
+dir.create(out_notes, recursive = TRUE, showWarnings = FALSE)
+out_pdf    <- panel_plot_dir("panel_M_morphology", "pdf")
+out_png    <- panel_plot_dir("panel_M_morphology", "png")
+```
+
+## AN05B035 bodyids
+
+```{r ids}
+an05_meta <- mba %>%
+  dplyr::filter(type == "AN05B035")
+print(an05_meta %>% select(bodyid, type, instance, soma_side, status))
+an05_ids <- an05_meta$bodyid
+stopifnot(length(an05_ids) > 0)
+```
+
+## Fetch skeleton + synapses from neuprint (male-cns)
+
+```{r fetch-neuron}
+sk_list <- tryCatch(
+  neuprint_read_skeletons(an05_ids, heal = TRUE),
+  error = function(e) { message("skeleton fetch failed: ", conditionMessage(e)); NULL }
+)
+
+syn_tbl <- tryCatch(
+  neuprint_get_synapses(an05_ids),
+  error = function(e) { message("synapse fetch failed: ", conditionMessage(e)); NULL }
+)
+
+have_data <- !is.null(sk_list) && !is.null(syn_tbl) && nrow(syn_tbl) > 0
+cat("skeleton OK:", !is.null(sk_list), "  synapses OK:",
+    !is.null(syn_tbl) && nrow(syn_tbl) > 0, "\n")
+if (have_data) cat("n synapses:", nrow(syn_tbl),
+                   "  n presynaptic (outputs):", sum(syn_tbl$prepost == 0),
+                   "  n postsynaptic (inputs):", sum(syn_tbl$prepost == 1), "\n")
+```
+
+## Compute ppk23/ppk25 sex-bias score for every partner type
+
+For each connectome `type`, derive how strongly it is driven by ppk23 vs ppk25
+contact-chemosensory channels, using the graph's adjacency matrix
+(`adj.matrix`), summing incoming synapse weights from the ppk23 and ppk25
+channel-neuron source sets.
+
+```{r bias-per-type}
+# adj.matrix[rownames -> colnames]: row = source, col = target (need to verify)
+# standardize: make rows = pre, cols = post. From setup.R it comes from `load_all_data`.
+# Inspect by checking a known channel neuron presence as a rowname.
+is_row_source <- any(unlist(channel_neurons) %in% rownames(adj.matrix))
+is_col_source <- any(unlist(channel_neurons) %in% colnames(adj.matrix))
+cat("channel neurons in rows:", sum(unlist(channel_neurons) %in% rownames(adj.matrix)),
+    "  in cols:", sum(unlist(channel_neurons) %in% colnames(adj.matrix)), "\n")
+
+# Convenience getter: for a row vector indexed by type, sum across src_types
+type_drive_from <- function(src_types) {
+  src_types <- src_types[src_types %in% rownames(adj.matrix)]
+  if (length(src_types) == 0) return(setNames(rep(0, ncol(adj.matrix)), colnames(adj.matrix)))
+  if (length(src_types) == 1) return(as.numeric(adj.matrix[src_types, ]))
+  Matrix::colSums(adj.matrix[src_types, , drop = FALSE])
+}
+
+drive_ppk23 <- type_drive_from(channel_neurons$ppk23)
+drive_ppk25 <- type_drive_from(channel_neurons$ppk25)
+names(drive_ppk23) <- colnames(adj.matrix)
+names(drive_ppk25) <- colnames(adj.matrix)
+
+# Also compute what ppk23/ppk25 RECEIVE from each source type (for presyn partners
+# that are themselves upstream of AN05B035 but may be driving pheromone info
+# downstream). We use direct drive as the bias for a partner type.
+bias_tbl <- tibble::tibble(
+  type        = names(drive_ppk23),
+  drive_ppk23 = as.numeric(drive_ppk23),
+  drive_ppk25 = as.numeric(drive_ppk25)
+) %>%
+  mutate(
+    total = drive_ppk23 + drive_ppk25,
+    bias  = ifelse(total > 0, (drive_ppk23 - drive_ppk25) / total, NA_real_)
+  )
+
+cat("types with any ppk23/ppk25 drive:", sum(!is.na(bias_tbl$bias)), "\n")
+```
+
+The `bias` value in `[-1, +1]`: **+1 = fully ppk23 (male-contact)**, **-1 = fully
+ppk25 (female-contact)**, 0 = balanced, NA = no contact drive.
+
+## Map every synapse partner bodyid -> type -> bias
+
+```{r partner-bias}
+# Partner bodyid -> type lookup via mba
+bodyid_to_type <- setNames(mba$type, as.character(mba$bodyid))
+
+if (have_data) {
+  syn_df <- syn_tbl %>%
+    as_tibble() %>%
+    mutate(
+      partner_type = bodyid_to_type[as.character(partner)],
+      io           = ifelse(prepost == 1, "input", "output")   # 1 = postsynaptic (input to AN05B035), 0 = presynaptic (output)
+    ) %>%
+    left_join(bias_tbl %>% select(type, bias, drive_ppk23, drive_ppk25),
+              by = c("partner_type" = "type")) %>%
+    mutate(
+      bias_class = dplyr::case_when(
+        is.na(bias)            ~ "neither",
+        bias >=  0.2           ~ "ppk23 (male)",
+        bias <= -0.2           ~ "ppk25 (female)",
+        TRUE                   ~ "balanced"
+      )
+    )
+
+  # Sanity: what fraction of partners have a type, and a non-NA bias?
+  cat("partners with known type:",
+      mean(!is.na(syn_df$partner_type)) * 100, "%\n")
+  cat("partners with non-NA bias:",
+      mean(!is.na(syn_df$bias)) * 100, "%\n")
+
+  cat("\nBias class breakdown (inputs):\n")
+  print(syn_df %>% filter(io == "input")  %>% count(bias_class))
+  cat("\nBias class breakdown (outputs):\n")
+  print(syn_df %>% filter(io == "output") %>% count(bias_class))
+}
+```
+
+## Render 2D morphology with coloured synapse markers
+
+We project the skeleton to frontal (XY) and dorsal (XZ) views using
+`nat::plot` style, then overlay synapse scatterpoints coloured by bias.
+
+```{r render-plots, fig.width=12, fig.height=10}
+render_panel <- function(sk_list, syn_df, view = c("XY","XZ"), title = "") {
+  view <- match.arg(view)
+  # Skeleton vertices across all neurons
+  all_xyz <- do.call(rbind, lapply(sk_list, function(n) nat::xyzmatrix(n)))
+  seg_list <- list()
+  for (n in sk_list) {
+    # build line segments from parent-child in swc-like data frame
+    d <- n$d
+    # parent column is named 'Parent' in neuron$d
+    par_col <- intersect(c("Parent","parent"), colnames(d))[1]
+    pt_col_x <- intersect(c("X","x"), colnames(d))[1]
+    pt_col_y <- intersect(c("Y","y"), colnames(d))[1]
+    pt_col_z <- intersect(c("Z","z"), colnames(d))[1]
+    id_col   <- intersect(c("PointNo","pointno"), colnames(d))[1]
+    valid <- d[[par_col]] != -1 & d[[par_col]] %in% d[[id_col]]
+    if (!any(valid)) next
+    child  <- d[valid, , drop = FALSE]
+    parent <- d[match(child[[par_col]], d[[id_col]]), , drop = FALSE]
+    seg <- data.frame(
+      x0 = child[[pt_col_x]],  y0 = child[[pt_col_y]],  z0 = child[[pt_col_z]],
+      x1 = parent[[pt_col_x]], y1 = parent[[pt_col_y]], z1 = parent[[pt_col_z]]
+    )
+    seg_list[[length(seg_list) + 1]] <- seg
+  }
+  segs <- dplyr::bind_rows(seg_list)
+  if (view == "XY") {
+    seg_df <- data.frame(a0 = segs$x0, b0 = segs$y0, a1 = segs$x1, b1 = segs$y1)
+    syn_xy <- data.frame(a = syn_df$x, b = syn_df$y)
+  } else {
+    seg_df <- data.frame(a0 = segs$x0, b0 = segs$z0, a1 = segs$x1, b1 = segs$z1)
+    syn_xy <- data.frame(a = syn_df$x, b = syn_df$z)
+  }
+  syn_xy$io         <- syn_df$io
+  syn_xy$bias_class <- syn_df$bias_class
+  syn_xy$bias       <- syn_df$bias
+
+  bias_colors <- c(
+    "ppk23 (male)"   = "#D62728",
+    "ppk25 (female)" = "#1F77B4",
+    "balanced"       = "#9E9E9E",
+    "neither"        = "#DADADA"
+  )
+
+  # Draw inputs on one facet, outputs on another
+  ggplot() +
+    geom_segment(data = seg_df,
+                 aes(x = a0, y = b0, xend = a1, yend = b1),
+                 color = "grey25", linewidth = 0.12, alpha = 0.85) +
+    geom_point(data = syn_xy,
+               aes(x = a, y = b, color = bias_class),
+               size = 0.45, alpha = 0.75) +
+    scale_color_manual(values = bias_colors, name = "Partner ppk bias",
+                       na.value = "#DADADA") +
+    facet_wrap(~io, nrow = 1) +
+    coord_fixed() +
+    # EM voxel coords: y increases downward -> flip
+    scale_y_reverse() +
+    labs(title = title,
+         subtitle = paste0("view = ", view,
+                           "   (red = ppk23/male-contact-driven partner,",
+                           "   blue = ppk25/female,",
+                           "   grey = balanced/neither)")) +
+    theme_void(base_size = 11) +
+    theme(
+      strip.text        = element_text(face = "bold"),
+      plot.title        = element_text(face = "bold"),
+      plot.subtitle     = element_text(size = 9, color = "grey30"),
+      legend.position   = "bottom",
+      panel.spacing     = unit(1, "lines")
+    ) +
+    guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+}
+
+if (have_data) {
+  # Subsample synapses for scatter readability (keep all if <= 6000)
+  max_pts_per_io <- 3500
+  syn_plot <- syn_df %>%
+    group_by(io) %>%
+    group_modify(~ if (nrow(.x) > max_pts_per_io) slice_sample(.x, n = max_pts_per_io) else .x) %>%
+    ungroup()
+
+  p_xy <- render_panel(sk_list, syn_plot, view = "XY",
+                       title = sprintf("AN05B035 (bodyids: %s) -- frontal view",
+                                       paste(an05_ids, collapse = ", ")))
+  p_xz <- render_panel(sk_list, syn_plot, view = "XZ",
+                       title = "AN05B035 -- dorsal view")
+
+  combined <- patchwork::wrap_plots(p_xy, p_xz, ncol = 1) +
+    patchwork::plot_annotation(
+      caption = paste(
+        "SOURCE: skeleton + synapses from neuprint male-cns:v1.0.",
+        "COLOR: synapses coloured by partner cell-type ppk23/ppk25 contact-pheromone drive.",
+        "BIAS: (drive_ppk23 - drive_ppk25) / (drive_ppk23 + drive_ppk25).",
+        "INPUTS: partner is presynaptic to AN05B035.",
+        "OUTPUTS: partner is postsynaptic to AN05B035.",
+        sep = "\n"
+      )
+    )
+  print(combined)
+} else {
+  # -- Fallback: placeholder + Neuroglancer URL --
+  ng_url <- tryCatch(
+    paste0("https://clio-ng.janelia.org/#!",
+           utils::URLencode(jsonlite::toJSON(make_mcns_scene(an05_ids), auto_unbox = TRUE),
+                            reserved = TRUE)),
+    error = function(e) NA_character_)
+
+  combined <- ggplot() + theme_void() +
+    annotate("text", x = 0, y = 0.6,
+             label = "AN05B035 morphology -- data unavailable", size = 6, fontface = "bold") +
+    annotate("text", x = 0, y = 0.3,
+             label = "Could not fetch skeleton / synapses from neuprint.\nSee panel_M/notes/MORPHOLOGY_DATA_NOTES.md.\nNeuroglancer URL generated for manual inspection.",
+             size = 4) +
+    xlim(-1, 1) + ylim(0, 1)
+  print(combined)
+  cat("Neuroglancer URL:\n", ng_url, "\n")
+}
+```
+
+## Save PDF and PNG
+
+```{r save}
+pdf_path <- file.path(out_pdf, "panel_M_morphology.pdf")
+png_path <- file.path(out_png, "panel_M_morphology.png")
+
+ggsave(pdf_path, plot = combined, width = 12, height = 14, device = cairo_pdf)
+ggsave(png_path, plot = combined, width = 12, height = 14, dpi = 300)
+cat("wrote:\n  ", pdf_path, "\n  ", png_path, "\n")
+
+if (have_data) {
+  # write synapse table for reproducibility
+  write.csv(syn_df %>% select(connector_id, bodyid, partner, partner_type,
+                              io, bias_class, bias, x, y, z),
+            file.path(out_root, "M_an05b035_synapse_table.csv"),
+            row.names = FALSE)
+}
+```
+
+## Neuroglancer link (always generated)
+
+```{r ng-url}
+ng_url <- tryCatch(
+  mcns_shortlink(an05_ids),
+  error = function(e) {
+    long <- paste0("https://clio-ng.janelia.org/#!",
+                   utils::URLencode(jsonlite::toJSON(make_mcns_scene(an05_ids),
+                                                     auto_unbox = TRUE),
+                                    reserved = TRUE))
+    long
+  }
+)
+cat("Neuroglancer link:\n", ng_url, "\n")
+writeLines(ng_url, file.path(out_root, "M_an05b035_neuroglancer_url.txt"))
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+narrative <- sprintf(
+"PANEL M: AN05B035 morphology with ppk23/ppk25-biased synapses
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Two 2D projections of the AN05B035 skeleton (both hemispheres,
+bodyids %s), with input and output synapses plotted as points and
+colour-coded by the ppk23/ppk25 contact-pheromone drive of the partner
+cell type:
+  RED   : partner type is predominantly driven by ppk23 (male cuticular contact)
+  BLUE  : partner type is predominantly driven by ppk25 (female cuticular contact)
+  GREY  : partner type is balanced or has no detectable ppk23/ppk25 drive
+
+METHOD
+------
+Skeleton fetched via `neuprintr::neuprint_read_skeletons` (male-cns:v1.0,
+healed). Synapses fetched via `neuprint_get_synapses`; prepost=1 -> input
+(AN05B035 is postsynaptic), prepost=0 -> output (AN05B035 is presynaptic).
+Each partner bodyid is mapped to its cell type via mba, and each type is
+scored by bias = (drive_ppk23 - drive_ppk25) / (drive_ppk23 + drive_ppk25)
+where drives are total synaptic input from the ppk23 vs ppk25 channel-neuron
+sets defined in channel_neurons (fig5 setup.R). |bias| >= 0.2 classifies a
+partner as male- or female-biased.
+
+INTERPRETATION
+--------------
+This panel lets the reader see *spatially* where AN05B035 reads male- vs
+female-contact information on its dendrite, and where it projects those
+two streams on its axon. Colour clustering of inputs by bias highlights
+whether the ppk23/ppk25 segregation is preserved at the level of synapse
+locations on AN05B035, not just as bulk connectivity statistics.
+",
+paste(an05_ids, collapse = ", "))
+
+writeLines(narrative, file.path(out_root, "M_an05b035_morphology_narrative.txt"))
+cat(narrative)
+```

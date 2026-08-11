@@ -1,0 +1,40 @@
+PANEL M: GABA sign-inverter pool — ppk23 vs ppk25 upstream path strength
+=========================================================================
+
+DESIGN
+------
+Endpoint = each of the 11 GABA sign-inverter (SI) pool members. For each
+SI, x and y are the summed top-50 strongest-path strengths from the two
+ppk channels' ORNs to that SI. Unlike the rest of Panel M (which treats
+mAL_m as endpoints and uses the SIs as interior relays), here the SI is
+the target — the plot shows *input onto the SI* rather than *routing
+through the SI*.
+
+POOL (n=11): AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a/b.
+
+STATISTICS (log10 transformed)
+------------------------------
+n                      = 11
+Pearson r              = 0.879 (p = 0.000369)
+Spearman rho           = 0.555 (p = 0.0767)
+OLS slope (log-log)    = 0.890 [95% CI 0.526, 1.255]
+R^2                    = 0.772
+ppk25-biased SIs       = 3 / 11
+ppk23-biased SIs       = 8 / 11
+
+INTERPRETATION
+--------------
+SIs above the y = x diagonal receive more drive from the ppk25 (female
+contact pheromone) channel; SIs below the diagonal are ppk23-biased.
+Points near the diagonal are channel-symmetric and are candidates for
+'dual-channel' sign-inverters that can route inhibition from either
+contact-pheromone context onto mAL_m.
+
+METHOD NOTES
+------------
+- Caches: strongest.50.paths.{ppk23,ppk25}.2.gaba_si_pool.feather.
+- Strength: multiplicative synapse-weight product along the path
+  (same definition as mal_paths).
+- Pseudocount (half the minimum positive strength) applied only for the
+  log transform so SIs with zero strength on one channel are visible.
+

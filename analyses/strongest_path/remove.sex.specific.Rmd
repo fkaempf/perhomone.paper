@@ -27,6 +27,7 @@ library(grid)
 library(igraph)
 library(jsonlite)
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(Matrix)
 library(neuprintr)
 library(nat.ggplot)

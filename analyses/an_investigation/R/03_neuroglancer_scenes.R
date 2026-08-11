@@ -4,7 +4,7 @@
 #   - one overview scene with every body in the case
 #   - a menu page linking to all of them
 #
-# The segmentation (f3969:master) and EM (gs://cns-full-clahe) sources both span
+# The segmentation (4b2087c0fbe046bfaf0d60bc970e3e5d) and EM (gs://cns-full-clahe) sources both span
 # the full CNS, and vnc-shell is already one of the default layers, so the VNC
 # synapses render without any source change.
 #
@@ -120,6 +120,7 @@ overview_url <- write_scene(scene, sprintf("%s_overview.json", CASE))
 #   norm  as a fraction of that target's TOTAL input (all sources, focus or not)
 #   comp  renormalised so each column sums to 1 - profile shape, scale removed
 suppressMessages({ library(pheatmap); library(viridisLite); library(grid) })
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 
 case_dir <- file.path(ng_dir, CASE)
 dir.create(case_dir, showWarnings = FALSE, recursive = TRUE)
@@ -568,7 +569,7 @@ html_head <- sprintf('<!doctype html>
 
 html_body <- sprintf('
 <h1>%s sensory input</h1>
-<p class="sub">Clio-NG scenes for the male CNS (male-cns:v0.9). The neuron is red;
+<p class="sub">Clio-NG scenes for the male CNS (male-cns:v1.0). The neuron is red;
 input synapses are point annotations, one layer per presynaptic sensory type.
 All of this input lands in the nerve cord. Extra layers start hidden; toggle
 them in the layer bar.</p>

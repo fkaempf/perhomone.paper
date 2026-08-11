@@ -1,0 +1,46 @@
+PANEL CE9: Example ppk23 -> mAL path traces showing GABA sign-inverter pool routing
+==============================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Three small example networks, one per mAL_m subtype. For each subtype we draw
+the top 10 strongest ppk23 -> mAL paths (from `mal_paths`, K=50 per channel).
+Nodes are placed at their canonical hop level along the x-axis (source ppk23
+sensory neuron on the left, mAL target on the right); within each hop we
+stagger in y to reduce edge crossings. Each unique node gets exactly ONE
+(x, y) position (canonical hop = most common hop across top-K paths). Edges
+are colored by route -- red when the path does NOT traverse any member of
+the GABA sign-inverter pool (direct / AN09B017-type excitatory relays) and
+blue when the path passes through at least one GABA sign-inverter
+(GABA SI pool: AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b).
+Edge width scales with path strength; node size scales with how many of the
+top-10 paths pass through that node.
+
+CHOSEN EXAMPLES
+---------------
+* Most ppk23-INHIBITED:  mAL_m10  (E/I = +0.04, GABA SI fraction = 29%)
+* Balanced:              mAL_m8  (E/I = +0.12, GABA SI fraction = 23%)
+* Most ppk23-EXCITED:    mAL_m3b  (E/I = +0.40, GABA SI fraction = 13%)
+
+These three subtypes were picked automatically from `mal_paths`/`mal_strength_*`
+to span the extremes and midpoint of ppk23 E/I balance among male-specific
+mAL subtypes.
+
+INTERPRETATION
+--------------
+Visualizing only the top-10 paths per target makes the routing asymmetry
+explicit: the ppk23-inhibited subtype's trace is dominated by BLUE edges
+that converge on central GABA-sign-inverter nodes before reaching the mAL
+target, while the ppk23-excited subtype's trace is almost entirely RED,
+with paths sidestepping the GABA SI pool and flowing through direct /
+AN09B017-type excitatory relays. The balanced subtype shows an intermediate
+mix. This is the concrete per-subtype picture of the sign inversion that
+panels C and E summarize in aggregate.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+Panel CE9 is the mechanistic 'zoom-in' companion to CE1's aggregate routing
+fractions and CE2's GABA-SI-fraction vs E/I regression: it shows WHICH
+paths carry ppk23 drive into each of the three example mALs, and where in
+that path the sign inversion happens.
+

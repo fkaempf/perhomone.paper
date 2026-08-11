@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 7
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -70,7 +70,7 @@ all_neurons <- rownames(strength.bella)
 message("Total neurons in combined matrix: ", length(all_neurons))
 
 # Check for known neuron types from Bella's targets
-known_patterns <- c("mAL", "AVLP494", "P1_3", "LH004",
+known_patterns <- c("mAL", "AVLP494", "pC1_3", "LH004",
                      "SMP", "SIP", "SLP", "LH", "pC1", "pC2")
 known_hits <- lapply(known_patterns, function(pat) {
   grep(pat, all_neurons, value = TRUE, ignore.case = TRUE)
@@ -98,7 +98,7 @@ top_entropy <- entropy_df %>%
 known_candidates <- c(
   grep("mAL", all_neurons, value = TRUE, ignore.case = TRUE),
   grep("AVLP494", all_neurons, value = TRUE, ignore.case = TRUE),
-  grep("P1_3", all_neurons, value = TRUE, ignore.case = TRUE),
+  grep("pC1_3", all_neurons, value = TRUE, ignore.case = TRUE),
   grep("LH004", all_neurons, value = TRUE, ignore.case = TRUE)
 )
 known_candidates <- intersect(known_candidates, entropy_df$neuron)
@@ -223,10 +223,6 @@ make_neuron_radar <- function(neuron_name, strength_mat, fill_color = "steelblue
   }
 
   ggplot(radar_df, aes(x = modality, y = value, group = 1)) +
-    # Grid circles at 25%, 50%, 75%, 100%
-    annotate("path",
-             x = rep(1:7, each = 100) + rep(seq(0, 1, length.out = 100) - 0.5, 7),
-             y = rep(0.25, 700), alpha = 0, color = NA) +
     geom_polygon(fill = alpha(fill_color, fill_alpha), color = line_color,
                  linewidth = 0.8) +
     geom_point(aes(color = modality), size = 3, show.legend = FALSE) +

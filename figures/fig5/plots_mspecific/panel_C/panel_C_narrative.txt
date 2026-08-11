@@ -1,4 +1,4 @@
-PANEL C: ppk23 Sign Reversal -- Opposing Pheromone Responses
+PANEL C: Dual-Channel Sign Reversal at mAL via AN05B035
 ==============================================================
 
 WHAT THIS PANEL SHOWS
@@ -11,6 +11,24 @@ positive. The zero line separates subtypes where ppk23 paths are net-inhibitory
 Right: Scatter plot of ppk23 vs ppk25 net path strength, colored by
 neurotransmitter. The quadrants separate subtypes by their response polarity
 to each pheromone channel.
+
+UPDATED FINDING (DUAL-CHANNEL AN05B035 INPUT)
+---------------------------------------------
+AN05B035 does NOT receive contact-pheromone input only from ppk23. Reconnecting
+to the sensilla-side connectome we find AN05B035 is driven directly by BOTH
+contact-pheromone channels: approximately 1833 synapses from ppk23 primary
+afferents and approximately 1088 synapses from ppk25 primary afferents. Because
+AN05B035 is GABAergic, paths from EITHER channel that pass through AN05B035
+are sign-inverted before reaching their mAL_m targets.
+
+The supplementary figure alongside this panel (panel_M/pdf/panel_M_C_dual_channel.pdf)
+makes this explicit: row (a) ppk23 path drive, row (b) ppk25 path drive, row
+(c) AN05B035's signed contribution to ppk23 drive, row (d) AN05B035's signed
+contribution to ppk25 drive -- all sharing the same mAL_m x-axis (sorted by
+ppk23 path drive). Rows (c) and (d) carry the same negative-going signature,
+demonstrating that AN05B035's inhibitory imprint is present on BOTH contact
+channels. Accordingly, sign reversal should be framed as a property of the
+AN05B035 bottleneck, not as a ppk23-specific phenomenon.
 
 KEY OBSERVATIONS
 ----------------

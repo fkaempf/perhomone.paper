@@ -1,0 +1,45 @@
+PANEL M v2: AN05B035 morphology with ppk23/ppk25 channel-resolved synapses
+===========================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Four 2D projections of the AN05B035 skeleton (bodyids 23513, 517601). Top row: input
+synapses. Bottom row: output synapses. Left column: frontal (XY) view.
+Right column: dorsal (XZ) view.
+
+Each synapse is coloured by one of 5+1 discrete categories (not a blended
+bias gradient):
+  ppk23-sensillum      : partner type in channel_neurons$ppk23
+  ppk25-sensillum      : partner type in channel_neurons$ppk25
+  relay-ppk23          : AN09B017 variant with log2(ppk23/ppk25) > 1
+  relay-ppk25          : AN09B017 variant with log2(ppk25/ppk23) > 1
+  mAL_m (ppk23-biased) : output target whose mal_activation_matrix score
+                         is higher for ppk23 than ppk25
+  mAL_m (ppk25-biased) : output target biased to ppk25
+  other                : everything else (interneurons, unlabeled, etc.)
+
+Synapse count by category
+-------------------------
+INPUTS:
+  ppk23 sensillum: 1915
+  ppk25 sensillum: 1140
+  ppk25-biased partner: 39
+  other: 6171
+
+OUTPUTS:
+  ppk23-biased partner: 667
+  ppk25-biased partner: 867
+  other: 19493
+
+WHY TWO CHANNELS SEPARATED
+--------------------------
+The previous version compressed ppk23 and ppk25 contributions into one
+red-blue bias score per partner type, which collapsed the two channels
+at partners that received both. Here the direct sensillum channels are
+kept as their own categories and the AN09B017 relay channel is split
+by which contact modality dominates its input, so the reader can see
+on the neuron where each channel terminates independently.
+
+A Neuroglancer URL is saved to
+panel_M_morphology_v2_neuroglancer_url.txt for 3D inspection.
+

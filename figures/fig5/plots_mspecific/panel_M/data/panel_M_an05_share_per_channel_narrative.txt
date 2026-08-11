@@ -1,0 +1,18 @@
+PANEL M (supplementary): AN05B035-attributable inhibition, absolute strength
+============================================================================
+
+Companion to the primary figure panel_M_inhibitory_sources. That figure shows
+share (normalised to 100%); this supplement shows absolute summed path
+strength on each channel so subtype magnitude is also readable.
+
+For each of the 16 male-specific mAL_m subtypes we compute the total
+inhibitory path strength arriving from ppk23 and ppk25 (rows of
+mal_strength_inh), and the subset of that strength carried by paths whose
+intermediate nodes contain 'AN05B035'.
+
+MEAN AN05B035 SHARE:
+  ppk23: 24.8%
+  ppk25: 22.9%
+
+Palette and row order are inherited from the primary figure.
+

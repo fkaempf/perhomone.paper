@@ -1,0 +1,236 @@
+---
+title: "Figure 5 CE5: Counterfactual AN05B035 knockout - ppk23 E/I balance per mAL subtype"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+```
+
+```{r paths}
+# Panel CE5_counterfactual: remove AN05B035 from the cached mal_paths and
+# recompute per-subtype ppk23 E/I balance. Arrow plot shows real -> counterfactual
+# shift per mAL subtype; margin histogram shows the distribution of shifts.
+
+# Real paths (cached; the canonical mal_paths from setup) --------------------
+real_paths <- mal_paths %>%
+  filter(modality == "ppk23", end %in% mal_subtypes)
+
+# Counterfactual: drop any path whose trajectory string contains AN05B035 -----
+# mal_paths$path is of the form "A -> B -> ... -> mAL_mX"
+has_an05b035 <- grepl("(^|[^A-Za-z0-9])AN05B035([^A-Za-z0-9]|$)", real_paths$path)
+cf_paths <- real_paths[!has_an05b035, , drop = FALSE]
+
+message(sprintf("  ppk23 paths total: %d", nrow(real_paths)))
+message(sprintf("  paths passing through AN05B035: %d (%.1f%%)",
+                sum(has_an05b035), 100 * mean(has_an05b035)))
+message(sprintf("  ppk23 paths after AN05B035 removal: %d", nrow(cf_paths)))
+```
+
+```{r ei-compute}
+# Compute per-subtype E/I balance = (exc - inh) / (exc + inh) from a path set
+compute_ei <- function(paths_df, subtypes) {
+  agg <- paths_df %>%
+    group_by(end, valence) %>%
+    summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = valence, values_from = total, values_fill = 0)
+  if (!"excitatory" %in% colnames(agg)) agg$excitatory <- 0
+  if (!"inhibitory" %in% colnames(agg)) agg$inhibitory <- 0
+  # Ensure every subtype is represented (zero if no paths)
+  missing <- setdiff(subtypes, agg$end)
+  if (length(missing) > 0) {
+    agg <- bind_rows(agg,
+                     data.frame(end = missing, excitatory = 0, inhibitory = 0))
+  }
+  agg <- agg %>%
+    filter(end %in% subtypes) %>%
+    mutate(
+      denom = excitatory + inhibitory,
+      ei_balance = ifelse(denom > 0, (excitatory - inhibitory) / denom, 0)
+    ) %>%
+    select(target_type = end, excitatory, inhibitory, ei_balance)
+  agg
+}
+
+real_ei <- compute_ei(real_paths, mal_subtypes) %>%
+  rename(exc_real = excitatory, inh_real = inhibitory, ei_real = ei_balance)
+cf_ei <- compute_ei(cf_paths, mal_subtypes) %>%
+  rename(exc_cf = excitatory, inh_cf = inhibitory, ei_cf = ei_balance)
+
+ei_df <- real_ei %>%
+  left_join(cf_ei, by = "target_type") %>%
+  mutate(
+    delta = ei_cf - ei_real,
+    neurotransmitter = mal_nt[target_type],
+    dimorphism = mal_dimorphism[target_type]
+  ) %>%
+  arrange(ei_real) %>%
+  mutate(target_type = factor(target_type, levels = target_type))
+
+print(ei_df)
+
+mean_delta <- mean(ei_df$delta)
+median_delta <- median(ei_df$delta)
+n_shift_pos <- sum(ei_df$delta > 1e-9)
+n_shift_neg <- sum(ei_df$delta < -1e-9)
+n_unaffected <- sum(abs(ei_df$delta) <= 1e-9)
+
+cat(sprintf("Mean E/I shift (cf - real) across %d subtypes: %+.4f\n",
+            nrow(ei_df), mean_delta))
+cat(sprintf("Median shift: %+.4f\n", median_delta))
+cat(sprintf("Subtypes pushed toward excitation (delta > 0): %d\n", n_shift_pos))
+cat(sprintf("Subtypes pushed toward inhibition (delta < 0): %d\n", n_shift_neg))
+cat(sprintf("Subtypes unaffected (no AN05B035 paths): %d\n", n_unaffected))
+```
+
+```{r arrow-plot, fig.width=12, fig.height=6}
+# Long form for plotting both points
+ei_long <- ei_df %>%
+  select(target_type, real = ei_real, counterfactual = ei_cf) %>%
+  pivot_longer(cols = c(real, counterfactual),
+               names_to = "scenario", values_to = "ei_balance") %>%
+  mutate(scenario = factor(scenario, levels = c("real", "counterfactual")))
+
+arrow_df <- ei_df %>%
+  mutate(
+    x = as.numeric(target_type),
+    yend_nudge = ifelse(abs(delta) > 0.02,
+                        ei_cf - sign(delta) * 0.015,
+                        ei_cf)
+  )
+
+p_arrows <- ggplot() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50",
+             linewidth = 0.4) +
+  geom_segment(
+    data = arrow_df,
+    aes(x = target_type, xend = target_type,
+        y = ei_real, yend = yend_nudge),
+    arrow = arrow(length = unit(0.18, "cm"), type = "closed"),
+    color = "grey30", linewidth = 0.5
+  ) +
+  geom_point(
+    data = ei_long,
+    aes(x = target_type, y = ei_balance,
+        fill = scenario, shape = scenario),
+    size = 3.8, stroke = 0.4, color = "grey20"
+  ) +
+  scale_fill_manual(
+    values = c("real" = "#2C3E50", "counterfactual" = "#E67E22"),
+    labels = c("real" = "Real (with AN05B035)",
+               "counterfactual" = "AN05B035 removed")
+  ) +
+  scale_shape_manual(
+    values = c("real" = 21, "counterfactual" = 24),
+    labels = c("real" = "Real (with AN05B035)",
+               "counterfactual" = "AN05B035 removed")
+  ) +
+  scale_y_continuous(limits = c(-1.05, 1.05), breaks = seq(-1, 1, 0.5)) +
+  labs(
+    x = "mAL subtype (ordered by real ppk23 E/I balance)",
+    y = "ppk23 E/I balance  (exc - inh) / (exc + inh)",
+    fill = NULL, shape = NULL
+  ) +
+  theme_pub(base_size = 13) +
+  theme(legend.position = "top",
+        panel.grid.major.x = element_blank())
+
+print(p_arrows)
+```
+
+```{r histogram-margin, fig.width=4, fig.height=6}
+p_hist <- ggplot(ei_df, aes(x = delta)) +
+  geom_histogram(binwidth = 0.1, fill = "#E67E22",
+                 color = "grey20", linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "grey40", linewidth = 0.4) +
+  geom_vline(xintercept = mean_delta, color = "#C0392B",
+             linewidth = 0.6) +
+  annotate("text", x = mean_delta, y = Inf,
+           label = sprintf("mean = %+.3f", mean_delta),
+           vjust = 1.8, hjust = ifelse(mean_delta < 0, -0.05, 1.05),
+           color = "#C0392B", size = 3.4) +
+  labs(x = "Delta E/I balance  (counterfactual - real)",
+       y = "Number of mAL subtypes") +
+  theme_pub(base_size = 13)
+
+print(p_hist)
+```
+
+```{r combined, fig.width=15, fig.height=6}
+p_combined <- p_arrows + p_hist +
+  plot_layout(widths = c(3.2, 1)) +
+  plot_annotation(
+    tag_levels = list(c("a", "b"))
+  )
+
+print(p_combined)
+
+# Save via canonical plots_mspecific path
+out_dir_pdf <- panel_plot_dir("panel_M_counterfactual", "pdf")
+out_dir_png <- panel_plot_dir("panel_M_counterfactual", "png")
+
+ggsave(file.path(out_dir_pdf, "panel_M_counterfactual.pdf"),
+       plot = p_combined, width = 15, height = 6)
+ggsave(file.path(out_dir_png, "panel_M_counterfactual.png"),
+       plot = p_combined, width = 15, height = 6, dpi = 300)
+```
+
+```{r narrative, echo=FALSE}
+shifted <- ei_df %>% filter(abs(delta) > 1e-9) %>% arrange(delta)
+most_pushed <- if (nrow(shifted) > 0) shifted$target_type[1] else NA
+largest_shift <- if (nrow(shifted) > 0) shifted$delta[1] else 0
+
+narrative <- sprintf(
+"PANEL CE5 (counterfactual): removing AN05B035 reveals its sign-inverter role
+=============================================================================
+
+DESIGN
+------
+For each mAL subtype, compute the ppk23 E/I balance ((exc - inh)/(exc + inh))
+in two scenarios:
+  (1) REAL: all cached strongest ppk23 -> mAL paths.
+  (2) COUNTERFACTUAL: drop every path whose trajectory traverses AN05B035
+      (identified by substring match in mal_paths$path), then recompute the
+      same metric on the remaining paths.
+
+The arrow plot shows each subtype as two stacked points (real dark / CF orange)
+connected by an arrow pointing real -> counterfactual. The marginal histogram
+shows the distribution of per-subtype shifts (CF - real).
+
+KEY NUMBERS
+-----------
+  ppk23 paths total:                       %d
+  ppk23 paths through AN05B035:            %d (%.1f%%)
+  mean delta (E/I balance, CF - real):     %+.4f
+  median delta:                            %+.4f
+  subtypes pushed toward excitation:       %d
+  subtypes pushed toward inhibition:       %d
+  subtypes unaffected (no AN05B035 paths): %d
+  largest single shift:                    %s  (delta = %+.4f)
+
+INTERPRETATION
+--------------
+A positive mean delta (CF - real > 0) indicates that AN05B035 on average
+*suppresses* ppk23-driven excitation in mAL neurons, consistent with its role
+as the GABAergic sign-inverting relay. Subtypes with the largest positive
+shifts are precisely those for which AN05B035 dominates the inhibitory branch
+of the ppk23 pathway; subtypes with near-zero shift do not route ppk23 through
+AN05B035 and therefore are insensitive to its removal.
+",
+  nrow(real_paths),
+  sum(has_an05b035), 100 * mean(has_an05b035),
+  mean_delta, median_delta,
+  n_shift_pos, n_shift_neg, n_unaffected,
+  as.character(most_pushed), largest_shift
+)
+
+writeLines(narrative, file.path(out_dir_pdf, "panel_M_counterfactual_narrative.txt"))
+cat(narrative)
+```

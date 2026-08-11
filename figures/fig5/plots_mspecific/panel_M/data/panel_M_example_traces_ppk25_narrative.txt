@@ -1,0 +1,29 @@
+PANEL M: Example ppk25 -> mAL path traces (F-cell channel, GABA sign-inverter pool)
+==============================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+F-cell counterpart of the ppk23 example traces. For three mAL_m subtypes we
+draw the top 10 strongest ppk25 -> mAL paths. Nodes are placed at their
+canonical hop level along x (ppk25 source left, mAL target right); each
+unique node appears at exactly ONE (x, y) (canonical hop = most common hop
+across top-K paths). Edges are colored by route: red = path does NOT
+traverse any GABA sign-inverter; blue = path passes through at least one
+member of the GABA sign-inverter pool (AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b). Edge width scales with path
+strength; node size scales with how many of the top-10 paths pass through
+that node.
+
+CHOSEN EXAMPLES
+---------------
+* Most ppk25-INHIBITED:  mAL_m1  (E/I = +0.39, GABA SI fraction = 29%)
+* Balanced:              mAL_m2b  (E/I = +0.43, GABA SI fraction = 19%)
+* Most ppk25-EXCITED:    mAL_m3b  (E/I = +0.67, GABA SI fraction = 7%)
+
+INTERPRETATION
+--------------
+Together with the ppk23 traces, this panel shows that the GABA sign-inverter
+pool sits on the sign-inverting route for BOTH pheromone channels. The
+per-subtype distribution of GABA-SI routing differs between ppk23 and ppk25,
+which is what produces the channel-specific E/I asymmetries summarized in
+panels C and E.
+

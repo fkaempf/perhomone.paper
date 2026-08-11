@@ -1,0 +1,212 @@
+---
+title: "Panel M supplement: GABA sign-inverter contribution to inhibition on ppk23 vs ppk25 (absolute strength)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+## Status
+
+**Supplementary view** to the primary figure `panel_M_inhibitory_sources`.
+This panel plots the same attribution in absolute (un-normalised) path
+strength so readers can see subtype-level magnitude in addition to share.
+Palette and mAL sort order are inherited from the primary figure for
+visual consistency.
+
+## Compute per-subtype GABA-sign-inverter share of inhibition on each channel
+
+```{r compute}
+channels <- c("ppk23", "ppk25")
+
+inh_paths <- mal_paths %>%
+  filter(modality %in% channels,
+         end %in% mal_subtypes,
+         valence == "inhibitory") %>%
+  rowwise() %>%
+  mutate(via_gaba_si = path_via_gaba_si(path)) %>%
+  ungroup()
+
+via_gaba_si_df <- inh_paths %>%
+  filter(via_gaba_si) %>%
+  group_by(end, modality) %>%
+  summarise(inh_via_gaba_si = sum(strength, na.rm = TRUE), .groups = "drop")
+
+stopifnot(all(channels %in% colnames(mal_strength_inh)))
+inh_sub <- mal_strength_inh[mal_subtypes, channels, drop = FALSE]
+tab <- as.data.frame(inh_sub) %>%
+  tibble::rownames_to_column("mal") %>%
+  pivot_longer(cols = all_of(channels), names_to = "channel",
+               values_to = "inh_total") %>%
+  as_tibble() %>%
+  left_join(via_gaba_si_df, by = c("mal" = "end", "channel" = "modality")) %>%
+  mutate(
+    inh_via_gaba_si = ifelse(is.na(inh_via_gaba_si), 0, inh_via_gaba_si),
+    inh_other       = pmax(inh_total - inh_via_gaba_si, 0),
+    share           = ifelse(inh_total > 0, inh_via_gaba_si / inh_total, 0)
+  )
+
+wide <- tab %>%
+  select(mal, channel, inh_total, inh_via_gaba_si, share) %>%
+  pivot_wider(names_from = channel,
+              values_from = c(inh_total, inh_via_gaba_si, share),
+              values_fill = 0)
+
+mean_share_ppk23 <- mean(wide$share_ppk23, na.rm = TRUE)
+mean_share_ppk25 <- mean(wide$share_ppk25, na.rm = TRUE)
+
+cat(sprintf("\nMean GABA-sign-inverter-attributable share across %d mAL_m subtypes:\n",
+            nrow(wide)))
+cat(sprintf("  ppk23: %.1f%%\n", 100 * mean_share_ppk23))
+cat(sprintf("  ppk25: %.1f%%\n", 100 * mean_share_ppk25))
+```
+
+## Shared palette and sort order (Pass 1 + 2)
+
+```{r shared}
+# Same canonical palette as the primary figure.
+# Here we only have two categories (GABA sign-inverter pool vs rest),
+# so we collapse "mAL lateral" + "other" into a single grey group.
+comp_colors <- c(
+  "Via GABA sign-inverter"  = "#1F4E79",  # identical to primary
+  "Other inhibitory paths"  = "grey70"    # collapsed non-GABA-SI
+)
+
+# Read the sort order exported by panel_M_inhibitory_sources if available;
+# otherwise fall back to local ordering by combined GABA-SI contribution.
+sort_path <- file.path(fig5_dir, "plots_mspecific", "panel_M",
+                       "panel_M_mal_sort_order.rds")
+if (file.exists(sort_path)) {
+  shared_order <- readRDS(sort_path)
+  # Keep only mAL_m subtypes present in this panel
+  shared_order <- shared_order[shared_order %in% wide$mal]
+  # Append any mAL missing from the shared order
+  shared_order <- c(shared_order, setdiff(wide$mal, shared_order))
+  message("  Using shared sort order from panel_M_inhibitory_sources.")
+} else {
+  shared_order <- wide %>%
+    mutate(combined = inh_via_gaba_si_ppk23 + inh_via_gaba_si_ppk25) %>%
+    arrange(desc(combined)) %>% pull(mal)
+  message("  Shared sort order not found; using local fallback.")
+}
+```
+
+## Plot: 2-column stacked bars (ppk23 | ppk25) per mAL_m subtype
+
+```{r plot, fig.width=10, fig.height=8}
+plot_df <- tab %>%
+  select(mal, channel, inh_via_gaba_si, inh_other) %>%
+  pivot_longer(cols = c(inh_via_gaba_si, inh_other),
+               names_to = "component",
+               values_to = "strength") %>%
+  mutate(
+    # Top = highest GABA-SI share
+    mal       = factor(mal, levels = rev(shared_order)),
+    channel   = factor(channel, levels = c("ppk23", "ppk25")),
+    component = factor(component,
+                       levels = c("inh_other", "inh_via_gaba_si"),
+                       labels = c("Other inhibitory paths",
+                                  "Via GABA sign-inverter"))
+  )
+
+# Pass 3: in-segment percentage labels where share > 8%
+plot_df <- plot_df %>%
+  group_by(mal, channel) %>%
+  mutate(
+    tot   = sum(strength),
+    frac  = ifelse(tot > 0, strength / tot, 0),
+    lbl   = ifelse(frac > 0.08, sprintf("%.0f%%", 100 * frac), ""),
+    lbl_c = ifelse(component == "Via GABA sign-inverter", "white", "grey15")
+  ) %>% ungroup()
+
+# Pass 8: informative facet labels
+channel_labeller <- as_labeller(c(
+  "ppk23" = "ppk23 channel (male contact pheromone)",
+  "ppk25" = "ppk25 channel (female contact pheromone)"
+))
+
+p <- ggplot(plot_df, aes(x = strength, y = mal, fill = component)) +
+  geom_col(width = 0.82, color = "white", linewidth = 0.2) +
+  geom_text(aes(label = lbl, color = lbl_c),
+            position = position_stack(vjust = 0.5),
+            size = 2.9, show.legend = FALSE) +
+  scale_color_identity() +
+  facet_wrap(~ channel, ncol = 2, scales = "free_x",
+             labeller = channel_labeller) +
+  scale_fill_manual(values = comp_colors, name = NULL) +
+  labs(
+    x = "Inhibitory path strength (sum)",
+    y = NULL
+  ) +
+  theme_pub(base_size = 12) +
+  theme(
+    legend.position    = "bottom",
+    # Pass 7: larger mAL labels
+    axis.text.y        = element_text(size = rel(1.15), face = "bold"),
+    axis.text.x        = element_text(angle = 0, hjust = 0.5),
+    panel.grid.major.y = element_blank(),
+    strip.text         = element_text(size = rel(1.05), face = "bold")
+  )
+
+print(p)
+```
+
+## Save outputs
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+png_dir <- panel_plot_dir("panel_M", "png")
+
+out_pdf <- file.path(pdf_dir, "panel_M_an05_share_per_channel.pdf")
+out_png <- file.path(png_dir, "panel_M_an05_share_per_channel.png")
+
+ggsave(out_pdf, plot = p, width = 10, height = 8)
+ggsave(out_png, plot = p, width = 10, height = 8, dpi = 300)
+
+write.csv(wide, file.path(dirname(pdf_dir),
+                          "panel_M_an05_share_per_channel_data.csv"),
+          row.names = FALSE)
+
+cat("Saved:\n  ", out_pdf, "\n  ", out_png, "\n")
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+narrative <- sprintf(
+"PANEL M (supplementary): GABA-sign-inverter-attributable inhibition, absolute strength
+=====================================================================================
+
+Companion to the primary figure panel_M_inhibitory_sources. That figure shows
+share (normalised to 100%%); this supplement shows absolute summed path
+strength on each channel so subtype magnitude is also readable.
+
+For each of the %d male-specific mAL_m subtypes we compute the total
+inhibitory path strength arriving from ppk23 and ppk25 (rows of
+mal_strength_inh), and the subset of that strength carried by paths whose
+interior nodes contain ANY member of the GABA sign-inverter pool
+(gaba_sign_inverter_types, 11 AN05B / IN05 GABA relay types).
+
+MEAN GABA SI SHARE:
+  ppk23: %.1f%%
+  ppk25: %.1f%%
+
+Palette and row order are inherited from the primary figure.
+",
+nrow(wide),
+100 * mean_share_ppk23, 100 * mean_share_ppk25
+)
+
+narr_path <- file.path(fig5_dir, "plots_mspecific", "panel_M",
+                      "panel_M_an05_share_per_channel_narrative.txt")
+dir.create(dirname(narr_path), recursive = TRUE, showWarnings = FALSE)
+writeLines(narrative, narr_path)
+cat(narrative)
+```

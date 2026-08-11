@@ -11,6 +11,7 @@ knitr::opts_chunk$set(
 source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 library(nat.ggplot)
 library(nat)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 ```
 
 ## Overview
@@ -185,7 +186,7 @@ if (is.null(syn_data)) {
   for (i in seq_len(nrow(type_body))) {
     tryCatch({
       s <- neuprintr::neuprint_get_synapses(type_body$bodyid[i],
-                                              dataset = "male-cns:v0.9")
+                                              dataset = "male-cns:v1.0")
       s_post <- s[s$prepost == 1, , drop = FALSE]
       if (nrow(s_post) > 0) {
         syn_list[[i]] <- data.frame(
@@ -742,7 +743,7 @@ if (length(missing_types) > 0) {
   for (i in seq_len(nrow(miss_body))) {
     tryCatch({
       s <- neuprintr::neuprint_get_synapses(miss_body$bodyid[i],
-                                              dataset = "male-cns:v0.9")
+                                              dataset = "male-cns:v1.0")
       s_post <- s[s$prepost == 1, , drop = FALSE]
       if (nrow(s_post) > 0) {
         miss_list[[i]] <- data.frame(

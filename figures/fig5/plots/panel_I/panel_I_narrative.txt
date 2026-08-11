@@ -18,16 +18,16 @@ Both models make independent predictions about the same biological scenarios.
 KEY OBSERVATIONS
 ----------------
 1. Overall correlation across all 111 subtype-scenario pairs:
-   Spearman rho = 0.616, p = 0.
+   Spearman rho = 0.631, p = 0.
 
 2. Per-scenario correlations:
-     Female encounter.rho: rho=0.656 (p=1.74e-05)
-  cVA + male.rho: rho=0.531 (p=0.000853)
-  cVA + female.rho: rho=0.664 (p=1.27e-05)
+     Female (ppk25).rho: rho=0.683 (p=6.15e-06)
+  cVA + male (cVA+ppk23).rho: rho=0.531 (p=0.000853)
+  cVA + female (cVA+ppk25).rho: rho=0.712 (p=1.97e-06)
 
-3. Sign agreement: 75 / 111 pairs (68%) agree on direction.
+3. Sign agreement: 77 / 111 pairs (69%) agree on direction.
 
-4. Sign disagreements: 22 subtype-scenario pairs where the two models
+4. Sign disagreements: 18 subtype-scenario pairs where the two models
    predict opposite response directions.
 
 BIOLOGICAL INTERPRETATION

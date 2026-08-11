@@ -1,0 +1,29 @@
+PANEL M dual counterfactual: GABA sign-inverter pool knockout per channel (ppk23 vs ppk25)
+==========================================================================================
+
+DESIGN
+------
+For each gustatory channel (ppk23, ppk25) and each mAL_m subtype we compute
+the channel-specific E/I balance ((exc - inh)/(exc + inh)) in two scenarios:
+  (1) REAL                     : all cached strongest channel -> mAL_m paths.
+  (2) GABA sign-inverter removed: drop every path whose interior traverses
+                                  ANY member of the GABA sign-inverter pool
+                                  (path_via_gaba_si == TRUE), then recompute
+                                  the same metric.
+The removal is applied to the channel under test only; the complementary
+channel is always kept at its REAL value.
+
+POOL (11 types): AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b
+
+PER-CHANNEL SHIFTS (GABA-SI removed - real)
+-------------------------------------------
+  ppk23 : mean +0.2760 | median +0.2607 | +ve 15 | -ve 1 | zero 0 | n=16
+  ppk25 : mean +0.2640 | median +0.2312 | +ve 15 | -ve 1 | zero 0 | n=16
+
+INTERPRETATION
+--------------
+A positive mean delta in a given channel indicates that the GABA sign-inverter
+pool on average suppresses that channel's excitatory drive into mAL_m neurons,
+consistent with a GABAergic sign-inverting relay. Comparing ppk23 vs ppk25
+dissects which gustatory pathway routes most through this pool.
+

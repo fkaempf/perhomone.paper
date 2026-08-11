@@ -1,0 +1,220 @@
+---
+title: "Panel CE7: GABA Sign-Inverter Pool Downstream Targeting of Male-Specific mAL Subtypes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+library(patchwork)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+```
+
+## Concept
+
+Single-row heatmap showing **raw synapse count from the GABA sign-inverter
+pool (11 GABAergic types, with AN05B035 as the most-cited example) to each
+male-specific mAL subtype**, paired with a bar chart of each subtype's
+ppk23 net path strength (E/I balance). Both panels share the same x-axis
+ordering (mAL subtypes sorted ascending by ppk23 E/I balance), so a visual
+correspondence between "more GABA sign-inverter input" and "more negative
+ppk23 balance" can be read off directly.
+
+Data sources:
+
+- GABA SI pool -> mAL synapse counts: rows of `adj.matrix.raw` for each type
+  in `gaba_sign_inverter_types`, summed columnwise onto mAL subtypes.
+- ppk23 E/I balance from `mal_activation_matrix[, "ppk23"]` (exc - inh path
+  strength through K strongest paths, as used in Panel C).
+
+## Build the data
+
+```{r data}
+stopifnot(exists("gaba_sign_inverter_types"))
+
+# Per-channel net E/I drive per male-specific mAL subtype
+balance_long <- tibble(
+  mal_type = mal_subtypes,
+  ppk23 = as.numeric(mal_activation_matrix[mal_subtypes, "ppk23"]),
+  ppk25 = as.numeric(mal_activation_matrix[mal_subtypes, "ppk25"])
+) %>%
+  tidyr::pivot_longer(c(ppk23, ppk25), names_to = "channel", values_to = "ei")
+
+# Subtype ordering: sort by ppk23 E/I balance (ascending) so both channels
+# share the x-axis and the heatmap row aligns with both bar rows.
+shared_order <- load_mal_sort_order()
+ppk23_order  <- balance_long %>%
+  filter(channel == "ppk23") %>% arrange(ei) %>% pull(mal_type)
+subtype_order <- if (!is.null(shared_order)) {
+  c(intersect(shared_order, ppk23_order),
+    setdiff(ppk23_order, shared_order))
+} else ppk23_order
+balance_long <- balance_long %>%
+  mutate(mal_type = factor(mal_type, levels = subtype_order),
+         channel  = factor(channel, levels = c("ppk23","ppk25")))
+
+# GABA SI pool -> mAL raw synapse counts: sum across all pool-member rows
+mal_cols      <- intersect(mal_subtypes, colnames(adj.matrix.raw))
+pool_present  <- intersect(gaba_sign_inverter_types, rownames(adj.matrix.raw))
+
+if (length(pool_present) == 0L) {
+  pool_row <- setNames(rep(0, length(mal_cols)), mal_cols)
+} else if (length(pool_present) == 1L) {
+  pool_row <- adj.matrix.raw[pool_present, mal_cols, drop = TRUE]
+} else {
+  pool_row <- colSums(adj.matrix.raw[pool_present, mal_cols, drop = FALSE])
+}
+
+# Assemble full per-subtype vector (0 for missing)
+pool_to_mal <- setNames(rep(0, length(mal_subtypes)), mal_subtypes)
+pool_to_mal[names(pool_row)] <- as.numeric(pool_row)
+
+heat_df <- tibble(
+  mal_type  = factor(mal_subtypes, levels = subtype_order),
+  syn_count = pool_to_mal[mal_subtypes],
+  row_label = "GABA SI pool"
+) %>% arrange(mal_type)
+
+bar_df <- balance_long
+
+cat(sprintf("GABA SI pool members present in adj.matrix.raw (%d/%d): %s\n",
+            length(pool_present), length(gaba_sign_inverter_types),
+            paste(pool_present, collapse = ", ")))
+cat("\nGABA SI pool -> male-specific mAL raw synapse counts (summed over pool):\n")
+print(heat_df %>% select(mal_type, syn_count))
+cat(sprintf("\nTotal synapses: %d | non-zero targets: %d/%d\n",
+            sum(heat_df$syn_count), sum(heat_df$syn_count > 0), nrow(heat_df)))
+```
+
+## Shared Panel M palette
+
+```{r palette}
+# Unified Panel M convention:
+#   GABA sign-inverter pool (inhibitory layer) = dark blue
+#   ppk23 (excitatory channel)                 = red (for signed-ei positive / excitatory side)
+#   ppk25                                      = orange
+gaba_blue    <- "#1F4E79"   # dark blue, GABA SI pool
+ppk23_red    <- "#C0272D"   # red, ppk23 excitatory side
+ppk23_blue   <- "#2C6CA8"   # blue for net-inhibitory ppk23 balance (routed via GABA SI pool)
+```
+
+## Top panel: ppk23 E/I balance bars
+
+```{r bar-panel}
+channel_labeller <- as_labeller(c(
+  "ppk23" = "ppk23 net drive (male contact pheromone)",
+  "ppk25" = "ppk25 net drive (female contact pheromone)"
+))
+
+p_bar <- ggplot(bar_df, aes(x = mal_type, y = ei, fill = ei < 0)) +
+  geom_col(width = 0.78, color = "black", linewidth = 0.2) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "black") +
+  facet_wrap(~ channel, ncol = 1, labeller = channel_labeller,
+             strip.position = "left") +
+  scale_fill_manual(values = c("TRUE" = ppk23_blue, "FALSE" = ppk23_red),
+                    labels = c("TRUE" = "inhibitory (sign-inverted by GABA SI pool)",
+                               "FALSE" = "excitatory (direct)"),
+                    name = "Net drive") +
+  labs(x = NULL, y = "E/I balance (exc \u2212 inh path strength)") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.y.left = element_text(angle = 90, face = "bold"),
+    legend.position = "right"
+  )
+```
+
+## Bottom panel: GABA SI pool -> mAL raw-synapse heatmap (single row)
+
+```{r heatmap-panel}
+# Larger cells for readable numeric labels: enforce tile aspect and bigger text.
+p_heat <- ggplot(heat_df, aes(x = mal_type, y = row_label, fill = syn_count)) +
+  geom_tile(color = "grey70", linewidth = 0.3, height = 0.9) +
+  geom_text(aes(label = ifelse(syn_count > 0, syn_count, "")),
+            size = 3.4, fontface = "bold",
+            color = ifelse(heat_df$syn_count > max(heat_df$syn_count, 1) * 0.55,
+                           "white", "black")) +
+  scale_fill_gradient(
+    low = "white", high = gaba_blue,
+    limits = c(0, max(heat_df$syn_count, 1)),
+    name = "GABA SI pool\nraw synapses"
+  ) +
+  labs(x = "male-specific mAL subtype (ordered by ppk23 E/I balance)",
+       y = NULL) +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 38, hjust = 1, size = 9),
+    axis.text.y = element_text(face = "bold", size = 10),
+    panel.grid  = element_blank(),
+    legend.position = "right",
+    plot.margin = margin(t = 5, r = 5, b = 20, l = 5)
+  )
+```
+
+## Stack with patchwork
+
+```{r combined, fig.width = 13, fig.height = 6.5}
+combined <- (p_bar / p_heat) +
+  plot_layout(heights = c(2.6, 0.55)) +
+  plot_annotation(
+    title    = "GABA sign-inverter pool preferentially targets mAL subtypes with net-inhibitory ppk23/ppk25 balance",
+    subtitle = paste0(
+      "Top: ppk23 and ppk25 net E/I drive per male-specific mAL subtype (sorted by ppk23 balance).\n",
+      "Bottom: total raw-synapse count from the 11-cell GABA SI pool onto each subtype, summed across\n",
+      "pool members. Pool synapses cluster on subtypes with negative E/I balance in BOTH channels."
+    ),
+    theme = theme(
+      plot.title          = element_text(face = "bold", size = 12),
+      plot.subtitle       = element_text(size = 10, color = "grey25",
+                                         margin = margin(b = 10)),
+      plot.title.position = "plot",
+      plot.margin         = margin(t = 8, r = 10, b = 10, l = 10)
+    )
+  )
+
+# Save via canonical plots_mspecific path with the canonical filename
+pdf_dir <- panel_plot_dir("panel_M_an05b035_targeting", "pdf")
+png_dir <- panel_plot_dir("panel_M_an05b035_targeting", "png")
+ggsave(file.path(pdf_dir, "panel_M_an05b035_targeting.pdf"),
+       combined, width = 13, height = 6.5)
+ggsave(file.path(png_dir, "panel_M_an05b035_targeting.png"),
+       combined, width = 13, height = 6.5, dpi = 300)
+
+print(combined)
+```
+
+## Quantitative summary
+
+```{r summary}
+# Per-channel correlation between GABA SI pool synapse count and net E/I drive
+joined <- bar_df %>% left_join(heat_df, by = "mal_type")
+
+for (ch in levels(bar_df$channel)) {
+  sub <- joined %>% filter(channel == ch)
+  if (sd(sub$syn_count) > 0 && sd(sub$ei) > 0) {
+    rho     <- cor(sub$syn_count, sub$ei, method = "spearman")
+    pearson <- cor(sub$syn_count, sub$ei, method = "pearson")
+  } else {
+    rho <- NA_real_; pearson <- NA_real_
+  }
+  n_inh <- sum(sub$ei < 0)
+  n_exc <- sum(sub$ei >= 0)
+  cat(sprintf("\n%s: Spearman rho = %.3f | Pearson r = %.3f\n", ch, rho, pearson))
+  cat(sprintf("  GABA SI pool syn count: inh-leaning subtypes (n=%d) mean=%.1f | exc-leaning (n=%d) mean=%.1f\n",
+              n_inh, mean(sub$syn_count[sub$ei < 0]),
+              n_exc, mean(sub$syn_count[sub$ei >= 0])))
+}
+
+# Export targeting data to data_dir for reproducibility
+data_dir <- panel_plot_dir("panel_M", "data")
+write.csv(joined, file.path(data_dir, "panel_M_an05b035_targeting_data.csv"),
+          row.names = FALSE)
+```

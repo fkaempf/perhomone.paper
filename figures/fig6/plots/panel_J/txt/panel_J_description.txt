@@ -1,0 +1,7 @@
+Panel J: Valence Pattern Comparison — Compares neurotransmitter sequence patterns of the single strongest path per (modality, target) pair. Extracts E/I identity of each hop to form valence pattern strings (e.g. E_I_E) and asks whether different modalities reach the same target via the same or different neurotransmitter sequences.
+
+______________________________
+
+Figure legend:
+
+(J) Neurotransmitter valence patterns along strongest paths. For each modality-target pair, the single strongest path is decomposed into its hop-by-hop excitatory/inhibitory (E/I) sequence. Heatmaps show the frequency of each valence pattern across modalities, revealing conserved or divergent signalling motifs.

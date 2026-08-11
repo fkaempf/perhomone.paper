@@ -13,24 +13,49 @@ knitr::opts_chunk$set(
   fig.height = 8
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
+```
+
+```{r lifetime-sparseness-function}
+lifetime_sparseness <- function(x) {
+  x <- pmax(x, 0)  # set negative values to zero
+  N <- length(x)
+  if (N <= 1) return(0)
+  mean_r <- mean(x)
+  mean_r2 <- mean(x^2)
+  if (mean_r2 == 0) return(0)
+  (N / (N - 1)) * (1 - mean_r^2 / mean_r2)
+}
+```
+
+```{r modality-shapes}
+modality_shapes <- c(
+  "DA1" = 16,      # filled circle
+  "VA1v" = 15,     # filled square
+  "VA1d" = 17,     # filled triangle up
+  "auditory" = 18, # filled diamond
+  "visual" = 3,    # plus
+  "ppk23" = 4,     # cross
+  "ppk25" = 8      # asterisk/star
+)
 ```
 
 ```{r panel-description, echo=FALSE}
-panel_desc <- "Panel D: Multimodality / Entropy — Quantifies how multimodal each target neuron is using Shannon entropy over the 7-modality strength distribution. Scatter plots show total strength vs. entropy and dominance vs. entropy, with separate views for aSP-f/aSP-g, vAB3/PPN1, and all targets combined. Includes valence-split analysis."
-panel_legend <- "(D) Multimodality quantified by Shannon entropy over the 7-modality strength distribution for each target neuron. High entropy indicates balanced multimodal input; low entropy indicates unimodal dominance. Scatter plots show strength vs. entropy and dominance vs. entropy for aSP-f/aSP-g, vAB3/PPN1, and all targets. Boxplots compare entropy distributions across target sets and valence classes."
+panel_desc <- "Panel D: Multimodality / Lifetime Sparseness — Quantifies how multimodal each target neuron is using lifetime sparseness (Rolls & Tovee 1995) over the 7-modality strength distribution. A sparseness of 1 means the neuron responds to only one modality; near 0 means balanced input from all. Scatter plots show total strength vs. sparseness and dominance vs. sparseness, with separate views for aSP-f/aSP-g, vAB3/PPN1, and all targets combined. Includes valence-split analysis."
+panel_legend <- "(D) Multimodality quantified by lifetime sparseness over the 7-modality strength distribution for each target neuron. High sparseness indicates unimodal dominance; low sparseness indicates balanced multimodal input. Scatter plots show strength vs. sparseness and dominance vs. sparseness for aSP-f/aSP-g, vAB3/PPN1, and all targets. Boxplots compare sparseness distributions across target sets and valence classes."
 cat(panel_desc)
 writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_D_description", "txt"), "panel_D_description.txt"))
 ```
 
 ## Overview
 
-This panel quantifies how multimodal each target neuron is using Shannon entropy
-over the distribution of incoming path strengths across the 7 sensory modalities.
-A neuron receiving perfectly balanced input from all modalities has maximum entropy
-(log2(7) ~ 2.807); a neuron driven by a single modality has entropy 0.
+This panel quantifies how multimodal each target neuron is using lifetime sparseness
+(Rolls & Tovee 1995; Vinje & Gallant 2000) over the distribution of incoming path
+strengths across the 7 sensory modalities.
+A neuron driven by a single modality has sparseness 1 (maximally sparse); a neuron
+receiving perfectly balanced input from all modalities has sparseness near 0.
 
-We compute entropy, dominant modality, modality breadth (number of non-zero inputs),
+We compute lifetime sparseness, dominant modality, modality breadth (number of non-zero inputs),
 and dominance (fraction of total strength from the dominant modality) for every
 target neuron in the combined aSP-f / aSP-g path set.
 
@@ -60,13 +85,17 @@ tibble::rownames_to_column("neuron") %>%
     total_strength = sum(c_across(all_of(modality_order))),
 
     # Dominance: fraction of total from the dominant modality
-    dominance = max(c_across(all_of(modality_order))) / total_strength
+    dominance = max(c_across(all_of(modality_order))) / total_strength,
+
+    # Lifetime sparseness (Rolls & Tovee 1995)
+    sparseness = lifetime_sparseness(c_across(all_of(modality_order)))
   ) %>%
   ungroup() %>%
   # Normalised entropy (0-1 scale)
   mutate(
     entropy_norm = entropy / max_entropy,
-    dominance = ifelse(is.finite(dominance), dominance, NA_real_)
+    dominance = ifelse(is.finite(dominance), dominance, NA_real_),
+    eff_modalities = 2^entropy
   )
 
 # Assign target_set based on which path set the neuron belongs to
@@ -107,17 +136,17 @@ entropy_ranked <- entropy_df %>%
   mutate(rank = row_number(),
          neuron_label = factor(neuron, levels = neuron))
 
-p_bar <- ggplot(entropy_ranked, aes(x = neuron_label, y = entropy, fill = dominant_modality)) +
+p_bar <- ggplot(entropy_ranked, aes(x = neuron_label, y = sparseness, fill = dominant_modality)) +
   geom_col(width = 0.8) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.5) +
-  annotate("text", x = nrow(entropy_ranked) * 0.95, y = max_entropy + 0.05,
-           label = sprintf("max = log2(7) = %.2f", max_entropy),
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  annotate("text", x = nrow(entropy_ranked) * 0.95, y = 1 + 0.02,
+           label = "max = 1",
            hjust = 1, size = 3, color = "grey40") +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target neuron (ranked by entropy)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Multimodality score across target neurons"
   ) +
   theme_minimal(base_size = 11) +
@@ -130,7 +159,34 @@ p_bar <- ggplot(entropy_ranked, aes(x = neuron_label, y = entropy, fill = domina
   )
 
 print(p_bar)
-save_fig6_plot(p_bar, "panel_D_entropy_bar_aspf_aspg", width = 14, height = 6)
+save_fig6_plot(p_bar, "panel_D_entropy_bar_aspf_aspg", width = 14, height = 6, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r bar-entropy-ranked-effmod, fig.width=14, fig.height=6}
+p_bar_em <- ggplot(entropy_ranked, aes(x = neuron_label, y = eff_modalities, fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  annotate("text", x = nrow(entropy_ranked) * 0.95, y = 7 + 0.05,
+           label = "max = 7",
+           hjust = 1, size = 3, color = "grey40") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_y_continuous(breaks = 1:7, limits = c(0, 7.5), expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Effective modalities",
+    title = "Multimodality score across target neurons"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+
+print(p_bar_em)
+save_fig6_plot(p_bar_em, "panel_D_entropy_bar_aspf_aspg_effmod", width = 14, height = 6, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ## 3. Bar chart faceted by target set
@@ -143,16 +199,16 @@ entropy_faceted <- entropy_df %>%
   mutate(rank = row_number()) %>%
   ungroup()
 
-p_bar_faceted <- ggplot(entropy_faceted, aes(x = reorder(neuron, -entropy), y = entropy,
+p_bar_faceted <- ggplot(entropy_faceted, aes(x = reorder(neuron, -entropy), y = sparseness,
                                               fill = dominant_modality)) +
   geom_col(width = 0.8) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey40", linewidth = 0.5) +
   facet_wrap(~ target_set, scales = "free_x") +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target neuron (ranked by entropy)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Multimodality by target set (aSP-f vs aSP-g)"
   ) +
   theme_minimal(base_size = 11) +
@@ -166,19 +222,47 @@ p_bar_faceted <- ggplot(entropy_faceted, aes(x = reorder(neuron, -entropy), y = 
   )
 
 print(p_bar_faceted)
-save_fig6_plot(p_bar_faceted, "panel_D_entropy_bar_faceted_aspf_aspg", width = 14, height = 8)
+save_fig6_plot(p_bar_faceted, "panel_D_entropy_bar_faceted_aspf_aspg", width = 14, height = 8, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r bar-entropy-faceted-effmod, fig.width=14, fig.height=8}
+p_bar_faceted_em <- ggplot(entropy_faceted, aes(x = reorder(neuron, -entropy), y = eff_modalities,
+                                              fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  facet_wrap(~ target_set, scales = "free_x") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_y_continuous(breaks = 1:7, limits = c(0, 7.5), expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Effective modalities",
+    title = "Multimodality by target set (aSP-f vs aSP-g)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+print(p_bar_faceted_em)
+save_fig6_plot(p_bar_faceted_em, "panel_D_entropy_bar_faceted_aspf_aspg_effmod", width = 14, height = 8, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ```{r entropy-distribution-comparison, fig.width=2.5, fig.height=5}
 # Statistical comparison of entropy between target sets
-p_box <- ggplot(entropy_df, aes(x = target_set, y = entropy, fill = target_set)) +
-  geom_boxplot(alpha = 0.7, outlier.size = 1) +
-  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+p_box <- ggplot(entropy_df, aes(x = target_set, y = sparseness, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target set",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Entropy by target set"
   ) +
   theme_minimal(base_size = 11) +
@@ -196,7 +280,37 @@ p_box <- ggplot(entropy_df, aes(x = target_set, y = entropy, fill = target_set))
   )
 
 print(p_box)
-save_fig6_plot(p_box, "panel_D_entropy_boxplot_targetset_aspf_aspg", width = 2.5, height = 5)
+save_fig6_plot(p_box, "panel_D_entropy_boxplot_targetset_aspf_aspg", width = 2.5, height = 5, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r entropy-distribution-comparison-effmod, fig.width=2.5, fig.height=5}
+p_box_em <- ggplot(entropy_df, aes(x = target_set, y = eff_modalities, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Target set",
+    y = "Effective modalities",
+    title = "Entropy by target set"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+print(p_box_em)
+save_fig6_plot(p_box_em, "panel_D_entropy_boxplot_targetset_aspf_aspg_effmod", width = 2.5, height = 5, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ## 4. Scatter plot: total strength vs entropy
@@ -212,7 +326,7 @@ label_neurons <- entropy_df %>%
 entropy_df <- entropy_df %>%
   mutate(show_label = neuron %in% label_neurons)
 
-p_scatter <- ggplot(entropy_df, aes(x = total_strength, y = entropy,
+p_scatter <- ggplot(entropy_df, aes(x = total_strength, y = sparseness,
                                     fill = dominant_modality, color = target_set)) +
   geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
   ggrepel::geom_text_repel(
@@ -221,14 +335,15 @@ p_scatter <- ggplot(entropy_df, aes(x = total_strength, y = entropy,
     color = "grey35",
     size = 2, max.overlaps = 20, segment.color = "grey75", segment.size = 0.25
   ) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
   scale_color_brewer(palette = "Set1", name = "Target set") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
          color = guide_legend(override.aes = list(fill = "white", size = 2))) +
   labs(
     x = "Total path strength (sum across modalities)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Strength vs. entropy"
   ) +
   theme_minimal(base_size = 11) +
@@ -246,7 +361,46 @@ p_scatter <- ggplot(entropy_df, aes(x = total_strength, y = entropy,
   )
 
 print(p_scatter)
-save_fig6_plot(p_scatter, "panel_D_strength_vs_entropy_aspf_aspg", width = 7, height = 5.5)
+save_fig6_plot(p_scatter, "panel_D_strength_vs_entropy_aspf_aspg", width = 7, height = 5.5, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r scatter-strength-entropy-effmod, fig.width=10, fig.height=8}
+p_scatter_em <- ggplot(entropy_df, aes(x = total_strength, y = eff_modalities,
+                                    fill = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    data = filter(entropy_df, show_label),
+    aes(label = neuron),
+    color = "grey35",
+    size = 2, max.overlaps = 20, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_color_brewer(palette = "Set1", name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
+  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
+         color = guide_legend(override.aes = list(fill = "white", size = 2))) +
+  labs(
+    x = "Total path strength (sum across modalities)",
+    y = "Effective modalities",
+    title = "Strength vs. entropy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_scatter_em)
+save_fig6_plot(p_scatter_em, "panel_D_strength_vs_entropy_aspf_aspg_effmod", width = 7, height = 5.5, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ## 5. Valence-split analysis (excitatory vs inhibitory)
@@ -270,12 +424,14 @@ compute_entropy_from_matrix <- function(mat, label) {
         vals <- c_across(all_of(intersect(modality_order, colnames(mat))))
         tot <- sum(vals)
         if (tot > 0) max(vals) / tot else NA_real_
-      }
+      },
+      sparseness = lifetime_sparseness(c_across(all_of(intersect(modality_order, colnames(mat)))))
     ) %>%
     ungroup() %>%
     mutate(
       entropy_norm = entropy / max_entropy,
-      valence = label
+      valence = label,
+      eff_modalities = 2^entropy
     )
 
   df
@@ -296,15 +452,15 @@ p_valence_bars <- entropy_valence %>%
   mutate(rank = row_number()) %>%
   ungroup() %>%
   mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
-  ggplot(aes(x = rank, y = entropy, fill = dominant_modality)) +
+  ggplot(aes(x = rank, y = sparseness, fill = dominant_modality)) +
   geom_col(width = 0.8) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey40", linewidth = 0.4) +
   facet_wrap(~ valence, ncol = 1, scales = "free_x") +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality", na.value = "grey80") +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target neuron (ranked by entropy)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Multimodality score split by path valence"
   ) +
   theme_minimal(base_size = 11) +
@@ -318,21 +474,54 @@ p_valence_bars <- entropy_valence %>%
   )
 
 print(p_valence_bars)
-save_fig6_plot(p_valence_bars, "panel_D_entropy_bar_valence_aspf_aspg", width = 14, height = 10)
+save_fig6_plot(p_valence_bars, "panel_D_entropy_bar_valence_aspf_aspg", width = 14, height = 10, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r bar-entropy-by-valence-effmod, fig.width=14, fig.height=10}
+p_valence_bars_em <- entropy_valence %>%
+  group_by(valence) %>%
+  arrange(desc(entropy), .by_group = TRUE) %>%
+  mutate(rank = row_number()) %>%
+  ungroup() %>%
+  mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
+  ggplot(aes(x = rank, y = eff_modalities, fill = dominant_modality)) +
+  geom_col(width = 0.8) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  facet_wrap(~ valence, ncol = 1, scales = "free_x") +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality", na.value = "grey80") +
+  scale_y_continuous(breaks = 1:7, limits = c(0, 7.5), expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Target neuron (ranked by entropy)",
+    y = "Effective modalities",
+    title = "Multimodality score split by path valence"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+print(p_valence_bars_em)
+save_fig6_plot(p_valence_bars_em, "panel_D_entropy_bar_valence_aspf_aspg_effmod", width = 14, height = 10, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ```{r boxplot-entropy-by-valence, fig.width=8, fig.height=5}
 # Compare entropy distributions across valence types
-p_valence_box <- ggplot(entropy_valence, aes(x = valence, y = entropy, fill = valence)) +
-  geom_boxplot(alpha = 0.7, outlier.size = 1) +
-  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+p_valence_box <- ggplot(entropy_valence, aes(x = valence, y = sparseness, fill = valence)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(
     values = c("combined" = "#B3B3B3", "excitatory" = "#4DAF4A", "inhibitory" = "#E41A1C")
   ) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Path valence",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Entropy by valence"
   ) +
   theme_minimal(base_size = 11) +
@@ -350,7 +539,39 @@ p_valence_box <- ggplot(entropy_valence, aes(x = valence, y = entropy, fill = va
   )
 
 print(p_valence_box)
-save_fig6_plot(p_valence_box, "panel_D_entropy_boxplot_valence_aspf_aspg", width = 8, height = 5)
+save_fig6_plot(p_valence_box, "panel_D_entropy_boxplot_valence_aspf_aspg", width = 8, height = 5, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r boxplot-entropy-by-valence-effmod, fig.width=8, fig.height=5}
+p_valence_box_em <- ggplot(entropy_valence, aes(x = valence, y = eff_modalities, fill = valence)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(
+    values = c("combined" = "#B3B3B3", "excitatory" = "#4DAF4A", "inhibitory" = "#E41A1C")
+  ) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Path valence",
+    y = "Effective modalities",
+    title = "Entropy by valence"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+print(p_valence_box_em)
+save_fig6_plot(p_valence_box_em, "panel_D_entropy_boxplot_valence_aspf_aspg_effmod", width = 8, height = 5, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ```{r scatter-dominance-entropy-valence, fig.width=14, fig.height=6}
@@ -358,18 +579,19 @@ save_fig6_plot(p_valence_box, "panel_D_entropy_boxplot_valence_aspf_aspg", width
 p_scatter_valence <- entropy_valence %>%
   filter(is.finite(dominance)) %>%
   mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
-  ggplot(aes(x = dominance, y = entropy, color = dominant_modality)) +
-  geom_point(alpha = 0.65, size = 2) +
+  ggplot(aes(x = dominance, y = sparseness, shape = dominant_modality)) +
+  geom_point(alpha = 0.65, size = 2.5) +
   ggrepel::geom_text_repel(
     aes(label = neuron),
     size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
   ) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   facet_wrap(~ valence) +
-  scale_color_manual(values = modality_colors, name = "Dominant\nModality", na.value = "grey80") +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Dominance (fraction of strength from top modality)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Dominance vs. entropy by valence"
   ) +
   theme_minimal(base_size = 11) +
@@ -388,7 +610,45 @@ p_scatter_valence <- entropy_valence %>%
   )
 
 print(p_scatter_valence)
-save_fig6_plot(p_scatter_valence, "panel_D_dominance_vs_entropy_valence_aspf_aspg", width = 10, height = 4.5)
+save_fig6_plot(p_scatter_valence, "panel_D_dominance_vs_entropy_valence_aspf_aspg", width = 10, height = 4.5, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r scatter-dominance-entropy-valence-effmod, fig.width=14, fig.height=6}
+p_scatter_valence_em <- entropy_valence %>%
+  filter(is.finite(dominance)) %>%
+  mutate(valence = factor(valence, levels = c("combined", "excitatory", "inhibitory"))) %>%
+  ggplot(aes(x = dominance, y = eff_modalities, shape = dominant_modality)) +
+  geom_point(alpha = 0.65, size = 2.5) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  facet_wrap(~ valence) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Dominance (fraction of strength from top modality)",
+    y = "Effective modalities",
+    title = "Dominance vs. entropy by valence"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right",
+    strip.text = element_text(face = "plain", size = 10, color = "grey30")
+  )
+
+print(p_scatter_valence_em)
+save_fig6_plot(p_scatter_valence_em, "panel_D_dominance_vs_entropy_valence_aspf_aspg_effmod", width = 10, height = 4.5, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ## 6. Dominance vs entropy relationship
@@ -397,21 +657,21 @@ save_fig6_plot(p_scatter_valence, "panel_D_dominance_vs_entropy_valence_aspf_asp
 # Dominance (fraction from top modality) vs entropy
 # Expect strong negative correlation: high entropy = low dominance
 p_dominance <- ggplot(entropy_df %>% filter(is.finite(dominance)),
-                      aes(x = dominance, y = entropy,
-                          fill = dominant_modality, color = target_set)) +
-  geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
+                      aes(x = dominance, y = sparseness,
+                          shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
   ggrepel::geom_text_repel(
     aes(label = neuron),
     color = "grey35",
     size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
   ) +
-  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
   scale_color_brewer(palette = "Set1", name = "Target set") +
-  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
-         color = guide_legend(override.aes = list(fill = "white", size = 2))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
   labs(
     x = "Dominance (fraction of strength from top modality)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Dominance vs. entropy"
   ) +
   theme_minimal(base_size = 11) +
@@ -429,7 +689,44 @@ p_dominance <- ggplot(entropy_df %>% filter(is.finite(dominance)),
   )
 
 print(p_dominance)
-save_fig6_plot(p_dominance, "panel_D_dominance_vs_entropy_aspf_aspg", width = 7, height = 5)
+save_fig6_plot(p_dominance, "panel_D_dominance_vs_entropy_aspf_aspg", width = 7, height = 5, subdir = "aspf_aspg/lifetime_sparseness")
+```
+
+```{r dominance-vs-entropy-effmod, fig.width=8, fig.height=6}
+p_dominance_em <- ggplot(entropy_df %>% filter(is.finite(dominance)),
+                      aes(x = dominance, y = eff_modalities,
+                          shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_brewer(palette = "Set1", name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  labs(
+    x = "Dominance (fraction of strength from top modality)",
+    y = "Effective modalities",
+    title = "Dominance vs. entropy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_dominance_em)
+save_fig6_plot(p_dominance_em, "panel_D_dominance_vs_entropy_aspf_aspg_effmod", width = 7, height = 5, subdir = "aspf_aspg/effective_modalities")
 ```
 
 ---
@@ -459,7 +756,8 @@ entropy_vp <- as.data.frame(strength.vab3_ppn1) %>%
       vals <- c_across(all_of(intersect(modality_order, colnames(strength.vab3_ppn1))))
       tot <- sum(vals)
       if (tot > 0) max(vals) / tot else NA_real_
-    }
+    },
+    sparseness = lifetime_sparseness(c_across(all_of(intersect(modality_order, colnames(strength.vab3_ppn1)))))
   ) %>%
   ungroup() %>%
   mutate(
@@ -469,14 +767,15 @@ entropy_vp <- as.data.frame(strength.vab3_ppn1) %>%
       neuron %in% vab3_neurons ~ "vAB3",
       neuron %in% ppn1_neurons ~ "PPN1",
       TRUE ~ "unknown"
-    )
+    ),
+    eff_modalities = 2^entropy
   )
 
 cat(sprintf("vAB3+PPN1 target neurons: %d\n", nrow(entropy_vp)))
 ```
 
 ```{r strength-vs-entropy-vp, fig.width=10, fig.height=8}
-p_scatter_vp <- ggplot(entropy_vp, aes(x = total_strength, y = entropy,
+p_scatter_vp <- ggplot(entropy_vp, aes(x = total_strength, y = sparseness,
                                         fill = dominant_modality, color = target_set)) +
   geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
   ggrepel::geom_text_repel(
@@ -484,15 +783,16 @@ p_scatter_vp <- ggplot(entropy_vp, aes(x = total_strength, y = entropy,
     color = "grey35",
     size = 2, max.overlaps = 20, segment.color = "grey75", segment.size = 0.25
   ) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
   scale_color_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3"),
                      name = "Target set") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
          color = guide_legend(override.aes = list(fill = "white", size = 2))) +
   labs(
     x = "Total path strength (sum across modalities)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Strength vs. entropy (vAB3+PPN1)"
   ) +
   theme_minimal(base_size = 11) +
@@ -510,27 +810,66 @@ p_scatter_vp <- ggplot(entropy_vp, aes(x = total_strength, y = entropy,
   )
 
 print(p_scatter_vp)
-save_fig6_plot(p_scatter_vp, "panel_D_strength_vs_entropy_vab3_ppn1", width = 7, height = 5.5)
+save_fig6_plot(p_scatter_vp, "panel_D_strength_vs_entropy_vab3_ppn1", width = 7, height = 5.5, subdir = "vab3_ppn1/lifetime_sparseness")
+```
+
+```{r strength-vs-entropy-vp-effmod, fig.width=10, fig.height=8}
+p_scatter_vp_em <- ggplot(entropy_vp, aes(x = total_strength, y = eff_modalities,
+                                        fill = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 2, max.overlaps = 20, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_color_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3"),
+                     name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
+  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
+         color = guide_legend(override.aes = list(fill = "white", size = 2))) +
+  labs(
+    x = "Total path strength (sum across modalities)",
+    y = "Effective modalities",
+    title = "Strength vs. entropy (vAB3+PPN1)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_scatter_vp_em)
+save_fig6_plot(p_scatter_vp_em, "panel_D_strength_vs_entropy_vab3_ppn1_effmod", width = 7, height = 5.5, subdir = "vab3_ppn1/effective_modalities")
 ```
 
 ```{r dominance-vs-entropy-vp, fig.width=8, fig.height=6}
 p_dominance_vp <- ggplot(entropy_vp %>% filter(is.finite(dominance)),
-                          aes(x = dominance, y = entropy,
-                              fill = dominant_modality, color = target_set)) +
-  geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
+                          aes(x = dominance, y = sparseness,
+                              shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
   ggrepel::geom_text_repel(
     aes(label = neuron),
     color = "grey35",
     size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
   ) +
-  scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
   scale_color_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3"),
                      name = "Target set") +
-  guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
-         color = guide_legend(override.aes = list(fill = "white", size = 2))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
   labs(
     x = "Dominance (fraction of strength from top modality)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Dominance vs. entropy (vAB3+PPN1)"
   ) +
   theme_minimal(base_size = 11) +
@@ -548,18 +887,57 @@ p_dominance_vp <- ggplot(entropy_vp %>% filter(is.finite(dominance)),
   )
 
 print(p_dominance_vp)
-save_fig6_plot(p_dominance_vp, "panel_D_dominance_vs_entropy_vab3_ppn1", width = 7, height = 5)
+save_fig6_plot(p_dominance_vp, "panel_D_dominance_vs_entropy_vab3_ppn1", width = 7, height = 5, subdir = "vab3_ppn1/lifetime_sparseness")
+```
+
+```{r dominance-vs-entropy-vp-effmod, fig.width=8, fig.height=6}
+p_dominance_vp_em <- ggplot(entropy_vp %>% filter(is.finite(dominance)),
+                          aes(x = dominance, y = eff_modalities,
+                              shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3"),
+                     name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  labs(
+    x = "Dominance (fraction of strength from top modality)",
+    y = "Effective modalities",
+    title = "Dominance vs. entropy (vAB3+PPN1)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_dominance_vp_em)
+save_fig6_plot(p_dominance_vp_em, "panel_D_dominance_vs_entropy_vab3_ppn1_effmod", width = 7, height = 5, subdir = "vab3_ppn1/effective_modalities")
 ```
 
 ```{r entropy-boxplot-vp, fig.width=2.5, fig.height=5}
-p_box_vp <- ggplot(entropy_vp, aes(x = target_set, y = entropy, fill = target_set)) +
-  geom_boxplot(alpha = 0.7, outlier.size = 1) +
-  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+p_box_vp <- ggplot(entropy_vp, aes(x = target_set, y = sparseness, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3")) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target set",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Entropy by target set (vAB3+PPN1)"
   ) +
   theme_minimal(base_size = 11) +
@@ -577,7 +955,37 @@ p_box_vp <- ggplot(entropy_vp, aes(x = target_set, y = entropy, fill = target_se
   )
 
 print(p_box_vp)
-save_fig6_plot(p_box_vp, "panel_D_entropy_boxplot_targetset_vab3_ppn1", width = 2.5, height = 5)
+save_fig6_plot(p_box_vp, "panel_D_entropy_boxplot_targetset_vab3_ppn1", width = 2.5, height = 5, subdir = "vab3_ppn1/lifetime_sparseness")
+```
+
+```{r entropy-boxplot-vp-effmod, fig.width=2.5, fig.height=5}
+p_box_vp_em <- ggplot(entropy_vp, aes(x = target_set, y = eff_modalities, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = c("vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "both" = "#984EA3")) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Target set",
+    y = "Effective modalities",
+    title = "Entropy by target set (vAB3+PPN1)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none"
+  )
+
+print(p_box_vp_em)
+save_fig6_plot(p_box_vp_em, "panel_D_entropy_boxplot_targetset_vab3_ppn1_effmod", width = 2.5, height = 5, subdir = "vab3_ppn1/effective_modalities")
 ```
 
 ---
@@ -600,7 +1008,8 @@ entropy_all <- as.data.frame(strength.all) %>%
       vals <- c_across(all_of(intersect(modality_order, colnames(strength.all))))
       tot <- sum(vals)
       if (tot > 0) max(vals) / tot else NA_real_
-    }
+    },
+    sparseness = lifetime_sparseness(c_across(all_of(intersect(modality_order, colnames(strength.all)))))
   ) %>%
   ungroup() %>%
   mutate(
@@ -613,7 +1022,8 @@ entropy_all <- as.data.frame(strength.all) %>%
       neuron %in% vab3_neurons ~ "vAB3",
       neuron %in% ppn1_neurons ~ "PPN1",
       TRUE ~ "unknown"
-    )
+    ),
+    eff_modalities = 2^entropy
   )
 
 cat(sprintf("All target neurons: %d\n", nrow(entropy_all)))
@@ -624,7 +1034,7 @@ all_target_colors <- c("aSP-f" = "#E41A1C", "aSP-g" = "#377EB8", "aSP-f+g" = "#9
                         "vAB3" = "#4DAF4A", "PPN1" = "#FF7F00", "vAB3+PPN1" = "#A65628",
                         "unknown" = "grey50")
 
-p_scatter_all <- ggplot(entropy_all, aes(x = total_strength, y = entropy,
+p_scatter_all <- ggplot(entropy_all, aes(x = total_strength, y = sparseness,
                                           fill = dominant_modality, color = target_set)) +
   geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
   ggrepel::geom_text_repel(
@@ -632,14 +1042,15 @@ p_scatter_all <- ggplot(entropy_all, aes(x = total_strength, y = entropy,
     color = "grey35",
     size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
   ) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
   scale_color_manual(values = all_target_colors, name = "Target set") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
          color = guide_legend(override.aes = list(fill = "white", size = 2))) +
   labs(
     x = "Total path strength (sum across modalities)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Strength vs. entropy (all targets)"
   ) +
   theme_minimal(base_size = 11) +
@@ -657,26 +1068,64 @@ p_scatter_all <- ggplot(entropy_all, aes(x = total_strength, y = entropy,
   )
 
 print(p_scatter_all)
-save_fig6_plot(p_scatter_all, "panel_D_strength_vs_entropy_all_targets", width = 7, height = 5.5)
+save_fig6_plot(p_scatter_all, "panel_D_strength_vs_entropy_all_targets", width = 7, height = 5.5, subdir = "all_targets/lifetime_sparseness")
 ```
 
-```{r dominance-vs-entropy-all, fig.width=8, fig.height=6}
-p_dominance_all <- ggplot(entropy_all %>% filter(is.finite(dominance)),
-                           aes(x = dominance, y = entropy,
-                               fill = dominant_modality, color = target_set)) +
+```{r strength-vs-entropy-all-effmod, fig.width=10, fig.height=8}
+p_scatter_all_em <- ggplot(entropy_all, aes(x = total_strength, y = eff_modalities,
+                                          fill = dominant_modality, color = target_set)) +
   geom_point(alpha = 0.7, size = 2.2, shape = 21, stroke = 0.6) +
   ggrepel::geom_text_repel(
     aes(label = neuron),
     color = "grey35",
     size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
   ) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = modality_colors, name = "Dominant\nModality") +
   scale_color_manual(values = all_target_colors, name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
   guides(fill = guide_legend(override.aes = list(color = "black", stroke = 0.4)),
          color = guide_legend(override.aes = list(fill = "white", size = 2))) +
   labs(
+    x = "Total path strength (sum across modalities)",
+    y = "Effective modalities",
+    title = "Strength vs. entropy (all targets)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_scatter_all_em)
+save_fig6_plot(p_scatter_all_em, "panel_D_strength_vs_entropy_all_targets_effmod", width = 7, height = 5.5, subdir = "all_targets/effective_modalities")
+```
+
+```{r dominance-vs-entropy-all, fig.width=8, fig.height=6}
+p_dominance_all <- ggplot(entropy_all %>% filter(is.finite(dominance)),
+                           aes(x = dominance, y = sparseness,
+                               shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_manual(values = all_target_colors, name = "Target set") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  labs(
     x = "Dominance (fraction of strength from top modality)",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Dominance vs. entropy (all targets)"
   ) +
   theme_minimal(base_size = 11) +
@@ -694,18 +1143,248 @@ p_dominance_all <- ggplot(entropy_all %>% filter(is.finite(dominance)),
   )
 
 print(p_dominance_all)
-save_fig6_plot(p_dominance_all, "panel_D_dominance_vs_entropy_all_targets", width = 7, height = 5)
+save_fig6_plot(p_dominance_all, "panel_D_dominance_vs_entropy_all_targets", width = 7, height = 5, subdir = "all_targets/lifetime_sparseness")
+```
+
+```{r dominance-vs-entropy-all-effmod, fig.width=8, fig.height=6}
+p_dominance_all_em <- ggplot(entropy_all %>% filter(is.finite(dominance)),
+                           aes(x = dominance, y = eff_modalities,
+                               shape = dominant_modality, color = target_set)) +
+  geom_point(alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_manual(values = all_target_colors, name = "Target set") +
+  scale_y_continuous(breaks = 1:7) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  labs(
+    x = "Dominance (fraction of strength from top modality)",
+    y = "Effective modalities",
+    title = "Dominance vs. entropy (all targets)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  )
+
+print(p_dominance_all_em)
+save_fig6_plot(p_dominance_all_em, "panel_D_dominance_vs_entropy_all_targets_effmod", width = 7, height = 5, subdir = "all_targets/effective_modalities")
+```
+
+```{r dominance-effmod-marginal-density-all, fig.width=9, fig.height=8}
+# Dominance vs lifetime sparseness — marginal densities on both axes
+plot_dom <- entropy_all %>% filter(is.finite(dominance))
+
+p_dom_core <- ggplot(plot_dom, aes(x = dominance, y = sparseness)) +
+  geom_point(aes(shape = dominant_modality, color = target_set),
+             alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_manual(values = all_target_colors, name = "Target set") +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  labs(x = "Dominance (fraction from top modality)", y = "Lifetime sparseness") +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.position = "bottom"
+  )
+
+p_top_dens <- ggplot(plot_dom, aes(x = dominance, fill = target_set, color = target_set)) +
+  geom_density(alpha = 0.12, linewidth = 0.4) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  theme_void() + theme(legend.position = "none")
+
+p_right_dens <- ggplot(plot_dom, aes(x = sparseness, fill = target_set, color = target_set)) +
+  geom_density(alpha = 0.12, linewidth = 0.4) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  coord_flip() + scale_x_continuous(breaks = seq(0, 1, 0.2)) +
+  theme_void() + theme(legend.position = "none")
+
+p_dom_asm <- plot_grid(
+  p_top_dens, NULL,
+  p_dom_core + theme(legend.position = "none"), p_right_dens,
+  ncol = 2, nrow = 2,
+  rel_widths = c(4, 1), rel_heights = c(1, 4),
+  align = "hv", axis = "tblr"
+)
+legend_dom <- get_legend(p_dom_core)
+p_dom_density <- plot_grid(p_dom_asm, legend_dom, ncol = 1, rel_heights = c(1, 0.1))
+
+print(p_dom_density)
+
+pdir_png_dm <- panel_plot_dir("panel_D_dominance_marginal", "png", subdir = "all_targets/lifetime_sparseness")
+pdir_pdf_dm <- panel_plot_dir("panel_D_dominance_marginal", "pdf", subdir = "all_targets/lifetime_sparseness")
+
+ggsave(file.path(pdir_png_dm, "panel_D_dominance_marginal_density.png"),
+       p_dom_density, width = 9, height = 8, dpi = 300)
+ggsave(file.path(pdir_pdf_dm, "panel_D_dominance_marginal_density.pdf"),
+       p_dom_density, width = 9, height = 8)
+```
+
+```{r dominance-effmod-marginal-density-all-effmod, fig.width=9, fig.height=8}
+# Dominance vs effective modalities — marginal densities on both axes
+p_dom_core_em <- ggplot(plot_dom, aes(x = dominance, y = eff_modalities)) +
+  geom_point(aes(shape = dominant_modality, color = target_set),
+             alpha = 0.7, size = 2.5, stroke = 0.6) +
+  ggrepel::geom_text_repel(
+    aes(label = neuron),
+    color = "grey35",
+    size = 1.5, max.overlaps = 30, segment.color = "grey75", segment.size = 0.25
+  ) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_shape_manual(values = modality_shapes, name = "Dominant\nModality", na.value = 1) +
+  scale_color_manual(values = all_target_colors, name = "Target set") +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(x = "Dominance (fraction from top modality)", y = "Effective modalities") +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.position = "bottom"
+  )
+
+p_top_dens_em <- ggplot(plot_dom, aes(x = dominance, fill = target_set, color = target_set)) +
+  geom_density(alpha = 0.12, linewidth = 0.4) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  theme_void() + theme(legend.position = "none")
+
+p_right_dens_em <- ggplot(plot_dom, aes(x = eff_modalities, fill = target_set, color = target_set)) +
+  geom_density(alpha = 0.12, linewidth = 0.4) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  coord_flip() + scale_x_continuous(breaks = 1:7) +
+  theme_void() + theme(legend.position = "none")
+
+p_dom_asm_em <- plot_grid(
+  p_top_dens_em, NULL,
+  p_dom_core_em + theme(legend.position = "none"), p_right_dens_em,
+  ncol = 2, nrow = 2,
+  rel_widths = c(4, 1), rel_heights = c(1, 4),
+  align = "hv", axis = "tblr"
+)
+legend_dom_em <- get_legend(p_dom_core_em)
+p_dom_density_em <- plot_grid(p_dom_asm_em, legend_dom_em, ncol = 1, rel_heights = c(1, 0.1))
+
+print(p_dom_density_em)
+
+pdir_png_dm_em <- panel_plot_dir("panel_D_dominance_marginal", "png", subdir = "all_targets/effective_modalities")
+pdir_pdf_dm_em <- panel_plot_dir("panel_D_dominance_marginal", "pdf", subdir = "all_targets/effective_modalities")
+
+ggsave(file.path(pdir_png_dm_em, "panel_D_dominance_marginal_density_effmod.png"),
+       p_dom_density_em, width = 9, height = 8, dpi = 300)
+ggsave(file.path(pdir_pdf_dm_em, "panel_D_dominance_marginal_density_effmod.pdf"),
+       p_dom_density_em, width = 9, height = 8)
+```
+
+```{r dominance-effmod-marginal-boxplot-all, fig.width=9, fig.height=8}
+# Dominance vs lifetime sparseness — marginal boxplots on both axes, all points shown
+p_top_box <- ggplot(plot_dom, aes(x = dominance, y = target_set, fill = target_set)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, linewidth = 0.3) +
+  geom_jitter(aes(color = target_set), height = 0.15, alpha = 0.5, size = 0.8, stroke = 0) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  theme_void() + theme(legend.position = "none")
+
+p_right_box <- ggplot(plot_dom, aes(x = target_set, y = sparseness, fill = target_set)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, linewidth = 0.3) +
+  geom_jitter(aes(color = target_set), width = 0.15, alpha = 0.5, size = 0.8, stroke = 0) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  theme_void() + theme(legend.position = "none")
+
+p_dom_asm_b <- plot_grid(
+  p_top_box, NULL,
+  p_dom_core + theme(legend.position = "none"), p_right_box,
+  ncol = 2, nrow = 2,
+  rel_widths = c(4, 1), rel_heights = c(1, 4),
+  align = "hv", axis = "tblr"
+)
+p_dom_boxplot <- plot_grid(p_dom_asm_b, legend_dom, ncol = 1, rel_heights = c(1, 0.1))
+
+print(p_dom_boxplot)
+
+ggsave(file.path(pdir_png_dm, "panel_D_dominance_marginal_boxplot.png"),
+       p_dom_boxplot, width = 9, height = 8, dpi = 300)
+ggsave(file.path(pdir_pdf_dm, "panel_D_dominance_marginal_boxplot.pdf"),
+       p_dom_boxplot, width = 9, height = 8)
+```
+
+```{r dominance-effmod-marginal-boxplot-all-effmod, fig.width=9, fig.height=8}
+# Dominance vs effective modalities — marginal boxplots on both axes, all points shown
+p_top_box_em <- ggplot(plot_dom, aes(x = dominance, y = target_set, fill = target_set)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, linewidth = 0.3) +
+  geom_jitter(aes(color = target_set), height = 0.15, alpha = 0.5, size = 0.8, stroke = 0) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  theme_void() + theme(legend.position = "none")
+
+p_right_box_em <- ggplot(plot_dom, aes(x = target_set, y = eff_modalities, fill = target_set)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA, linewidth = 0.3) +
+  geom_jitter(aes(color = target_set), width = 0.15, alpha = 0.5, size = 0.8, stroke = 0) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_color_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = 1:7) +
+  theme_void() + theme(legend.position = "none")
+
+p_dom_asm_b_em <- plot_grid(
+  p_top_box_em, NULL,
+  p_dom_core_em + theme(legend.position = "none"), p_right_box_em,
+  ncol = 2, nrow = 2,
+  rel_widths = c(4, 1), rel_heights = c(1, 4),
+  align = "hv", axis = "tblr"
+)
+p_dom_boxplot_em <- plot_grid(p_dom_asm_b_em, legend_dom_em, ncol = 1, rel_heights = c(1, 0.1))
+
+print(p_dom_boxplot_em)
+
+ggsave(file.path(pdir_png_dm_em, "panel_D_dominance_marginal_boxplot_effmod.png"),
+       p_dom_boxplot_em, width = 9, height = 8, dpi = 300)
+ggsave(file.path(pdir_pdf_dm_em, "panel_D_dominance_marginal_boxplot_effmod.pdf"),
+       p_dom_boxplot_em, width = 9, height = 8)
 ```
 
 ```{r entropy-boxplot-all, fig.width=4, fig.height=5}
-p_box_all <- ggplot(entropy_all, aes(x = target_set, y = entropy, fill = target_set)) +
-  geom_boxplot(alpha = 0.7, outlier.size = 1) +
-  geom_jitter(width = 0.15, alpha = 0.4, size = 1.2, stroke = 0) +
-  geom_hline(yintercept = max_entropy, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+p_box_all <- ggplot(entropy_all, aes(x = target_set, y = sparseness, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
   scale_fill_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   labs(
     x = "Target set",
-    y = "Shannon entropy (bits)",
+    y = "Lifetime sparseness",
     title = "Entropy (all targets)"
   ) +
   theme_minimal(base_size = 11) +
@@ -724,7 +1403,96 @@ p_box_all <- ggplot(entropy_all, aes(x = target_set, y = entropy, fill = target_
   )
 
 print(p_box_all)
-save_fig6_plot(p_box_all, "panel_D_entropy_boxplot_targetset_all", width = 4, height = 5)
+save_fig6_plot(p_box_all, "panel_D_entropy_boxplot_targetset_all", width = 4, height = 5, subdir = "all_targets/lifetime_sparseness")
+```
+
+```{r entropy-boxplot-all-effmod, fig.width=4, fig.height=5}
+p_box_all_em <- ggplot(entropy_all, aes(x = target_set, y = eff_modalities, fill = target_set)) +
+  geom_boxplot(alpha = 0.35, outlier.size = 1) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.2, stroke = 0) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Target set",
+    y = "Effective modalities",
+    title = "Entropy (all targets)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.title = element_text(size = rel(0.85)),
+    legend.text = element_text(size = rel(0.8)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p_box_all_em)
+save_fig6_plot(p_box_all_em, "panel_D_entropy_boxplot_targetset_all_effmod", width = 4, height = 5, subdir = "all_targets/effective_modalities")
+```
+
+```{r entropy-violin-all, fig.width=5, fig.height=5}
+# Violin plot of entropy by target set
+p_violin_all <- ggplot(entropy_all, aes(x = target_set, y = sparseness, fill = target_set)) +
+  geom_violin(alpha = 0.3, scale = "width", trim = FALSE) +
+  geom_boxplot(width = 0.15, alpha = 0.4, outlier.shape = NA, fill = "white") +
+  geom_jitter(width = 0.1, alpha = 0.5, size = 1, stroke = 0) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  labs(
+    x = "Target set",
+    y = "Lifetime sparseness"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p_violin_all)
+save_fig6_plot(p_violin_all, "panel_D_entropy_violin_targetset_all", width = 5, height = 5, subdir = "all_targets/lifetime_sparseness")
+```
+
+```{r entropy-violin-all-effmod, fig.width=5, fig.height=5}
+# Violin plot of effective modalities by target set
+p_violin_all_em <- ggplot(entropy_all, aes(x = target_set, y = eff_modalities, fill = target_set)) +
+  geom_violin(alpha = 0.3, scale = "width", trim = FALSE) +
+  geom_boxplot(width = 0.15, alpha = 0.4, outlier.shape = NA, fill = "white") +
+  geom_jitter(width = 0.1, alpha = 0.5, size = 1, stroke = 0) +
+  geom_hline(yintercept = 7, linetype = "dashed", color = "grey75", linewidth = 0.3) +
+  scale_fill_manual(values = all_target_colors) +
+  scale_y_continuous(breaks = 1:7) +
+  labs(
+    x = "Target set",
+    y = "Effective modalities"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.title = element_text(size = rel(0.9), color = "grey30"),
+    axis.text = element_text(size = rel(0.85), color = "grey40"),
+    axis.line = element_line(linewidth = 0.3, color = "grey70"),
+    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p_violin_all_em)
+save_fig6_plot(p_violin_all_em, "panel_D_entropy_violin_targetset_all_effmod", width = 5, height = 5, subdir = "all_targets/effective_modalities")
 ```
 
 ---
@@ -739,6 +1507,8 @@ cat(sprintf("Max possible entropy: %.3f bits (log2(7))\n", max_entropy))
 cat(sprintf("Mean entropy: %.3f bits\n", mean(entropy_df$entropy)))
 cat(sprintf("Median entropy: %.3f bits\n", median(entropy_df$entropy)))
 cat(sprintf("SD entropy: %.3f bits\n", sd(entropy_df$entropy)))
+cat(sprintf("Mean lifetime sparseness: %.3f\n", mean(entropy_df$sparseness)))
+cat(sprintf("Mean effective modalities: %.1f\n", mean(entropy_df$eff_modalities)))
 cat(sprintf("Mean breadth: %.1f modalities\n", mean(entropy_df$breadth)))
 cat(sprintf("Neurons with all 7 modalities: %d (%.1f%%)\n",
             sum(entropy_df$breadth == 7),

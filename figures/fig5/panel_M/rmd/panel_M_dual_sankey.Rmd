@@ -1,0 +1,377 @@
+---
+title: "Panel M (dual): ppk23 & ppk25 -> GABA sign-inverter layer -> mAL_m sankey"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+if (!requireNamespace("ggalluvial", quietly = TRUE)) {
+  install.packages("ggalluvial", repos = "https://cloud.r-project.org")
+}
+library(ggalluvial)
+```
+
+## Overview
+
+Dual-channel Sankey / alluvial showing both **ppk23** and **ppk25** sensory
+channels converging on the **GABA sign-inverter layer** -- a pool of
+GABAergic AN05B/IN05* cells -- and fanning out (with inverted sign) to
+male-specific `mAL_m*` subtypes. Each individual GABA sign-inverter (SI)
+type appears as its own middle-layer node (labelled with the cell-type
+name); lower-throughput SIs may be collapsed into an "other GABA SIs"
+bin for visual legibility.
+
+Three axes:
+
+1. **Source channel**: `ppk23` (red) and `ppk25` (blue).
+2. **GABA SI relay**: each individual GABA sign-inverter type, plus an
+   optional `other GABA SIs` bin (low-throughput) and `other` for paths
+   that do not pass through the GABA SI pool.
+3. **mAL_m target**: the male-specific subtypes, ordered so that
+   GABA-SI-dominated targets cluster at the top.
+
+**Colour scheme**: source-channel colour (ppk23 = red, ppk25 = blue); any
+ribbon passing through the GABA SI layer is overridden to dark purple /
+near-black to mark the sign inversion.
+
+## Extract ppk23 + ppk25 paths and assign GABA-SI relay identity
+
+```{r extract-paths}
+source_levels <- c("ppk23", "ppk25")
+
+# Pool of GABA sign-inverter types (defined in setup_mspecific.R):
+gaba_si_pool <- gaba_sign_inverter_types
+cat("GABA sign-inverter pool (", length(gaba_si_pool), " types):\n  ",
+    paste(gaba_si_pool, collapse = ", "), "\n", sep = "")
+
+ppk_paths <- mal_paths %>%
+  filter(modality %in% source_levels, end %in% mal_subtypes) %>%
+  rowwise() %>%
+  mutate(via_gaba_si = path_via_gaba_si(path)) %>%
+  ungroup()
+
+# For each path, determine which GABA SI it passes through. If multiple,
+# pick the one closest to the mAL target (most downstream interior node
+# in the pool) -- this is the SI that delivers the inhibitory drive.
+pick_gaba_si <- function(path_str) {
+  toks <- strsplit(path_str, " -> ", fixed = TRUE)[[1]]
+  if (length(toks) <= 2) return(NA_character_)
+  interior <- toks[-c(1, length(toks))]
+  hits_idx <- which(interior %in% gaba_si_pool)
+  if (length(hits_idx) == 0) return(NA_character_)
+  interior[hits_idx[length(hits_idx)]]
+}
+
+ppk_paths <- ppk_paths %>%
+  rowwise() %>%
+  mutate(gaba_si = pick_gaba_si(path)) %>%
+  ungroup() %>%
+  mutate(relay_raw = ifelse(is.na(gaba_si), "other", gaba_si))
+
+# Decide whether to collapse low-throughput SIs into "other GABA SIs".
+# Heuristic: keep the top 5 SIs by aggregate path strength; collapse the
+# rest if there are more than 6 distinct SIs with non-zero throughput.
+si_throughput <- ppk_paths %>%
+  filter(!is.na(gaba_si)) %>%
+  group_by(gaba_si) %>%
+  summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(total))
+
+N_KEEP <- 5L
+collapse_rule <- nrow(si_throughput) > 6
+if (collapse_rule) {
+  keep_si <- si_throughput$gaba_si[seq_len(min(N_KEEP, nrow(si_throughput)))]
+} else {
+  keep_si <- si_throughput$gaba_si
+}
+cat("\nSI throughput (aggregate path strength across ppk23+ppk25):\n")
+print(si_throughput)
+cat("\nKeeping as individual nodes:", paste(keep_si, collapse = ", "), "\n")
+if (collapse_rule) {
+  cat("Collapsing into 'other GABA SIs':",
+      paste(setdiff(si_throughput$gaba_si, keep_si), collapse = ", "), "\n")
+}
+
+ppk_paths <- ppk_paths %>%
+  mutate(
+    relay = case_when(
+      is.na(gaba_si)         ~ "no GABA SI\n(direct route)",
+      gaba_si %in% keep_si   ~ gaba_si,
+      TRUE                   ~ "other GABA SIs"
+    )
+  )
+
+# Level ordering: keep SIs in descending-throughput order, then any
+# collapse bin, then the "no GABA SI" stratum (paths that bypass the pool).
+relay_levels <- c(keep_si,
+                  if (collapse_rule) "other GABA SIs" else character(0),
+                  "no GABA SI\n(direct route)")
+relay_levels <- relay_levels[relay_levels %in% unique(ppk_paths$relay)]
+
+ppk_paths <- ppk_paths %>%
+  mutate(
+    relay  = factor(relay,    levels = relay_levels),
+    source = factor(modality, levels = source_levels)
+  )
+
+cat("\nppk23/ppk25 -> GABA-SI relay -> mAL_m path counts:\n")
+print(table(ppk_paths$source, ppk_paths$relay, useNA = "ifany"))
+```
+
+## Aggregate path strength into (source, relay, target) flows
+
+```{r aggregate}
+gaba_si_relay_labels <- c(keep_si,
+                          if (collapse_rule) "other GABA SIs" else character(0))
+
+flows <- ppk_paths %>%
+  group_by(source, relay, end) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  filter(strength > 0) %>%
+  mutate(
+    via_gaba_si = as.character(relay) %in% gaba_si_relay_labels,
+    # Single ribbon class used by the final plot:
+    #   source colour for non-GABA-SI flow, dark-purple override for
+    #   anything passing through the GABA sign-inverter pool
+    ribbon_class = factor(
+      if_else(via_gaba_si, "GABA SI (inhibitory)", as.character(source)),
+      levels = c("ppk23", "ppk25", "GABA SI (inhibitory)")
+    )
+  )
+
+# Order mAL_m targets so those with the largest GABA-SI inflow fraction
+# cluster at the top of the target axis.
+shared_order <- load_mal_sort_order()
+if (!is.null(shared_order)) {
+  target_order <- c(intersect(shared_order, as.character(unique(flows$end))),
+                    setdiff(as.character(unique(flows$end)), shared_order))
+} else {
+  # Fallback: original per-figure computation
+  target_order <- flows %>%
+    group_by(end) %>%
+    summarise(
+      total    = sum(strength),
+      inh      = sum(strength[via_gaba_si]),
+      inh_frac = if_else(total > 0, inh / total, 0),
+      .groups  = "drop"
+    ) %>%
+    arrange(desc(inh_frac), desc(total)) %>%
+    pull(end)
+}
+
+missing_targets <- setdiff(mal_subtypes, target_order)
+if (length(missing_targets) > 0) target_order <- c(target_order, missing_targets)
+
+flows <- flows %>%
+  mutate(end = factor(end, levels = rev(target_order))) %>%
+  mutate(alluv_id = row_number())
+
+cat("Flow rows:", nrow(flows), "\n")
+cat("Total ppk23+ppk25 strength routed:", sprintf("%.2f", sum(flows$strength)), "\n")
+for (s in source_levels) {
+  ss <- flows$strength[flows$source == s]
+  si <- flows$strength[flows$source == s & flows$via_gaba_si]
+  cat(sprintf("  %s total=%.2f  via GABA SI layer=%.2f (%.1f%%)\n",
+              s, sum(ss), sum(si),
+              if (sum(ss) > 0) 100 * sum(si) / sum(ss) else 0))
+}
+```
+
+## Wide-form frame for ggalluvial
+
+```{r lodes}
+flows_wide <- flows %>%
+  transmute(
+    alluv_id, strength,
+    source, relay,
+    target = end,
+    ribbon_class
+  )
+```
+
+## Single colour scheme: source channel + GABA-SI layer override
+
+```{r sankey-final, fig.width=15, fig.height=9}
+ribbon_colors <- c(
+  "ppk23"                = unname(panel_M_palette["ppk23"]),    # #C0272D
+  "ppk25"                = unname(panel_M_palette["ppk25"]),    # #F4A261
+  "GABA SI (inhibitory)" = unname(panel_M_palette["gaba_si"])   # #1F4E79
+)
+
+p_sankey <- ggplot(flows_wide,
+                   aes(y = strength,
+                       axis1 = source, axis2 = relay, axis3 = target)) +
+  geom_alluvium(aes(fill = ribbon_class),
+                width = 1/6, alpha = 0.80,
+                knot.pos = 0.3, curve_type = "sigmoid") +
+  geom_stratum(width = 1/6, fill = "grey95", color = "grey40",
+               linewidth = 0.35) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+            size = 3.1, lineheight = 0.9) +
+  scale_x_discrete(limits = c("Source channel",
+                              "GABA sign-inverter layer",
+                              "mAL_m target"),
+                   expand = c(0.05, 0.05)) +
+  scale_fill_manual(values = ribbon_colors, name = "Ribbon class",
+                    drop = FALSE) +
+  labs(
+    x = NULL, y = "Aggregated path strength",
+    title = "ppk23/ppk25 -> mAL_m flow: which paths go through the GABA sign-inverter pool, which don't",
+    subtitle = paste0(
+      "Includes ALL ppk23/ppk25 -> mAL_m paths from `mal_paths` (both inhibitory routes via the GABA SI pool and ",
+      "direct excitatory routes that bypass it). Only paths through the pool are sign-inverted."
+    ),
+    caption = paste(
+      panel_M_pool_caption,
+      "RIBBONS: thickness ~ aggregated path strength; red = ppk23 direct (excitatory), orange = ppk25 direct.",
+      "INVERT: dark blue = path THROUGH the pool (inhibitory, sign-inverted).",
+      "STRATUM: each pool type that carries flow is its own middle node; 'other GABA SIs' aggregates sub-top-5 pool members.",
+      "BYPASS: 'no GABA SI (direct route)' = paths that do NOT pass through any pool member.",
+      "ORDER: mAL_m targets ordered top-down by GABA-SI inflow fraction.",
+      sep = "\n"
+    )
+  ) +
+  theme_pub(base_size = 13) +
+  theme(
+    legend.position = "top",
+    panel.grid      = element_blank(),
+    axis.text.x     = element_text(size = rel(1.15), face = "bold",
+                                   angle = 0, hjust = 0.5),
+    axis.title.y    = element_text(size = rel(1.05)),
+    plot.caption    = element_text(size = rel(0.85), hjust = 0.5,
+                                   color = "grey25",
+                                   margin = margin(t = 10)),
+    plot.margin     = margin(18, 22, 14, 22)
+  )
+
+print(p_sankey)
+```
+
+## Save outputs (landscape 14 x 8)
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+png_dir <- panel_plot_dir("panel_M", "png")
+
+ggsave(file.path(pdf_dir, "panel_M_dual_sankey.pdf"),
+       plot = p_sankey, width = 15, height = 9)
+ggsave(file.path(png_dir, "panel_M_dual_sankey.png"),
+       plot = p_sankey, width = 15, height = 9, dpi = 300)
+
+# Remove any stale schemeB output files from a previous run
+stale_files <- c(
+  file.path(pdf_dir, "panel_M_dual_sankey_schemeB.pdf"),
+  file.path(png_dir, "panel_M_dual_sankey_schemeB.png")
+)
+for (f in stale_files) {
+  if (file.exists(f)) {
+    file.remove(f)
+    message("  Removed stale file: ", f)
+  }
+}
+
+# Flow table
+flows_out <- flows_wide %>%
+  mutate(across(c(source, relay, target, ribbon_class), as.character)) %>%
+  arrange(source, relay, target)
+write.csv(flows_out,
+          file.path(pdf_dir, "..", "panel_M_dual_sankey_flows.csv"),
+          row.names = FALSE)
+
+cat("Saved:\n",
+    " ", file.path(pdf_dir, "panel_M_dual_sankey.pdf"), "\n",
+    sep = "")
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+total_s <- sum(flows$strength)
+
+per_source <- flows %>%
+  group_by(source) %>%
+  summarise(
+    total = sum(strength),
+    inh   = sum(strength[via_gaba_si]),
+    inh_frac = if_else(total > 0, inh / total, 0),
+    .groups = "drop"
+  )
+
+gaba_targets_by_src <- flows %>%
+  filter(via_gaba_si) %>%
+  group_by(source, end) %>%
+  summarise(s = sum(strength), .groups = "drop") %>%
+  arrange(source, desc(s))
+
+per_si <- flows %>%
+  filter(via_gaba_si) %>%
+  group_by(relay) %>%
+  summarise(total = sum(strength), .groups = "drop") %>%
+  arrange(desc(total))
+
+narrative <- sprintf(
+"PANEL M (dual): ppk23 + ppk25 -> GABA SI layer -> mAL_m Sankey
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Three-axis alluvial diagram of aggregated path strength from BOTH ppk23 and
+ppk25 sensory channels, through the GABAergic sign-inverter layer (a pool
+of %d AN05B/IN05* GABA cells), to the male-specific mAL_m subtypes. Each
+individual GABA sign-inverter type is shown as its own middle-layer node;
+low-throughput SIs may be aggregated into an 'other GABA SIs' bin.
+
+Colour scheme:
+- ppk23 excitatory routes = red
+- ppk25 excitatory routes = blue
+- Any route through the GABA SI layer = dark purple / near-black
+
+mAL_m targets are ordered so those with the largest GABA-SI inflow
+fraction cluster at the top of the target axis.
+
+KEY NUMBERS
+-----------
+Total aggregated path strength across both channels: %.2f.
+Per-source breakdown (total / via GABA SI layer / inhibitory fraction):
+%s
+
+Individual GABA SI throughput (descending):
+%s
+
+GABA-SI-routed mAL_m subtypes per source (by descending strength):
+%s
+
+INTERPRETATION
+--------------
+Both pheromone channels (ppk23, ppk25) share the GABA sign-inverter layer
+as a common inhibitory relay. The Sankey makes two points visual:
+(1) both sources converge onto the GABA SI pool -- the dark-purple ribbons
+enter the middle stratum from both ppk23 and ppk25 and spread across
+multiple GABAergic cell types rather than concentrating on a single node;
+(2) from the GABA SI layer the flow diverges onto a SPECIFIC SUBSET of
+mAL_m subtypes rather than spreading uniformly. This selective fan-out is
+the circuit substrate that converts a shared excitatory sensory drive into
+a subtype-specific inhibitory signature across a distributed GABAergic
+pool, producing the differential ppk23 vs ppk25 responses and the E/I
+balance shifts seen in earlier panels.
+",
+length(gaba_si_pool),
+total_s,
+paste(sprintf("  %s: total=%.2f  via GABA SI=%.2f (%.1f%%)",
+              per_source$source, per_source$total, per_source$inh,
+              100 * per_source$inh_frac),
+      collapse = "\n"),
+paste(sprintf("  %s: %.2f", per_si$relay, per_si$total),
+      collapse = "\n"),
+paste(sprintf("  %s -> %s (%.2f)",
+              gaba_targets_by_src$source,
+              gaba_targets_by_src$end,
+              gaba_targets_by_src$s),
+      collapse = "\n")
+)
+
+save_panel_narrative("panel_M", narrative)
+cat(narrative)
+```

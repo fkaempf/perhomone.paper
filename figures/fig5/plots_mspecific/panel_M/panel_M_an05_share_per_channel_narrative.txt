@@ -1,0 +1,19 @@
+PANEL M (supplementary): GABA-sign-inverter-attributable inhibition, absolute strength
+=====================================================================================
+
+Companion to the primary figure panel_M_inhibitory_sources. That figure shows
+share (normalised to 100%); this supplement shows absolute summed path
+strength on each channel so subtype magnitude is also readable.
+
+For each of the 16 male-specific mAL_m subtypes we compute the total
+inhibitory path strength arriving from ppk23 and ppk25 (rows of
+mal_strength_inh), and the subset of that strength carried by paths whose
+interior nodes contain ANY member of the GABA sign-inverter pool
+(gaba_sign_inverter_types, 11 AN05B / IN05 GABA relay types).
+
+MEAN GABA SI SHARE:
+  ppk23: 57.7%
+  ppk25: 59.6%
+
+Palette and row order are inherited from the primary figure.
+

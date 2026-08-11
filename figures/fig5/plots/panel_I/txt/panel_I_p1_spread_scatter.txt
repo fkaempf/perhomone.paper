@@ -1,0 +1,22 @@
+P1 mean-path vs mean-signal-flow scatter (subpanel b analog)
+=============================================================
+For each of 45 P1 subtypes, mean activation across the 3 scenarios is
+computed under both path-based (scenario_mat x mal_p1_signed) and signal-flow
+(p1_all_combos$net_input) models. Point size = sqrt(var_path + var_sf) =
+joint spread of the 3-scenario trajectory in 2D.
+
+Top 10 P1s by joint spread:
+# A tibble: 10 × 6
+   P1      mean_path mean_sf var_path   var_sf spread_2d
+   <chr>       <dbl>   <dbl>    <dbl>    <dbl>     <dbl>
+ 1 P1_3c  -0.0143    -0.0350 9.69e- 6 0.00127     0.0358
+ 2 P1_3a  -0.00920   -0.0338 8.89e- 6 0.000624    0.0252
+ 3 P1_1b  -0.000898   0.0332 2.40e- 8 0.000578    0.0240
+ 4 P1_3b  -0.0169    -0.0517 1.72e- 5 0.000487    0.0225
+ 5 P1_6a   0          0.0228 0        0.000313    0.0177
+ 6 P1_2c  -0.00278   -0.0279 1.80e- 7 0.000280    0.0167
+ 7 P1_13a  0.00112    0.0456 1.30e- 7 0.000260    0.0161
+ 8 P1_14b  0.000193   0.0385 4.59e- 8 0.000230    0.0152
+ 9 P1_1a  -0.00498   -0.0293 1.12e- 6 0.000218    0.0148
+10 P1_10d -0.0000168  0.0584 1.80e-10 0.000138    0.0117
+

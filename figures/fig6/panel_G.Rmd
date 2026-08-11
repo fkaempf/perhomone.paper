@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 7
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -56,205 +56,136 @@ sensory_patterns <- c(
 sensory_regex <- paste(sensory_patterns, collapse = "|")
 ```
 
-## 2. Parse intermediate nodes from all paths
+## 2. Define analysis function and target sets
 
-Split each path string on " -> " and extract everything between the first
-(start) and last (end) node.
-
-```{r parse-intermediates}
+```{r define-path-sets}
 # ---------------------------------------------------------------------------
-# Extract intermediate nodes from each path, together with modality and
-# strength metadata.
+# Define the three target sets to analyze
 # ---------------------------------------------------------------------------
-intermediates_raw <- paths.aspf_aspg %>%
-  filter(!is.na(path), !is.na(strength), strength > 0) %>%
-  rowwise() %>%
-  mutate(
-    nodes = list(strsplit(path, " -> ", fixed = TRUE)[[1]])
-  ) %>%
-  ungroup() %>%
-  # Only keep paths with at least 3 nodes (start, intermediate(s), end)
-  filter(lengths(nodes) >= 3) %>%
-  mutate(
-    intermediates = purrr::map(nodes, ~ .x[2:(length(.x) - 1)])
-  ) %>%
-  select(path, start, end, modality, strength, valence, target_set, intermediates) %>%
-  tidyr::unnest(intermediates) %>%
-  rename(intermediate = intermediates)
+path_sets <- list(
+  aspf_aspg   = list(paths = paths.aspf_aspg,   label = "aSP-f/aSP-g", suffix = "aspf_aspg"),
+  vab3_ppn1   = list(paths = bind_rows(paths.vab3, paths.ppn1), label = "vAB3+PPN1", suffix = "vab3_ppn1"),
+  all_targets = list(paths = paths.all,          label = "All targets",  suffix = "all_targets")
+)
 
-# ---------------------------------------------------------------------------
-# Remove sensory neurons from the intermediate list
-# ---------------------------------------------------------------------------
-intermediates_clean <- intermediates_raw %>%
-  filter(!grepl(sensory_regex, intermediate),
-         !grepl("^AN09B017|^AN05B102", intermediate))
-
-message(sprintf(
-  "Extracted %s intermediate occurrences across %s unique nodes (after removing %s sensory occurrences)",
-  format(nrow(intermediates_clean), big.mark = ","),
-  format(n_distinct(intermediates_clean$intermediate), big.mark = ","),
-  format(nrow(intermediates_raw) - nrow(intermediates_clean), big.mark = ",")
-))
-```
-
-## 3. Compute per-intermediate summary
-
-For each intermediate node, compute quantitative hub metrics: total path
-strength, path count, source diversity (distinct start neurons routing
-through), target diversity (distinct end neurons fed), and Shannon entropy
-over the modality strength distribution.
-
-```{r intermediate-summary}
-# ---------------------------------------------------------------------------
-# Per intermediate x modality: summed strength
-# ---------------------------------------------------------------------------
-inter_mod_strength <- intermediates_clean %>%
-  group_by(intermediate, modality) %>%
-  summarise(
-    mod_strength = sum(strength, na.rm = TRUE),
-    n_paths      = n(),
-    .groups      = "drop"
-  )
-
-# ---------------------------------------------------------------------------
-# Source diversity & target diversity per intermediate
-# ---------------------------------------------------------------------------
-inter_diversity <- intermediates_clean %>%
-  group_by(intermediate) %>%
-  summarise(
-    source_diversity = n_distinct(start),
-    target_diversity = n_distinct(end),
-    .groups          = "drop"
-  )
-
-# ---------------------------------------------------------------------------
-# Summary per intermediate node
-# ---------------------------------------------------------------------------
-inter_summary <- inter_mod_strength %>%
-  group_by(intermediate) %>%
-  summarise(
-    n_modalities   = n_distinct(modality),
-    total_strength = sum(mod_strength),
-    total_paths    = sum(n_paths),
-    .groups        = "drop"
-  ) %>%
-  left_join(inter_diversity, by = "intermediate") %>%
-  arrange(desc(total_strength))
-
-# ---------------------------------------------------------------------------
-# Shannon entropy over modality strength distribution per intermediate
-# ---------------------------------------------------------------------------
-inter_entropy <- inter_mod_strength %>%
-  group_by(intermediate) %>%
-  summarise(
-    entropy = shannon_entropy(mod_strength),
-    .groups = "drop"
-  )
-
-inter_summary <- inter_summary %>%
-  left_join(inter_entropy, by = "intermediate")
-
-# ---------------------------------------------------------------------------
-# Dominant modality per intermediate (modality with highest strength)
-# ---------------------------------------------------------------------------
-inter_dominant <- inter_mod_strength %>%
-  group_by(intermediate) %>%
-  slice_max(mod_strength, n = 1, with_ties = FALSE) %>%
-  ungroup() %>%
-  select(intermediate, dominant_modality = modality)
-
-inter_summary <- inter_summary %>%
-  left_join(inter_dominant, by = "intermediate")
-
-# ---------------------------------------------------------------------------
-# Wide-format per-modality strength (for heatmap)
-# ---------------------------------------------------------------------------
-inter_wide <- inter_mod_strength %>%
-  select(intermediate, modality, mod_strength) %>%
-  pivot_wider(
-    names_from  = modality,
-    values_from = mod_strength,
-    values_fill = 0
-  )
-
-# Ensure all modalities present
-for (mod in modality_order) {
-  if (!mod %in% colnames(inter_wide)) inter_wide[[mod]] <- 0
-}
-
-inter_wide <- inter_wide %>%
-  left_join(inter_summary %>% select(intermediate, total_strength, entropy,
-                                      source_diversity, target_diversity),
-            by = "intermediate")
-
-message(sprintf(
-  "Found %d unique intermediate nodes; top node has total strength = %.1f, entropy = %.2f",
-  nrow(inter_summary),
-  max(inter_summary$total_strength),
-  inter_summary$entropy[1]
-))
-```
-
-## 4. Annotate neuron types by name patterns
-
-Classify intermediate nodes into broad neuron type categories using name
-prefixes. Categories are ordered so more specific patterns match first.
-
-```{r annotate-types}
-# ---------------------------------------------------------------------------
-# Neuron type patterns: name -> regex, ordered specific-first
-# ---------------------------------------------------------------------------
+# Neuron type patterns (shared across all sets)
 neuron_patterns <- c(
-  # Courtship command / integration
   "aSP-f"  = "^aSP-f",
   "aSP-g"  = "^aSP-g",
-  "P1"     = "^P1_",
+  "P1"     = "^pC1_",
   "pC1"    = "^pC1",
   "pC2"    = "^pC2",
   "mAL"    = "^mAL",
-  # Second-order relays
   "vAB3"   = "^vAB3",
   "PPN1"   = "^PPN1",
-  # Lateral horn
   "LH"     = "^LH",
-  # Projection neurons (olfactory, thermo, etc.)
   "PN"     = "PN",
-  # Mushroom body output
   "MBON"   = "^MBON",
-  # Kenyon cells
   "KC"     = "^KC",
-  # Superior brain neuropils
   "SMP"    = "^SMP",
   "SIP"    = "^SIP",
   "SLP"    = "^SLP",
-  # Ventrolateral neuropils
   "AVLP"   = "^AVLP",
   "PVLP"   = "^PVLP",
   "WED"    = "^WED",
-  # Central complex
   "CX"     = "^(FB|EB|PB|NO|EPG|PFN|PFL|hDelta|FC|FR)",
-  # Antennal lobe local
   "AL-local" = "^(lLN|vLN|LN|v2LN|l2LN)",
-  # Lobula / optic lobe
   "LC"     = "^(LC|LPLC|LPC)",
-  # Descending neurons
   "DN"     = "^DN",
-  # Lateral accessory lobe
   "LAL"    = "^LAL",
-  # Crepine
   "CRE"    = "^CRE",
-  # AOTU / anterior optic tubercle
   "AOTU"   = "^(AOTU|TuBu)",
-  # Suboesophageal zone
   "SEZ"    = "^(SEZ|GNG)"
 )
 
-# ---------------------------------------------------------------------------
-# Match each intermediate node against the patterns (first match wins)
-# ---------------------------------------------------------------------------
-inter_summary <- inter_summary %>%
-  mutate(
-    neuron_class = {
+# Neuron class color palette (shared)
+neuron_class_colors <- c(
+  "aSP-f"  = "#E41A1C", "aSP-g"  = "#377EB8", "P1"    = "#984EA3",
+  "pC1"    = "#FF7F00", "pC2"    = "#A65628", "mAL"   = "#4DAF4A",
+  "vAB3"   = "#F781BF", "PPN1"   = "#999999",
+  "LH"     = "#1B9E77", "PN"     = "#D95F02", "MBON"  = "#7570B3",
+  "KC"     = "#E7298A", "AL-local" = "#B3DE69",
+  "SMP"    = "#66C2A5", "SIP"    = "#8DD3C7", "SLP"   = "#BEBADA",
+  "AVLP"   = "#FB8072", "PVLP"   = "#FCCDE5", "WED"   = "#BC80BD",
+  "LC"     = "#80B1D3", "AOTU"   = "#FDB462",
+  "CX"     = "#B3DE69", "DN"     = "#FC8D62", "LAL"   = "#CCEBC5",
+  "CRE"    = "#FFED6F", "SEZ"    = "#D9D9D9",
+  "other"  = "#F0F0F0"
+)
+```
+
+```{r run-all-sets, fig.width=10, fig.height=8, results='asis'}
+for (set_name in names(path_sets)) {
+
+  ps       <- path_sets[[set_name]]
+  paths_df <- ps$paths
+  label    <- ps$label
+  suffix   <- ps$suffix
+
+  cat(sprintf("\n\n---\n\n## Target set: %s\n\n", label))
+
+  # ---- Parse intermediates ----
+  intermediates_raw <- paths_df %>%
+    filter(!is.na(path), !is.na(strength), strength > 0) %>%
+    rowwise() %>%
+    mutate(nodes = list(strsplit(path, " -> ", fixed = TRUE)[[1]])) %>%
+    ungroup() %>%
+    filter(lengths(nodes) >= 3) %>%
+    mutate(intermediates = purrr::map(nodes, ~ .x[2:(length(.x) - 1)])) %>%
+    select(path, start, end, modality, strength, valence, target_set, intermediates) %>%
+    tidyr::unnest(intermediates) %>%
+    rename(intermediate = intermediates)
+
+  intermediates_clean <- intermediates_raw %>%
+    filter(!grepl(sensory_regex, intermediate),
+           !grepl("^AN09B017|^AN05B102", intermediate))
+
+  message(sprintf("[%s] %s intermediate occurrences, %s unique nodes",
+    label, format(nrow(intermediates_clean), big.mark = ","),
+    format(n_distinct(intermediates_clean$intermediate), big.mark = ",")))
+
+  # ---- Per-intermediate summary ----
+  inter_mod_strength <- intermediates_clean %>%
+    group_by(intermediate, modality) %>%
+    summarise(mod_strength = sum(strength, na.rm = TRUE), n_paths = n(), .groups = "drop")
+
+  inter_diversity <- intermediates_clean %>%
+    group_by(intermediate) %>%
+    summarise(source_diversity = n_distinct(start), target_diversity = n_distinct(end), .groups = "drop")
+
+  inter_summary <- inter_mod_strength %>%
+    group_by(intermediate) %>%
+    summarise(n_modalities = n_distinct(modality), total_strength = sum(mod_strength),
+              total_paths = sum(n_paths), .groups = "drop") %>%
+    left_join(inter_diversity, by = "intermediate") %>%
+    arrange(desc(total_strength))
+
+  inter_entropy <- inter_mod_strength %>%
+    group_by(intermediate) %>%
+    summarise(entropy = shannon_entropy(mod_strength), .groups = "drop")
+  inter_summary <- inter_summary %>% left_join(inter_entropy, by = "intermediate")
+
+  inter_dominant <- inter_mod_strength %>%
+    group_by(intermediate) %>%
+    slice_max(mod_strength, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    select(intermediate, dominant_modality = modality)
+  inter_summary <- inter_summary %>% left_join(inter_dominant, by = "intermediate")
+
+  inter_wide <- inter_mod_strength %>%
+    select(intermediate, modality, mod_strength) %>%
+    pivot_wider(names_from = modality, values_from = mod_strength, values_fill = 0)
+  for (mod in modality_order) {
+    if (!mod %in% colnames(inter_wide)) inter_wide[[mod]] <- 0
+  }
+  inter_wide <- inter_wide %>%
+    left_join(inter_summary %>% select(intermediate, total_strength, entropy,
+                                        source_diversity, target_diversity),
+              by = "intermediate")
+
+  # ---- Annotate neuron types ----
+  inter_summary <- inter_summary %>%
+    mutate(neuron_class = {
       classes <- character(n())
       for (i in seq_along(neuron_patterns)) {
         mask <- grepl(neuron_patterns[i], intermediate)
@@ -262,575 +193,256 @@ inter_summary <- inter_summary %>%
       }
       classes[classes == ""] <- "other"
       classes
-    }
-  )
+    })
 
-message(sprintf("Neuron class breakdown: %s",
-  paste(sort(table(inter_summary$neuron_class), decreasing = TRUE),
-        names(sort(table(inter_summary$neuron_class), decreasing = TRUE)),
-        sep = " ", collapse = ", ")))
-```
+  # ---- Plot 1: Ranked dot plot ----
+  n_top <- min(40, nrow(inter_summary))
+  top_nodes <- inter_summary %>%
+    filter(!intermediate %in% c("AN09B017", "AN05B102")) %>%
+    slice_head(n = n_top) %>%
+    mutate(intermediate = factor(intermediate, levels = rev(intermediate)))
 
-## 5. Plot 1 -- Ranked dot plot of top intermediate nodes
+  p_ranked <- ggplot(top_nodes, aes(x = total_strength, y = intermediate,
+                                     color = entropy, shape = neuron_class != "other")) +
+    geom_point(size = 3.5) +
+    scale_color_viridis_c(option = "inferno", name = "Shannon\nentropy") +
+    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17),
+                       name = "Known courtship\nneuron",
+                       labels = c(`FALSE` = "No", `TRUE` = "Yes")) +
+    scale_x_log10(labels = scales::comma) +
+    labs(x = "Total path strength (log scale)", y = NULL,
+         title = sprintf("Top %d intermediates (%s)", n_top, label)) +
+    theme_bw(base_size = 11) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(linewidth = 0.2, color = "grey90"),
+          axis.text.y = element_text(size = 7))
+  print(p_ranked)
+  save_fig6_plot(p_ranked, sprintf("panel_G_ranked_intermediates_%s", suffix), width = 10, height = 8, subdir = suffix)
 
-Show the top 40 intermediate nodes ranked by total path strength, with
-point color indicating Shannon entropy (multimodal balance).
+  # ---- Plot 2: Heatmap ----
+  n_heatmap <- min(30, nrow(inter_summary))
+  heatmap_nodes <- inter_summary %>% slice_head(n = n_heatmap) %>% pull(intermediate)
+  heatmap_mat <- inter_wide %>%
+    filter(intermediate %in% heatmap_nodes) %>%
+    column_to_rownames("intermediate") %>%
+    select(all_of(intersect(modality_order, colnames(.)))) %>%
+    as.matrix()
+  heatmap_mat_log <- log10(heatmap_mat + 1)
 
-```{r ranked-dot-plot, fig.width=10, fig.height=8}
-# ---------------------------------------------------------------------------
-# Select top N intermediates by total_strength for display
-# ---------------------------------------------------------------------------
-n_top <- min(40, nrow(inter_summary))
+  col_annot <- data.frame(group = modality_group[colnames(heatmap_mat_log)],
+                           row.names = colnames(heatmap_mat_log))
+  annot_colors <- list(group = modality_group_colors)
 
-top_nodes <- inter_summary %>%
-  filter(!intermediate %in% c("AN09B017", "AN05B102")) %>%
-  slice_head(n = n_top) %>%
-  mutate(
-    intermediate = factor(intermediate,
-                          levels = rev(intermediate))
-  )
+  row_class <- inter_summary %>%
+    filter(intermediate %in% heatmap_nodes) %>%
+    select(intermediate, neuron_class) %>%
+    column_to_rownames("intermediate")
+  annot_colors$neuron_class <- neuron_class_colors
 
-# ---------------------------------------------------------------------------
-# Ranked dot plot: x = total_strength, color = entropy, shape = courtship
-# ---------------------------------------------------------------------------
-p_ranked <- ggplot(top_nodes, aes(
-  x     = total_strength,
-  y     = intermediate,
-  color = entropy,
-  shape = neuron_class != "other"
-)) +
-  geom_point(size = 3.5) +
-  scale_color_viridis_c(
-    option = "inferno",
-    name   = "Shannon\nentropy"
-  ) +
-  scale_shape_manual(
-    values = c(`FALSE` = 16, `TRUE` = 17),
-    name   = "Known courtship\nneuron",
-    labels = c(`FALSE` = "No", `TRUE` = "Yes")
-  ) +
-  scale_x_log10(labels = scales::comma) +
-  labs(
-    x     = "Total path strength (log scale)",
-    y     = NULL,
-    title = sprintf("Top %d intermediate nodes by total path strength", n_top)
-  ) +
-  theme_bw(base_size = 11) +
-  theme(
-    panel.grid.minor   = element_blank(),
-    panel.grid.major.y = element_line(linewidth = 0.2, color = "grey90"),
-    axis.text.y        = element_text(size = 7)
-  )
+  p_heat <- pheatmap(heatmap_mat_log, cluster_cols = FALSE, cluster_rows = TRUE,
+    clustering_method = "ward.D2", clustering_distance_rows = "euclidean",
+    color = colorRampPalette(c("white", "#FDE725", "#35B779", "#31688E", "#440154"))(100),
+    border_color = "grey85", annotation_col = col_annot, annotation_row = row_class,
+    annotation_colors = annot_colors, fontsize_row = 7, fontsize_col = 10,
+    main = sprintf("Modality strength through top intermediates (%s, log10)", label),
+    silent = TRUE)
 
-p_ranked
-```
+  hm_name <- sprintf("panel_G_heatmap_intermediates_%s", suffix)
+  png(file.path(panel_plot_dir(hm_name, "png", subdir = suffix), paste0(hm_name, ".png")),
+      width = 8, height = 9, units = "in", res = 300)
+  print(p_heat); dev.off()
+  pdf(file.path(panel_plot_dir(hm_name, "pdf", subdir = suffix), paste0(hm_name, ".pdf")),
+      width = 8, height = 9)
+  print(p_heat); dev.off()
 
-```{r save-ranked}
-save_fig6_plot(p_ranked, "panel_G_ranked_intermediates_aspf_aspg", width = 10, height = 8)
-```
+  # ---- Plot 3: Strength vs entropy scatters ----
+  inter_nonsensory <- inter_summary %>%
+    filter(total_strength > 0, !grepl(sensory_regex, intermediate))
+  neuron_classes <- sort(unique(inter_nonsensory$neuron_class))
+  neuron_type_colors <- setNames(scales::hue_pal()(length(neuron_classes)), neuron_classes)
+  if ("other" %in% names(neuron_type_colors)) neuron_type_colors["other"] <- "grey70"
 
-## 6. Plot 2 -- Heatmap of modality strength through top intermediate nodes
+  p_str_ent_type <- ggplot(inter_nonsensory,
+    aes(x = total_strength, y = entropy, size = source_diversity, color = neuron_class)) +
+    geom_point(alpha = 0.65, size = 2, shape = 16) +
+    scale_x_log10(labels = scales::comma) +
+    scale_size_continuous(name = "Source div.", range = c(0.8, 4.5), breaks = scales::pretty_breaks(4)) +
+    scale_color_manual(values = neuron_type_colors, name = "Type") +
+    ggrepel::geom_text_repel(data = inter_nonsensory %>% slice_head(n = 15),
+      aes(label = intermediate), size = 2, max.overlaps = 20, color = "grey35",
+      segment.color = "grey75", segment.size = 0.25) +
+    labs(x = "Total strength", y = "Entropy (bits)", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(),
+      legend.title = element_text(size = rel(0.85)),
+      legend.text = element_text(size = rel(0.8)),
+      legend.key.size = unit(0.4, "cm"))
+  print(p_str_ent_type)
+  save_fig6_plot(p_str_ent_type, sprintf("panel_G_strength_vs_entropy_neurontype_%s", suffix), width = 7, height = 5, subdir = suffix)
 
-Rows are the top 30 intermediate nodes (clustered by strength profile),
-columns are the 7 modalities, and colour intensity represents the summed
-path strength routing through that intermediate from that modality.
+  p_str_ent_mod <- ggplot(inter_nonsensory,
+    aes(x = total_strength, y = entropy, size = source_diversity, color = dominant_modality)) +
+    geom_point(alpha = 0.65, size = 2, shape = 16) +
+    scale_x_log10(labels = scales::comma) +
+    scale_size_continuous(name = "Source div.", range = c(0.8, 4.5), breaks = scales::pretty_breaks(4)) +
+    scale_color_manual(values = modality_colors, name = "Modality") +
+    ggrepel::geom_text_repel(data = inter_nonsensory %>% slice_head(n = 15),
+      aes(label = intermediate), size = 2, max.overlaps = 20, color = "grey35",
+      segment.color = "grey75", segment.size = 0.25) +
+    labs(x = "Total strength", y = "Entropy (bits)", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(),
+      legend.title = element_text(size = rel(0.85)),
+      legend.text = element_text(size = rel(0.8)),
+      legend.key.size = unit(0.4, "cm"))
+  print(p_str_ent_mod)
+  save_fig6_plot(p_str_ent_mod, sprintf("panel_G_strength_vs_entropy_modality_%s", suffix), width = 7, height = 5, subdir = suffix)
 
-```{r heatmap, fig.width=8, fig.height=9}
-# ---------------------------------------------------------------------------
-# Prepare heatmap matrix from top 30 nodes
-# ---------------------------------------------------------------------------
-n_heatmap <- min(30, nrow(inter_summary))
+  # ---- Hub table ----
+  hub_table <- inter_summary %>%
+    slice_head(n = 30) %>%
+    left_join(inter_wide %>% select(intermediate, all_of(intersect(modality_order, colnames(inter_wide)))),
+              by = "intermediate")
+  hub_mba_info <- mba %>%
+    filter(type %in% hub_table$intermediate) %>%
+    group_by(type) %>%
+    summarise(n_bodies = n(), consensus_nt = first(consensus_nt), .groups = "drop") %>%
+    rename(intermediate = type)
+  hub_table <- hub_table %>% left_join(hub_mba_info, by = "intermediate")
+  cat("\n\n")
+  print(knitr::kable(hub_table %>%
+    select(intermediate, total_strength, entropy, source_diversity, target_diversity,
+           total_paths, neuron_class, consensus_nt, n_bodies, everything()),
+    digits = 2, caption = sprintf("Top 30 hub neurons (%s)", label)))
+  cat("\n\n")
 
-heatmap_nodes <- inter_summary %>%
-  slice_head(n = n_heatmap) %>%
-  pull(intermediate)
+  # ---- Source vs target diversity ----
+  p_div <- ggplot(inter_summary %>% filter(total_strength > 0),
+    aes(x = source_diversity, y = target_diversity, size = total_strength, color = entropy)) +
+    geom_point(alpha = 0.65, size = 2, shape = 16) +
+    scale_size_continuous(name = "Strength", range = c(0.8, 5.5), trans = "log10", labels = scales::comma) +
+    scale_color_viridis_c(option = "inferno", name = "Entropy") +
+    ggrepel::geom_text_repel(data = inter_summary %>% filter(total_strength > 0) %>%
+      mutate(div_score = source_diversity * target_diversity) %>% slice_max(div_score, n = 15),
+      aes(label = intermediate), size = 2, max.overlaps = 20, color = "grey35",
+      segment.color = "grey75", segment.size = 0.25) +
+    labs(x = "Source diversity", y = "Target diversity", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(),
+      legend.title = element_text(size = rel(0.85)),
+      legend.text = element_text(size = rel(0.8)),
+      legend.key.size = unit(0.4, "cm"))
+  print(p_div)
+  save_fig6_plot(p_div, sprintf("panel_G_source_vs_target_diversity_%s", suffix), width = 7, height = 5, subdir = suffix)
 
-heatmap_mat <- inter_wide %>%
-  filter(intermediate %in% heatmap_nodes) %>%
-  column_to_rownames("intermediate") %>%
-  select(all_of(intersect(modality_order, colnames(.)))) %>%
-  as.matrix()
+  # ---- Top 15 lollipop (hub integration score) ----
+  # Hub score rewards multimodal integration & broad connectivity,
+  # not raw path strength (which favours single-modality relays).
+  inter_summary_scored <- inter_summary %>%
+    filter(!grepl("^AN", intermediate)) %>%
+    mutate(hub_score = entropy * sqrt(source_diversity * target_diversity)) %>%
+    arrange(desc(hub_score))
 
-# Log-transform for visual clarity (many orders of magnitude)
-heatmap_mat_log <- log10(heatmap_mat + 1)
+  top15 <- inter_summary_scored %>%
+    slice_head(n = 15) %>%
+    mutate(intermediate = factor(intermediate, levels = rev(intermediate)))
 
-# ---------------------------------------------------------------------------
-# Column annotation: modality group colors
-# ---------------------------------------------------------------------------
-col_annot <- data.frame(
-  group = modality_group[colnames(heatmap_mat_log)],
-  row.names = colnames(heatmap_mat_log)
-)
+  p_top15 <- ggplot(top15, aes(x = hub_score, y = intermediate)) +
+    geom_segment(aes(x = 0, xend = hub_score, yend = intermediate),
+                 color = "grey75", linewidth = 0.4) +
+    geom_point(aes(size = total_strength, color = n_modalities), alpha = 0.85) +
+    scale_size_continuous(name = "Total\nstrength", range = c(2, 8),
+                          trans = "log10", labels = scales::comma) +
+    scale_color_viridis_c(option = "inferno", name = "# modalities",
+                          breaks = 1:7, limits = c(1, 7)) +
+    labs(x = expression(Hub~score~~(entropy %*% sqrt(source~div. %*% target~div.))),
+         y = NULL,
+         title = sprintf("Top 15 integration hubs (%s)", label)) +
+    theme_bw(base_size = 12) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(linewidth = 0.15, color = "grey92"),
+          axis.text.y = element_text(size = 9, face = "bold"))
+  print(p_top15)
+  save_fig6_plot(p_top15, sprintf("panel_G_top15_hubs_%s", suffix), width = 9, height = 6, subdir = suffix)
 
-annot_colors <- list(group = modality_group_colors)
+  # ---- Modality co-innervation (signed) ----
+  inter_mod_signed <- intermediates_clean %>%
+    mutate(signed_strength = ifelse(valence == "inhibitory", -strength, strength)) %>%
+    group_by(intermediate, modality) %>%
+    summarise(net_strength = sum(signed_strength, na.rm = TRUE), .groups = "drop")
 
-# ---------------------------------------------------------------------------
-# Row annotation: known courtship neuron flag
-# ---------------------------------------------------------------------------
-row_class <- inter_summary %>%
-  filter(intermediate %in% heatmap_nodes) %>%
-  select(intermediate, neuron_class) %>%
-  column_to_rownames("intermediate")
+  signed_wide <- inter_mod_signed %>%
+    pivot_wider(names_from = modality, values_from = net_strength, values_fill = 0)
+  for (mod in modality_order) {
+    if (!mod %in% colnames(signed_wide)) signed_wide[[mod]] <- 0
+  }
+  signed_mat <- signed_wide %>%
+    column_to_rownames("intermediate") %>%
+    select(all_of(intersect(modality_order, colnames(.)))) %>%
+    as.matrix()
+  rv <- apply(signed_mat, 1, var, na.rm = TRUE)
+  signed_mat <- signed_mat[rv > 0, , drop = FALSE]
 
-annot_colors$neuron_class <- c(
-  # Courtship command / integration
-  "aSP-f"  = "#E41A1C", "aSP-g"  = "#377EB8", "P1"    = "#984EA3",
-  "pC1"    = "#FF7F00", "pC2"    = "#A65628", "mAL"   = "#4DAF4A",
-  # Relays
-  "vAB3"   = "#F781BF", "PPN1"   = "#999999",
-  # Sensory processing
-  "LH"     = "#1B9E77", "PN"     = "#D95F02", "MBON"  = "#7570B3",
-  "KC"     = "#E7298A", "AL-local" = "#B3DE69",
-  # Superior brain
-  "SMP"    = "#66C2A5", "SIP"    = "#8DD3C7", "SLP"   = "#BEBADA",
-  # Ventrolateral / optic
-  "AVLP"   = "#FB8072", "PVLP"   = "#FCCDE5", "WED"   = "#BC80BD",
-  "LC"     = "#80B1D3", "AOTU"   = "#FDB462",
-  # Central complex / motor
-  "CX"     = "#B3DE69", "DN"     = "#FC8D62", "LAL"   = "#CCEBC5",
-  # Other regions
-  "CRE"    = "#FFED6F", "SEZ"    = "#D9D9D9",
-  "other"  = "#F0F0F0"
-)
+  mod_cor <- cor(signed_mat, method = "pearson")
+  cor_pal <- colorRampPalette(c("#2166AC", "#F7F7F7", "#B2182B"))(100)
+  ga <- data.frame(group = modality_group[colnames(mod_cor)], row.names = colnames(mod_cor))
 
-# ---------------------------------------------------------------------------
-# Draw heatmap
-# ---------------------------------------------------------------------------
-p_heat <- pheatmap(
-  heatmap_mat_log,
-  cluster_cols         = FALSE,
-  cluster_rows         = TRUE,
-  clustering_method    = "ward.D2",
-  clustering_distance_rows = "euclidean",
-  color                = colorRampPalette(c("white", "#FDE725", "#35B779", "#31688E", "#440154"))(100),
-  border_color         = "grey85",
-  annotation_col       = col_annot,
-  annotation_row       = row_class,
-  annotation_colors    = annot_colors,
-  fontsize_row         = 7,
-  fontsize_col         = 10,
-  main                 = "Modality-specific strength through top intermediate nodes\n(log10 scale)",
-  silent               = TRUE
-)
+  p_cocor <- pheatmap(mod_cor, display_numbers = TRUE, number_format = "%.2f",
+    fontsize_number = 10, color = cor_pal, breaks = seq(-1, 1, length.out = 101),
+    clustering_method = "complete", annotation_col = ga, annotation_row = ga,
+    annotation_colors = list(group = modality_group_colors), border_color = "white",
+    cellwidth = 55, cellheight = 55,
+    main = sprintf("Co-innervation (signed, %s)", label), fontsize = 11, silent = TRUE)
 
-p_heat
-```
+  co_name <- sprintf("panel_G_modality_coinnervation_%s", suffix)
+  png(file.path(panel_plot_dir(co_name, "png", subdir = suffix), paste0(co_name, ".png")),
+      width = 8, height = 7, units = "in", res = 300)
+  grid::grid.draw(p_cocor$gtable); dev.off()
+  pdf(file.path(panel_plot_dir(co_name, "pdf", subdir = suffix), paste0(co_name, ".pdf")),
+      width = 8, height = 7)
+  grid::grid.draw(p_cocor$gtable); dev.off()
+  grid::grid.newpage(); grid::grid.draw(p_cocor$gtable)
 
-```{r save-heatmap}
-# pheatmap returns a gtable; save with ggsave-compatible approach
-png(file.path(panel_plot_dir("panel_G_heatmap_intermediates_aspf_aspg", "png"), "panel_G_heatmap_intermediates_aspf_aspg.png"),
-    width = 8, height = 9, units = "in", res = 300)
-print(p_heat)
-dev.off()
+  # ---- Unsigned co-routing ----
+  abs_mat <- abs(signed_mat)
+  cv <- apply(abs_mat, 2, var, na.rm = TRUE)
+  abs_mat <- abs_mat[, cv > 0, drop = FALSE]
+  mod_cor_abs <- cor(abs_mat, method = "pearson")
 
-pdf(file.path(panel_plot_dir("panel_G_heatmap_intermediates_aspf_aspg", "pdf"), "panel_G_heatmap_intermediates_aspf_aspg.pdf"),
-    width = 8, height = 9)
-print(p_heat)
-dev.off()
-```
+  p_coabs <- pheatmap(mod_cor_abs, display_numbers = TRUE, number_format = "%.2f",
+    fontsize_number = 10,
+    color = colorRampPalette(c("white", "#FDE725", "#35B779", "#31688E", "#440154"))(100),
+    clustering_method = "complete", annotation_col = ga, annotation_row = ga,
+    annotation_colors = list(group = modality_group_colors), border_color = "white",
+    cellwidth = 55, cellheight = 55,
+    main = sprintf("Co-routing (unsigned, %s)", label), fontsize = 11, silent = TRUE)
 
-## 7. Plot 3 -- Total strength vs Shannon entropy
+  cr_name <- sprintf("panel_G_modality_corouting_%s", suffix)
+  png(file.path(panel_plot_dir(cr_name, "png", subdir = suffix), paste0(cr_name, ".png")),
+      width = 8, height = 7, units = "in", res = 300)
+  grid::grid.draw(p_coabs$gtable); dev.off()
+  pdf(file.path(panel_plot_dir(cr_name, "pdf", subdir = suffix), paste0(cr_name, ".pdf")),
+      width = 8, height = 7)
+  grid::grid.draw(p_coabs$gtable); dev.off()
+  grid::grid.newpage(); grid::grid.draw(p_coabs$gtable)
 
-Scatter plot where each point is an intermediate node. X-axis shows the
-total path strength (how much signal flows through), y-axis shows Shannon
-entropy (how balanced the modality inputs are). Top-right quadrant nodes
-are the strongest multimodal integration hubs.
-
-```{r strength-vs-entropy, fig.width=8, fig.height=6}
-# ---------------------------------------------------------------------------
-# Scatter: total_strength vs entropy, sized by source_diversity
-# ---------------------------------------------------------------------------
-# Filter out sensory neurons
-inter_nonsensory <- inter_summary %>%
-  filter(total_strength > 0, !grepl(sensory_regex, intermediate))
-
-# --- Version 1: colored by neuron type ---
-# Build a palette for neuron classes
-neuron_classes <- sort(unique(inter_nonsensory$neuron_class))
-neuron_type_colors <- setNames(
-  scales::hue_pal()(length(neuron_classes)),
-  neuron_classes
-)
-# Make "other" grey so it doesn't dominate
-if ("other" %in% names(neuron_type_colors)) neuron_type_colors["other"] <- "grey70"
-
-p_str_ent_type <- ggplot(
-  inter_nonsensory,
-  aes(x = total_strength, y = entropy,
-      size = source_diversity, color = neuron_class)
-) +
-  geom_point(alpha = 0.65, size = 2, shape = 16) +
-  scale_x_log10(labels = scales::comma) +
-  scale_size_continuous(
-    name   = "Source div.",
-    range  = c(0.8, 4.5),
-    breaks = scales::pretty_breaks(4)
-  ) +
-  scale_color_manual(
-    values = neuron_type_colors,
-    name   = "Type"
-  ) +
-  ggrepel::geom_text_repel(
-    data = inter_nonsensory %>% slice_head(n = 15),
-    aes(label = intermediate),
-    size = 2, max.overlaps = 20, color = "grey35",
-    segment.color = "grey75", segment.size = 0.25
-  ) +
-  labs(
-    x     = "Total strength",
-    y     = "Entropy (bits)",
-    title = ""
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    text = element_text(color = "grey20"),
-    axis.title = element_text(size = rel(0.9), color = "grey30"),
-    axis.text = element_text(size = rel(0.85), color = "grey40"),
-    axis.line = element_line(linewidth = 0.3, color = "grey70"),
-    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
-    panel.grid = element_blank(),
-    legend.title = element_text(size = rel(0.85)),
-    legend.text = element_text(size = rel(0.8)),
-    legend.key.size = unit(0.4, "cm")
-  )
-
-p_str_ent_type
-
-# --- Version 2: colored by dominant modality ---
-p_str_ent_mod <- ggplot(
-  inter_nonsensory,
-  aes(x = total_strength, y = entropy,
-      size = source_diversity, color = dominant_modality)
-) +
-  geom_point(alpha = 0.65, size = 2, shape = 16) +
-  scale_x_log10(labels = scales::comma) +
-  scale_size_continuous(
-    name   = "Source div.",
-    range  = c(0.8, 4.5),
-    breaks = scales::pretty_breaks(4)
-  ) +
-  scale_color_manual(
-    values = modality_colors,
-    name   = "Modality"
-  ) +
-  ggrepel::geom_text_repel(
-    data = inter_nonsensory %>% slice_head(n = 15),
-    aes(label = intermediate),
-    size = 2, max.overlaps = 20, color = "grey35",
-    segment.color = "grey75", segment.size = 0.25
-  ) +
-  labs(
-    x     = "Total strength",
-    y     = "Entropy (bits)",
-    title = ""
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    text = element_text(color = "grey20"),
-    axis.title = element_text(size = rel(0.9), color = "grey30"),
-    axis.text = element_text(size = rel(0.85), color = "grey40"),
-    axis.line = element_line(linewidth = 0.3, color = "grey70"),
-    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
-    panel.grid = element_blank(),
-    legend.title = element_text(size = rel(0.85)),
-    legend.text = element_text(size = rel(0.8)),
-    legend.key.size = unit(0.4, "cm")
-  )
-
-p_str_ent_mod
-```
-
-```{r save-strength-entropy}
-save_fig6_plot(p_str_ent_type, "panel_G_strength_vs_entropy_neurontype_aspf_aspg", width = 7, height = 5)
-save_fig6_plot(p_str_ent_mod, "panel_G_strength_vs_entropy_modality_aspf_aspg", width = 7, height = 5)
-```
-
-## 8. Supplementary: table of top hub neurons
-
-Print the top hub neurons with their modality counts, total strength, and
-neuron class annotation for reference.
-
-```{r hub-table}
-# ---------------------------------------------------------------------------
-# Top 30 hubs with annotation
-# ---------------------------------------------------------------------------
-hub_table <- inter_summary %>%
-  slice_head(n = 30) %>%
-  left_join(
-    inter_wide %>% select(intermediate, all_of(intersect(modality_order, colnames(inter_wide)))),
-    by = "intermediate"
-  )
-
-# Look up type info from mba for the top hubs
-hub_mba_info <- mba %>%
-  filter(type %in% hub_table$intermediate) %>%
-  group_by(type) %>%
-  summarise(
-    n_bodies     = n(),
-    consensus_nt = first(consensus_nt),
-    .groups      = "drop"
-  ) %>%
-  rename(intermediate = type)
-
-hub_table <- hub_table %>%
-  left_join(hub_mba_info, by = "intermediate")
-
-hub_table %>%
-  select(intermediate, total_strength, entropy, source_diversity,
-         target_diversity, total_paths, neuron_class,
-         consensus_nt, n_bodies, everything()) %>%
-  knitr::kable(
-    digits  = 2,
-    caption = "Top 30 intermediate hub neurons by total path strength"
-  )
-```
-
-## 9. Source diversity vs target diversity
-
-How broadly each intermediate draws from distinct sensory start neurons
-(source diversity) versus how many distinct target neurons it feeds
-(target diversity). Nodes in the top-right are true convergence-divergence
-hubs that bridge many inputs to many outputs.
-
-```{r source-vs-target-diversity, fig.width=8, fig.height=7}
-# ---------------------------------------------------------------------------
-# Scatter: source_diversity vs target_diversity, size = total_strength,
-#          color = entropy
-# ---------------------------------------------------------------------------
-p_div <- ggplot(
-  inter_summary %>% filter(total_strength > 0),
-  aes(x = source_diversity, y = target_diversity,
-      size = total_strength, color = entropy)
-) +
-  geom_point(alpha = 0.65, size = 2, shape = 16) +
-  scale_size_continuous(
-    name   = "Strength",
-    range  = c(0.8, 5.5),
-    trans  = "log10",
-    labels = scales::comma
-  ) +
-  scale_color_viridis_c(option = "inferno", name = "Entropy") +
-  ggrepel::geom_text_repel(
-    data = inter_summary %>%
-      filter(total_strength > 0) %>%
-      mutate(div_score = source_diversity * target_diversity) %>%
-      slice_max(div_score, n = 15),
-    aes(label = intermediate),
-    size = 2, max.overlaps = 20, color = "grey35",
-    segment.color = "grey75", segment.size = 0.25
-  ) +
-  labs(
-    x     = "Source diversity",
-    y     = "Target diversity",
-    title = ""
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    text = element_text(color = "grey20"),
-    axis.title = element_text(size = rel(0.9), color = "grey30"),
-    axis.text = element_text(size = rel(0.85), color = "grey40"),
-    axis.line = element_line(linewidth = 0.3, color = "grey70"),
-    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
-    panel.grid = element_blank(),
-    legend.title = element_text(size = rel(0.85)),
-    legend.text = element_text(size = rel(0.8)),
-    legend.key.size = unit(0.4, "cm")
-  )
-
-p_div
-```
-
-```{r save-diversity}
-save_fig6_plot(p_div, "panel_G_source_vs_target_diversity_aspf_aspg", width = 7, height = 5)
-```
-
-## 10. Combined summary: top 15 hubs labeled
-
-A clean lollipop plot of the top 15 integration hubs ranked by total path
-strength, with color encoding Shannon entropy (multimodal balance).
-
-```{r top-hubs-labeled, fig.width=9, fig.height=6}
-# ---------------------------------------------------------------------------
-# Top 15 hubs: rank by total_strength (already sorted)
-# ---------------------------------------------------------------------------
-top15 <- inter_summary %>%
-  filter(!grepl("^AN", intermediate)) %>%
-  slice_head(n = 15) %>%
-  mutate(
-    label = intermediate,
-    intermediate = factor(intermediate, levels = rev(intermediate))
-  )
-
-p_top15 <- ggplot(top15, aes(x = total_strength, y = intermediate)) +
-  geom_segment(
-    aes(x = 0, xend = total_strength, yend = intermediate),
-    color    = "grey75",
-    linewidth = 0.4
-  ) +
-  geom_point(
-    aes(size = source_diversity, color = entropy),
-    alpha = 0.85
-  ) +
-  scale_x_continuous(labels = scales::comma) +
-  scale_size_continuous(
-    name   = "Source\ndiversity",
-    range  = c(2, 8),
-    breaks = scales::pretty_breaks(4)
-  ) +
-  scale_color_viridis_c(
-    option = "inferno",
-    name   = "Shannon\nentropy"
-  ) +
-  labs(
-    x     = "Total path strength",
-    y     = NULL,
-    title = "Top 15 integration hubs by path strength"
-  ) +
-  theme_bw(base_size = 12) +
-  theme(
-    panel.grid.minor   = element_blank(),
-    panel.grid.major.y = element_line(linewidth = 0.15, color = "grey92"),
-    axis.text.y        = element_text(size = 9, face = "bold")
-  )
-
-p_top15
-```
-
-```{r save-top15}
-save_fig6_plot(p_top15, "panel_G_top15_hubs_aspf_aspg", width = 9, height = 6)
-```
-
-## 11. Modality co-innervation and opposition at intermediate nodes
-
-Which modalities tend to converge on the same intermediates (co-innervation)
-versus oppose each other? We compute:
-1. A **signed modality co-innervation matrix** using per-intermediate
-   excitatory/inhibitory valence profiles — modalities that consistently
-   excite the same nodes cluster together, while those that oppose (one
-   excites what the other inhibits) show negative correlation.
-2. A **modality clustering dendrogram** derived from the signed correlation.
-
-```{r modality-coinnervation, fig.width=8, fig.height=7}
-# ---------------------------------------------------------------------------
-# Build per-intermediate x modality signed strength matrix
-# (positive = excitatory path strength, negative = inhibitory)
-# ---------------------------------------------------------------------------
-inter_mod_signed <- intermediates_clean %>%
-  mutate(signed_strength = ifelse(valence == "inhibitory", -strength, strength)) %>%
-  group_by(intermediate, modality) %>%
-  summarise(
-    net_strength = sum(signed_strength, na.rm = TRUE),
-    .groups      = "drop"
-  )
-
-# Pivot to wide: rows = intermediates, cols = modalities
-signed_wide <- inter_mod_signed %>%
-  pivot_wider(names_from = modality, values_from = net_strength, values_fill = 0)
-
-# Ensure all modalities present
-for (mod in modality_order) {
-  if (!mod %in% colnames(signed_wide)) signed_wide[[mod]] <- 0
+  cat(sprintf("\n\n**[%s] analysis complete.**\n\n", label))
 }
-
-signed_mat <- signed_wide %>%
-  column_to_rownames("intermediate") %>%
-  select(all_of(intersect(modality_order, colnames(.)))) %>%
-  as.matrix()
-
-# Keep only intermediates with nonzero variance across modalities
-rv <- apply(signed_mat, 1, var, na.rm = TRUE)
-signed_mat <- signed_mat[rv > 0, , drop = FALSE]
-
-# ---------------------------------------------------------------------------
-# Correlation between modality columns across all intermediates
-# (positive = tend to co-innervate same nodes with same sign;
-#  negative = tend to oppose — one excites what the other inhibits)
-# ---------------------------------------------------------------------------
-mod_cor <- cor(signed_mat, method = "pearson")
-
-cor_pal <- colorRampPalette(c("#2166AC", "#F7F7F7", "#B2182B"))(100)
-
-ga <- data.frame(
-  group = modality_group[colnames(mod_cor)],
-  row.names = colnames(mod_cor)
-)
-
-p_cocor <- pheatmap(
-  mod_cor,
-  display_numbers  = TRUE,
-  number_format    = "%.2f",
-  fontsize_number  = 10,
-  color            = cor_pal,
-  breaks           = seq(-1, 1, length.out = 101),
-  clustering_method = "complete",
-  annotation_col   = ga,
-  annotation_row   = ga,
-  annotation_colors = list(group = modality_group_colors),
-  border_color     = "white",
-  cellwidth        = 55,
-  cellheight       = 55,
-  main             = "Modality co-innervation at intermediate nodes\n(signed strength correlation)",
-  fontsize         = 11,
-  silent           = TRUE
-)
-
-# Save
-png(file.path(panel_plot_dir("panel_G_modality_coinnervation_aspf_aspg", "png"), "panel_G_modality_coinnervation_aspf_aspg.png"),
-    width = 8, height = 7, units = "in", res = 300)
-grid::grid.draw(p_cocor$gtable)
-dev.off()
-
-pdf(file.path(panel_plot_dir("panel_G_modality_coinnervation_aspf_aspg", "pdf"), "panel_G_modality_coinnervation_aspf_aspg.pdf"),
-    width = 8, height = 7)
-grid::grid.draw(p_cocor$gtable)
-dev.off()
-
-grid::grid.newpage()
-grid::grid.draw(p_cocor$gtable)
-```
-
-```{r modality-coinnervation-unsigned, fig.width=8, fig.height=7}
-# ---------------------------------------------------------------------------
-# Also show UNSIGNED co-innervation: which modalities route through the
-# same intermediates regardless of valence (absolute strength correlation)
-# ---------------------------------------------------------------------------
-abs_mat <- abs(signed_mat)
-cv <- apply(abs_mat, 2, var, na.rm = TRUE)
-abs_mat <- abs_mat[, cv > 0, drop = FALSE]
-
-mod_cor_abs <- cor(abs_mat, method = "pearson")
-
-p_coabs <- pheatmap(
-  mod_cor_abs,
-  display_numbers  = TRUE,
-  number_format    = "%.2f",
-  fontsize_number  = 10,
-  color            = colorRampPalette(c("white", "#FDE725", "#35B779", "#31688E", "#440154"))(100),
-  clustering_method = "complete",
-  annotation_col   = ga,
-  annotation_row   = ga,
-  annotation_colors = list(group = modality_group_colors),
-  border_color     = "white",
-  cellwidth        = 55,
-  cellheight       = 55,
-  main             = "Modality co-routing through shared intermediates\n(absolute strength correlation)",
-  fontsize         = 11,
-  silent           = TRUE
-)
-
-# Save
-png(file.path(panel_plot_dir("panel_G_modality_corouting_aspf_aspg", "png"), "panel_G_modality_corouting_aspf_aspg.png"),
-    width = 8, height = 7, units = "in", res = 300)
-grid::grid.draw(p_coabs$gtable)
-dev.off()
-
-pdf(file.path(panel_plot_dir("panel_G_modality_corouting_aspf_aspg", "pdf"), "panel_G_modality_corouting_aspf_aspg.pdf"),
-    width = 8, height = 7)
-grid::grid.draw(p_coabs$gtable)
-dev.off()
-
-grid::grid.newpage()
-grid::grid.draw(p_coabs$gtable)
 ```
 
 ## Session info

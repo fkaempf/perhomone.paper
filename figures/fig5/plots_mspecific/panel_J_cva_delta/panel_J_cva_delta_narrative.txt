@@ -1,0 +1,20 @@
+Panel J (cVA-gain scatter) -- per-P1 characterization
+======================================================
+For each of 45 P1 courtship command neurons, the scatter plots two quantities
+from the signal-flow model:
+  x = net_input[DA1+ppk23+ppk25] - net_input[ppk23+ppk25]
+  y = net_input[DA1+ppk23]       - net_input[ppk23]
+
+Dashed line: y = x. In a strictly linear channel-sum model both deltas would
+be identical (equal to DA1's contribution to P1) and every point would lie
+exactly on this line. Deviation above/below the diagonal reflects the
+nonlinearity of the signal-flow propagation: cVA has a context-dependent
+effect on P1 drive depending on whether male or female contact pheromone
+signals are simultaneously active.
+
+Range summaries:
+  delta_cva_female: [-0.0145, 0.0492]
+  delta_cva_male  : [-0.0163, 0.0550]
+  Spearman rho(x, y) = 0.989
+  Mean(y - x) = 0.0010   (positive = male-context cVA gain dominates; negative = female-context dominates)
+

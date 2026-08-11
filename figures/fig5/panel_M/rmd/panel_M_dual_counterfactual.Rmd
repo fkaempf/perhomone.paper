@@ -1,0 +1,385 @@
+---
+title: "Panel M dual counterfactual: zero out inhibitory paths that traverse any GABA sign-inverter pool member, before vs after (mirrors panel C layout)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+```
+
+```{r paths}
+# For each gustatory channel (ppk23, ppk25) build two path sets:
+#   (i)  REAL  = all cached strongest paths in that channel -> mAL_m
+#   (ii) AFTER = same set with every path whose interior contains a
+#                member of `gaba_sign_inverter_types` dropped from
+#                the inhibitory contribution (everything else recomputed).
+
+channels <- c("ppk23", "ppk25")
+
+paths_by_channel <- lapply(channels, function(ch) {
+  real <- mal_paths %>% filter(modality == ch, end %in% mal_subtypes)
+  through <- vapply(real$path, path_via_gaba_si, logical(1))
+  list(
+    real      = real,
+    cf        = real[!through, , drop = FALSE],
+    n_total   = nrow(real),
+    n_through = sum(through)
+  )
+})
+names(paths_by_channel) <- channels
+
+for (ch in channels) {
+  pc <- paths_by_channel[[ch]]
+  message(sprintf("  %s: %d total paths, %d through GABA sign-inverter pool (%.1f%%)",
+                  ch, pc$n_total, pc$n_through,
+                  100 * pc$n_through / max(pc$n_total, 1)))
+}
+```
+
+```{r ei-compute}
+# E/I balance = (exc - inh) / (exc + inh) for one channel's path set.
+# The "after" scenario uses the FULL excitatory contribution but drops
+# inhibitory contribution from any path whose interior contains a
+# GABA-SI pool member (i.e. only the inhibitory contribution from
+# paths that pass through the pool is removed).
+compute_ei_channel <- function(real_df, subtypes, drop_inh_via_pool = FALSE) {
+  if (nrow(real_df) == 0) {
+    return(data.frame(target_type = subtypes,
+                      excitatory = 0, inhibitory = 0, ei_balance = 0))
+  }
+
+  if (drop_inh_via_pool) {
+    via <- vapply(real_df$path, path_via_gaba_si, logical(1))
+    keep <- !(via & real_df$valence == "inhibitory")
+    df <- real_df[keep, , drop = FALSE]
+  } else {
+    df <- real_df
+  }
+
+  agg <- df %>%
+    group_by(end, valence) %>%
+    summarise(total = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = valence, values_from = total, values_fill = 0)
+  if (!"excitatory" %in% colnames(agg)) agg$excitatory <- 0
+  if (!"inhibitory" %in% colnames(agg)) agg$inhibitory <- 0
+  missing <- setdiff(subtypes, agg$end)
+  if (length(missing) > 0) {
+    agg <- bind_rows(agg,
+                     data.frame(end = missing, excitatory = 0, inhibitory = 0))
+  }
+  agg %>%
+    filter(end %in% subtypes) %>%
+    mutate(
+      denom = excitatory + inhibitory,
+      ei_balance = ifelse(denom > 0, (excitatory - inhibitory) / denom, 0)
+    ) %>%
+    select(target_type = end, excitatory, inhibitory, ei_balance)
+}
+
+ei_list <- list()
+for (ch in channels) {
+  pc <- paths_by_channel[[ch]]
+  ei_real <- compute_ei_channel(pc$real, mal_subtypes, drop_inh_via_pool = FALSE) %>%
+    rename(exc_real = excitatory, inh_real = inhibitory, ei_real = ei_balance)
+  ei_cf   <- compute_ei_channel(pc$real, mal_subtypes, drop_inh_via_pool = TRUE) %>%
+    rename(exc_cf = excitatory, inh_cf = inhibitory, ei_cf = ei_balance)
+  ei_list[[ch]] <- ei_real %>%
+    left_join(ei_cf, by = "target_type") %>%
+    mutate(channel = ch,
+           delta = ei_cf - ei_real,
+           neurotransmitter = mal_nt[target_type],
+           dimorphism = mal_dimorphism[target_type])
+}
+
+ei_both <- bind_rows(ei_list)
+
+# Per-channel summary stats
+shift_summary <- ei_both %>%
+  group_by(channel) %>%
+  summarise(
+    n              = n(),
+    mean_real      = mean(ei_real),
+    mean_cf        = mean(ei_cf),
+    mean_delta     = mean(delta),
+    median_delta   = median(delta),
+    n_shift_pos    = sum(delta >  1e-9),
+    n_shift_neg    = sum(delta < -1e-9),
+    n_unaffected   = sum(abs(delta) <= 1e-9),
+    largest_pos    = max(delta),
+    largest_neg    = min(delta),
+    .groups = "drop"
+  )
+
+print(shift_summary)
+
+for (i in seq_len(nrow(shift_summary))) {
+  cat(sprintf(
+    "Channel %s: mean E/I  real = %+.4f  ->  after = %+.4f  (shift %+.4f)\n",
+    shift_summary$channel[i], shift_summary$mean_real[i],
+    shift_summary$mean_cf[i],  shift_summary$mean_delta[i]
+  ))
+}
+```
+
+```{r before-after-grid, fig.width=14, fig.height=9}
+# === Mirror panel C's `panel_M_C_dual_channel` layout ===
+#   * Same x-axis (mAL_m subtype ordering) for ALL panels.
+#   * Use the panel C subtype ordering: sort by ppk23 path drive
+#     (real net path strength = exc - inh from mal_activation_matrix).
+#   * Channel colours match panel C: ppk23 = red shades, ppk25 = orange shades.
+#   * 2x2 grid: columns = {BEFORE, AFTER}, rows = {ppk23, ppk25}.
+
+# Subtype ordering: use the shared mAL_m sort order when available so this
+# panel's x-axis matches the other Panel M panels; fall back to panel C's
+# ppk23-drive ordering otherwise.
+ppk23_drive_real <- mal_activation_matrix[mal_subtypes, "ppk23"]
+ordered_subtypes <- names(sort(ppk23_drive_real))
+
+shared_order <- load_mal_sort_order()
+if (!is.null(shared_order)) {
+  present <- unique(as.character(ei_both$target_type))
+  ordered_subtypes <- c(intersect(shared_order, present),
+                        setdiff(present, shared_order))
+}
+
+ei_both <- ei_both %>%
+  mutate(target_type = factor(target_type, levels = ordered_subtypes))
+
+# Channel-specific palettes mirroring panel C panel_M_C_dual_channel
+ch_palette <- list(
+  ppk23 = list(pos = "#C0272D", neg = "#7A1A1F"),
+  ppk25 = list(pos = "#F4A261", neg = "#B16A2D")
+)
+
+bar_fill_signed <- function(values, pos_col, neg_col) {
+  ifelse(values >= 0, pos_col, neg_col)
+}
+
+plot_ei_bars <- function(ch, scenario, y_lab, show_x_text) {
+  stopifnot(scenario %in% c("real", "cf"))
+  pal <- ch_palette[[ch]]
+  df_i <- ei_both %>%
+    filter(channel == ch) %>%
+    mutate(val = if (scenario == "real") ei_real else ei_cf,
+           fill_col = bar_fill_signed(val, pal$pos, pal$neg))
+
+  mean_val <- if (scenario == "real")
+    shift_summary$mean_real[shift_summary$channel == ch]
+  else
+    shift_summary$mean_cf[shift_summary$channel == ch]
+
+  p <- ggplot(df_i, aes(x = target_type, y = val, fill = fill_col)) +
+    geom_col(width = 0.75) +
+    geom_hline(yintercept = 0, linewidth = 0.4, color = "black") +
+    geom_hline(yintercept = mean_val, linetype = "dashed",
+               linewidth = 0.4, color = "grey30") +
+    annotate("text", x = Inf, y = mean_val,
+             label = sprintf("mean = %+.3f", mean_val),
+             hjust = 1.02, vjust = -0.4, size = 3, color = "grey25") +
+    scale_fill_identity() +
+    scale_y_continuous(limits = c(-1.05, 1.05), breaks = seq(-1, 1, 0.5)) +
+    labs(x = NULL, y = y_lab) +
+    theme_pub(base_size = 10) +
+    theme(
+      panel.grid.major.x = element_blank(),
+      axis.text.x = if (show_x_text)
+        element_text(angle = 60, hjust = 1, vjust = 1, size = 6.5)
+      else element_blank(),
+      axis.ticks.x = if (show_x_text) element_line() else element_blank(),
+      plot.margin = margin(t = 5, r = 10, b = 15, l = 5)
+    )
+  p
+}
+
+# Top row: ppk23 (no x-axis text)
+p_b_23 <- plot_ei_bars("ppk23", "real",
+                       y_lab = "BEFORE\nppk23 E/I balance",
+                       show_x_text = FALSE) +
+  ggtitle("BEFORE  (real circuit)")
+
+p_a_23 <- plot_ei_bars("ppk23", "cf",
+                       y_lab = "AFTER\nppk23 E/I balance",
+                       show_x_text = FALSE) +
+  ggtitle("AFTER  (GABA sign-inverter pool removed)")
+
+# Bottom row: ppk25 (with x-axis text)
+p_b_25 <- plot_ei_bars("ppk25", "real",
+                       y_lab = "BEFORE\nppk25 E/I balance",
+                       show_x_text = TRUE) +
+  labs(x = "mAL_m subtype (sorted by ppk23 path drive, panel C ordering)")
+
+p_a_25 <- plot_ei_bars("ppk25", "cf",
+                       y_lab = "AFTER\nppk25 E/I balance",
+                       show_x_text = TRUE) +
+  labs(x = "mAL_m subtype (sorted by ppk23 path drive, panel C ordering)")
+
+# Add small column-titles only on top row
+p_b_23 <- p_b_23 + theme(plot.title = element_text(size = 11, face = "bold",
+                                                   hjust = 0.5,
+                                                   color = "grey20"))
+p_a_23 <- p_a_23 + theme(plot.title = element_text(size = 11, face = "bold",
+                                                   hjust = 0.5,
+                                                   color = "#1F4E79"))
+
+wrap_caption <- function(txt, width = 110) {
+  # Preserve explicit newlines, hard-wrap each segment at ~width chars.
+  segments <- strsplit(txt, "\n", fixed = TRUE)[[1]]
+  wrapped <- vapply(segments, function(seg) {
+    paste(strwrap(seg, width = width), collapse = "\n")
+  }, character(1))
+  paste(wrapped, collapse = "\n")
+}
+
+caption_txt <- paste(
+  panel_M_pool_caption,
+  "METHODS: 'after' panel zeros inhibitory paths whose interior contains any pool member; excitatory paths unchanged.",
+  "SCORE: E/I balance = (exc - inh)/(exc + inh) per mAL_m subtype, identical to panel C.",
+  "ORDER: subtype order and colour scheme mirror panel C (panel_M_C_dual_channel).",
+  "CAVEAT: in-silico counterfactual on the cached path set; not an in-vivo knockout, rewiring not modeled.",
+  sep = "\n"
+)
+
+p_grid <- (p_b_23 | p_a_23) / (p_b_25 | p_a_25) +
+  plot_layout(heights = c(1, 1.25))
+
+print(p_grid)
+```
+
+```{r delta-arrow, fig.width=14, fig.height=3.5}
+# Tiny extra panel: per-subtype shift (delta = AFTER - BEFORE) for both
+# channels, sharing the same x-axis ordering.
+delta_df <- ei_both %>%
+  select(channel, target_type, delta) %>%
+  mutate(target_type = factor(target_type, levels = ordered_subtypes),
+         channel = factor(channel, levels = c("ppk23", "ppk25")))
+
+ch_solid <- c("ppk23" = "#C0272D", "ppk25" = "#F4A261")
+
+p_delta <- ggplot(delta_df,
+                  aes(x = target_type, y = delta,
+                      fill = channel)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "black") +
+  scale_fill_manual(values = ch_solid, name = "Channel") +
+  labs(x = "mAL_m subtype (sorted by ppk23 path drive, panel C ordering)",
+       y = "Delta E/I balance\n(AFTER \u2212 BEFORE)",
+       title = "Per-subtype shift due to removing GABA sign-inverter pool",
+       subtitle = "Positive bars = subtype became more excitatory once the SI pool's inhibitory paths were removed.") +
+  theme_pub(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1, size = 6.5),
+    panel.grid.major.x = element_blank(),
+    legend.position = "top",
+    plot.title    = element_text(size = 11, face = "bold"),
+    plot.subtitle = element_text(size = 9, color = "grey25"),
+    plot.margin = margin(t = 5, r = 10, b = 25, l = 5)
+  )
+
+print(p_delta)
+```
+
+```{r combined-output, fig.width=18, fig.height=15}
+subtitle_raw <- paste0(
+  "Same E/I balance computation as panel C; 'after' panel zeros out any path whose interior ",
+  "contains a member of the 11-cell GABA SI pool. ",
+  "The shift reflects the inhibitory path strength that the pool carries in the cached path set."
+)
+subtitle_txt <- wrap_caption(subtitle_raw, width = 130)
+
+title_raw <- "GABA sign-inverter pool counterfactual -- before vs after removing the pool from inhibitory paths"
+title_txt <- wrap_caption(title_raw, width = 130)
+
+p_combined <- (p_b_23 | p_a_23) / (p_b_25 | p_a_25) / p_delta +
+  plot_layout(heights = c(1, 1.25, 1.1)) +
+  plot_annotation(
+    title    = title_txt,
+    subtitle = subtitle_txt,
+    caption  = caption_txt,
+    tag_levels = list(c("a", "b", "c", "d", "e")),
+    theme = theme(
+      plot.title    = element_text(size = 13, face = "bold"),
+      plot.subtitle = element_text(size = 10, color = "grey25"),
+      plot.caption  = element_text(size = 8, color = "grey30", hjust = 0,
+                                   margin = margin(t = 10, b = 5)),
+      plot.margin   = margin(t = 10, r = 20, b = 15, l = 10)
+    )
+  )
+
+print(p_combined)
+
+# Save via the standard panel plot dir helper. Filename kept stable.
+out_pdf_dir <- panel_plot_dir("panel_M", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+out_png_dir <- panel_plot_dir("panel_M", "png")
+
+pdf_out <- file.path(out_pdf_dir, "panel_M_dual_counterfactual.pdf")
+png_out <- file.path(out_png_dir, "panel_M_dual_counterfactual.png")
+
+ggsave(pdf_out, plot = p_combined, width = 18, height = 15,
+       device = cairo_pdf)
+ggsave(png_out, plot = p_combined, width = 18, height = 15, dpi = 300)
+
+message(sprintf("  Saved PDF: %s  (%.1f KB)",
+                pdf_out, file.info(pdf_out)$size / 1024))
+message(sprintf("  Saved PNG: %s  (%.1f KB)",
+                png_out, file.info(png_out)$size / 1024))
+```
+
+```{r narrative, echo=FALSE}
+fmt_row <- function(r) {
+  sprintf(
+"  %-5s : real %+.4f -> after %+.4f  (mean shift %+.4f | median %+.4f | +ve %d / -ve %d / zero %d / n=%d)",
+    r$channel, r$mean_real, r$mean_cf, r$mean_delta, r$median_delta,
+    r$n_shift_pos, r$n_shift_neg, r$n_unaffected, r$n)
+}
+lines_per_ch <- vapply(seq_len(nrow(shift_summary)),
+                       function(i) fmt_row(shift_summary[i, ]),
+                       character(1))
+
+narrative <- paste(c(
+"PANEL M dual counterfactual: GABA sign-inverter pool BEFORE vs AFTER (mirrors panel C)",
+"======================================================================================",
+"",
+"DESIGN",
+"------",
+"Mirrors the panel C `panel_M_C_dual_channel` layout but reframes it as a",
+"BEFORE / AFTER counterfactual on E/I balance:",
+"  BEFORE : real channel-specific E/I = (exc - inh)/(exc + inh) per mAL_m",
+"           subtype, computed from all cached strongest channel -> mAL_m paths.",
+"  AFTER  : same metric, but the inhibitory contribution from any path whose",
+"           interior contains a GABA sign-inverter (SI) pool member is removed.",
+"           Excitatory contributions are untouched.",
+"x-axis ordering and channel colours are identical to panel C.",
+"",
+sprintf("POOL (%d types): %s", length(gaba_sign_inverter_types),
+        paste(gaba_sign_inverter_types, collapse = ", ")),
+"",
+"PER-CHANNEL SHIFTS (after - before)",
+"-----------------------------------",
+lines_per_ch,
+"",
+"INTERPRETATION",
+"--------------",
+"A positive mean shift in a given channel quantifies the inhibitory path",
+"strength that the GABA sign-inverter pool carries on that channel in the",
+"cached path set: removing paths through the pool shifts E/I by that amount",
+"(more excitatory). Comparing ppk23 vs ppk25 shows which contact-pheromone",
+"stream is most reshaped by the SI pool under this counterfactual.",
+"",
+"CAVEAT: this is an in-silico counterfactual on the cached path set",
+"(counterfactual: zero out inhibitory paths that traverse any pool member),",
+"not an in-vivo knockout; rewiring effects are not modeled.",
+""
+), collapse = "\n")
+
+# Narrative writes redirected to data_dir (NOT pdf_dir)
+writeLines(narrative,
+           file.path(data_dir, "panel_M_dual_counterfactual_narrative.txt"))
+cat(narrative)
+```

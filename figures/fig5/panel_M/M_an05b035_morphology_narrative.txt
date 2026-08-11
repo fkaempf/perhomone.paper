@@ -1,0 +1,32 @@
+PANEL M: AN05B035 morphology with ppk23/ppk25-biased synapses
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Two 2D projections of the AN05B035 skeleton (both hemispheres,
+bodyids 517601, 23513), with input and output synapses plotted as points and
+colour-coded by the ppk23/ppk25 contact-pheromone drive of the partner
+cell type:
+  RED   : partner type is predominantly driven by ppk23 (male cuticular contact)
+  BLUE  : partner type is predominantly driven by ppk25 (female cuticular contact)
+  GREY  : partner type is balanced or has no detectable ppk23/ppk25 drive
+
+METHOD
+------
+Skeleton fetched via `neuprintr::neuprint_read_skeletons` (male-cns:v0.9,
+healed). Synapses fetched via `neuprint_get_synapses`; prepost=1 -> input
+(AN05B035 is postsynaptic), prepost=0 -> output (AN05B035 is presynaptic).
+Each partner bodyid is mapped to its cell type via mba, and each type is
+scored by bias = (drive_ppk23 - drive_ppk25) / (drive_ppk23 + drive_ppk25)
+where drives are total synaptic input from the ppk23 vs ppk25 channel-neuron
+sets defined in channel_neurons (fig5 setup.R). |bias| >= 0.2 classifies a
+partner as male- or female-biased.
+
+INTERPRETATION
+--------------
+This panel lets the reader see *spatially* where AN05B035 reads male- vs
+female-contact information on its dendrite, and where it projects those
+two streams on its axon. Colour clustering of inputs by bias highlights
+whether the ppk23/ppk25 segregation is preserved at the level of synapse
+locations on AN05B035, not just as bulk connectivity statistics.
+

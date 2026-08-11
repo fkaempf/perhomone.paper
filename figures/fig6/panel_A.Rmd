@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 7
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}

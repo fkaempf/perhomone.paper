@@ -1,0 +1,66 @@
+PANEL CE4: GABA sign-inverter pool - per-mAL path-count breakdown (dual-channel)
+=====================================================================
+
+WHAT QUESTION DOES THIS PANEL ANSWER?
+-------------------------------------
+For each male-specific mAL_m subtype, how many ppk23 / ppk25 paths
+go THROUGH a GABA sign-inverter vs BYPASS it, and how strong are those
+paths? Equivalently: what fraction of each mAL's contact-pheromone drive
+is delivered as inhibition (through the SI pool) vs as direct excitation?
+
+HOW TO READ THE FIGURE
+----------------------
+- COLUMNS = the two pheromone channels (ppk23 = male, ppk25 = female).
+- ROWS    = four per-subtype statistics, with a free y-scale per row:
+              1) Number of paths
+              2) Total path strength (summed)
+              3) Mean path strength
+              4) Median path length (hops)
+- COLORS  = the route the path takes:
+              DEEP BLUE (#1F4E79) = path goes THROUGH the GABA SI pool
+                                    (sign-inverted -> inhibitory at mAL)
+              RED       (#C0272D) = path BYPASSES the pool
+                                    (no sign inversion -> excitatory at mAL)
+- X-AXIS  = the 16 mAL_m subtypes, ordered left -> right from most
+            sign-inverted (highest through:bypass ratio) to most directly
+            excitatory.
+
+GABA SIGN-INVERTER POOL
+-----------------------
+11 GABAergic interneuron types (AN05B035 is the most-cited example).
+A path is classified as 'through SI' if any interior node (i.e. excluding
+the ppk source and the terminal mAL_m) belongs to the pool. Otherwise
+the path is classified as 'bypass'.
+
+KEY OBSERVATIONS
+----------------
+1. 0 / 16 subtypes have ZERO paths (pooled ppk23+ppk25) routed through
+   the GABA SI pool and are driven entirely by direct excitatory bypass
+   routes.
+2. 0 / 16 subtypes have ZERO direct excitatory paths (pooled) and
+   receive their drive ONLY through the GABA sign-inverter pool.
+3. Top sign-inverted subtypes (highest through:bypass ratio): mAL_m4, mAL_m5a, mAL_m1.
+4. Top direct-excitatory subtypes (lowest through:bypass ratio): mAL_m11, mAL_m8, mAL_m3b.
+5. Paths that traverse the GABA SI pool carry more hops on average,
+   consistent with an extra disynaptic inhibitory relay.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The GABA sign-inverter pool acts as a circuit-level sign inverter: ppk23
+(male) and ppk25 (female) contact-pheromone signals that would otherwise
+be excitatory are rerouted through GABAergic outputs to become inhibitory
+at a selective subset of mAL_m subtypes. The per-subtype breakdown shows
+that the split is categorical rather than graded - some mAL_m neurons
+are wired predominantly through the inverter layer, others predominantly
+around it - producing the opposing responses quantified in Panel C and
+decomposed in Panel E. The dual-channel layout reveals that ppk23 and
+ppk25 engage the same sign-inverter bottleneck, consistent with a shared
+GABA relay layer serving both male and female contact-pheromone streams.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+This panel is the structural accounting that underpins Panels C and E:
+it counts how much of each mAL's ppk23/ppk25 drive passes through the
+GABA sign-inverter bottleneck, confirming the inverter pool's role as
+the mechanistic switch that creates sex-specific mAL response polarities.
+

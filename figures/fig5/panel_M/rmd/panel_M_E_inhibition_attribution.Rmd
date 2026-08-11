@@ -1,0 +1,229 @@
+---
+title: "[DEPRECATED] Panel M: AN05B035 inhibition attribution on ppk23 AND ppk25"
+output: html_document
+---
+
+> **DEPRECATED -- do not cite as a separate panel.**
+>
+> This figure is a strict 2-category subset (AN05B035 vs "not via AN05B035")
+> of the primary figure `panel_M_inhibitory_sources.Rmd`, which decomposes
+> the same inhibition into four categories (AN05B035 / other GABA relays /
+> mAL lateral / other). The primary figure also contains a matching
+> absolute-strength supplement (`M_an05_share_per_channel.Rmd`).
+>
+> Kept in the repository for historical reproducibility only. Rendering it
+> still works and produces an output with the shared palette and sort order,
+> but it should not be promoted to the manuscript.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+```
+
+```{r attribute-inhibition}
+inh_paths <- mal_paths %>%
+  filter(
+    modality %in% c("ppk23", "ppk25"),
+    end %in% mal_subtypes,
+    valence == "inhibitory"
+  ) %>%
+  mutate(
+    via_an05b035 = grepl("(^|[^A-Za-z0-9])AN05B035([^A-Za-z0-9]|$)", path)
+  )
+
+attrib <- inh_paths %>%
+  mutate(attribution = ifelse(via_an05b035, "via_AN05B035", "other")) %>%
+  group_by(end, modality, attribution) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  complete(end = mal_subtypes,
+           modality = c("ppk23", "ppk25"),
+           attribution = c("via_AN05B035", "other"),
+           fill = list(strength = 0))
+
+totals <- attrib %>%
+  group_by(end, modality) %>%
+  summarise(total_inh = sum(strength), .groups = "drop")
+
+pct_tbl <- attrib %>%
+  filter(attribution == "via_AN05B035") %>%
+  select(end, modality, via = strength) %>%
+  left_join(totals, by = c("end", "modality")) %>%
+  mutate(pct = ifelse(total_inh > 0, 100 * via / total_inh, 0))
+
+pct_wide <- pct_tbl %>%
+  select(end, modality, pct) %>%
+  pivot_wider(names_from = modality, values_from = pct, names_prefix = "pct_") %>%
+  rename(target_type = end)
+
+# Pass 2: use the shared sort order from the primary figure when available
+sort_path <- file.path(fig5_dir, "plots_mspecific", "panel_M",
+                       "panel_M_mal_sort_order.rds")
+if (file.exists(sort_path)) {
+  subtype_order <- readRDS(sort_path)
+  subtype_order <- subtype_order[subtype_order %in% mal_subtypes]
+  subtype_order <- c(subtype_order, setdiff(mal_subtypes, subtype_order))
+  message("  Using shared sort order from panel_M_inhibitory_sources.")
+} else {
+  subtype_order <- attrib %>%
+    filter(attribution == "via_AN05B035") %>%
+    group_by(end) %>%
+    summarise(an_contribution = sum(strength), .groups = "drop") %>%
+    arrange(desc(an_contribution)) %>% pull(end)
+}
+
+attrib <- attrib %>%
+  mutate(
+    target_type = factor(end, levels = subtype_order),
+    attribution = factor(attribution,
+                         levels = c("other", "via_AN05B035"),
+                         labels = c("not via AN05B035",
+                                    "via AN05B035")),
+    modality = factor(modality, levels = c("ppk23", "ppk25"))
+  )
+
+pct_wide <- pct_wide %>%
+  mutate(target_type = factor(target_type, levels = subtype_order)) %>%
+  arrange(target_type)
+```
+
+```{r mean-attribution}
+mean_pct_ppk23 <- mean(pct_wide$pct_ppk23, na.rm = TRUE)
+mean_pct_ppk25 <- mean(pct_wide$pct_ppk25, na.rm = TRUE)
+median_pct_ppk23 <- median(pct_wide$pct_ppk23, na.rm = TRUE)
+median_pct_ppk25 <- median(pct_wide$pct_ppk25, na.rm = TRUE)
+```
+
+```{r stacked-bars, fig.width=12, fig.height=8}
+# Pass 1: shared palette -- AN05B035 uses the canonical deep-blue, "other"
+# uses the grey reserved for the pooled non-AN05B035 complement.
+fill_vals <- c("not via AN05B035" = "grey70",
+               "via AN05B035"     = "#1F4E79")
+
+channel_labeller <- as_labeller(c(
+  "ppk23" = "ppk23 channel (male contact pheromone)",
+  "ppk25" = "ppk25 channel (female contact pheromone)"
+))
+
+p_bars <- ggplot(attrib,
+                 aes(x = target_type, y = strength,
+                     fill = attribution)) +
+  geom_col(position = position_stack(),
+           width = 0.78, color = "grey25", linewidth = 0.15) +
+  facet_wrap(~ modality, ncol = 1, scales = "free_y",
+             strip.position = "right",
+             labeller = channel_labeller) +
+  scale_fill_manual(values = fill_vals, name = "Inhibitory path") +
+  labs(
+    x = NULL,
+    y = "Inhibitory path strength",
+    title = NULL
+  ) +
+  theme_pub(base_size = 12) +
+  theme(
+    legend.position = "top",
+    # Pass 7: larger mAL labels
+    axis.text.x = element_text(angle = 35, hjust = 1, size = rel(1.15),
+                               face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r pct-panel, fig.width=12, fig.height=3}
+pct_long <- pct_wide %>%
+  pivot_longer(cols = starts_with("pct_"),
+               names_to = "modality", values_to = "pct") %>%
+  mutate(
+    modality = sub("^pct_", "", modality),
+    modality = factor(modality, levels = c("ppk23", "ppk25"))
+  )
+
+p_pct <- ggplot(pct_long,
+                aes(x = target_type, y = modality,
+                    fill = pct)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = sprintf("%.0f%%", pct)),
+            size = 3, color = "grey10") +
+  scale_fill_gradient(
+    low = "#F7F7F7", high = "#1F4E79",
+    # Pass 6: explicit 0-100 range
+    limits = c(0, 100),
+    name = "% inh via\nAN05B035"
+  ) +
+  labs(x = "mAL subtype (ordered by AN05B035 share, both channels)",
+       y = NULL) +
+  theme_pub(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 35, hjust = 1,
+                               size = rel(1.15), face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
+```
+
+```{r compose-save, fig.width=12, fig.height=11}
+# Pass 9: removed the redundant main title / subtitle that repeated info
+# now printed inside the stacked bars + tile row themselves. Footer only
+# carries the deprecation notice.
+deprecation_note <- paste0(
+  "DEPRECATED: 2-category subset of panel_M_inhibitory_sources ",
+  "(see that figure for the 4-source decomposition)."
+)
+
+p_final <- p_bars / p_pct +
+  plot_layout(heights = c(3.2, 1)) +
+  plot_annotation(
+    caption = deprecation_note,
+    theme = theme(
+      plot.caption = element_text(size = 9, color = "grey40",
+                                  face = "italic", hjust = 0)
+    )
+  )
+
+print(p_final)
+
+out_pdf_dir <- panel_plot_dir("panel_M", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+out_pdf <- file.path(out_pdf_dir, "panel_M_E_inhibition_attribution.pdf")
+ggsave(out_pdf, plot = p_final, width = 12, height = 11)
+message(sprintf("  Saved: %s", out_pdf))
+
+out_png_dir <- panel_plot_dir("panel_M", "png")
+ggsave(file.path(out_png_dir, "panel_M_E_inhibition_attribution.png"),
+       plot = p_final, width = 12, height = 11, dpi = 300)
+```
+
+```{r narrative, echo=FALSE}
+narrative <- sprintf(
+"[DEPRECATED] PANEL M extension: AN05B035-attributed inhibition on ppk23 AND ppk25
+=================================================================================
+
+This figure is a 2-category subset of the primary panel_M_inhibitory_sources
+figure (AN05B035 vs not-via-AN05B035 only). Retained for reproducibility.
+
+KEY NUMBERS
+-----------
+  Mean %%  AN05B035-attributable inhibition (ppk23):  %.1f %%
+  Mean %%  AN05B035-attributable inhibition (ppk25):  %.1f %%
+  Median %% (ppk23):                                  %.1f %%
+  Median %% (ppk25):                                  %.1f %%
+  Inhibitory paths (ppk23+ppk25, mAL_m targets):      %d
+  Of those via AN05B035:                              %d (%.1f %%)
+",
+mean_pct_ppk23, mean_pct_ppk25,
+median_pct_ppk23, median_pct_ppk25,
+nrow(inh_paths),
+sum(inh_paths$via_an05b035),
+100 * mean(inh_paths$via_an05b035)
+)
+
+narr_dir <- file.path(fig5_dir, "plots_mspecific", "panel_M")
+dir.create(narr_dir, recursive = TRUE, showWarnings = FALSE)
+writeLines(narrative,
+           file.path(narr_dir, "panel_M_E_inhibition_attribution_narrative.txt"))
+cat(narrative)
+```

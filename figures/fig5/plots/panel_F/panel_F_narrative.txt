@@ -19,12 +19,12 @@ Bottom: Difference profiles showing what changes between scenarios:
 
 KEY OBSERVATIONS
 ----------------
-1. 'cVA + female' activates the most subtypes (31); 'Female encounter' the fewest (26).
+1. 'cVA + female (cVA+ppk25)' activates the most subtypes (29); 'Female (ppk25)' the fewest (22).
 
-2. Cosine similarity: female vs cVA+male = 0.977; female vs cVA+female = 0.996;
-   cVA+male vs cVA+female = 0.985.
+2. Cosine similarity: female vs cVA+male = 0.926; female vs cVA+female = 0.986;
+   cVA+male vs cVA+female = 0.940.
 
-3. Subtypes gaining most from ppk25 addition (cVA+female vs cVA+male): mAL_m3c, mAL_m3a, mAL_m2a.
+3. Subtypes gaining most from ppk25 addition (cVA+female vs cVA+male): mAL_m2a, mAL_m2b, mAL_m3b.
 
 BIOLOGICAL INTERPRETATION
 -------------------------

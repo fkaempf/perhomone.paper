@@ -1,0 +1,33 @@
+P1 input-pattern clustering (agent 04)
+========================================
+
+Feature space: each of 45 P1 subtypes characterised by (i) the signed
+input-normalised connection strength from every mAL subtype (22 drivers,
+NT-sign applied: GABA mAL -> negative) and (ii) the sum-over-mAL signed
+sensory drive per channel (DA1, VA1v, VA1d, auditory, visual, ppk23, ppk25)
+derived from mal_activation_matrix x mal_p1_signed. Each block L2-
+row-normalised, concatenated, Euclidean distance, hclust ward.D2.
+Silhouette scan (k=3..7) selected k=3 (avg silhouette 0.440).
+
+Emergent clusters (41 of 45 P1 subtypes retained; 4 had no detectable
+mAL input and are labelled 'no_mAL_input'):
+Cluster 1 (n=9, dominant=mALD3(inh) / visual-inh); Cluster 2 (n=29, dominant=mAL_m8(inh) / ppk23-inh); Cluster 3 (n=3, dominant=mAL_m3b / ppk25-exc)
+
+Cluster-to-behaviour correspondence:
+- P1a instances fall in cluster(s) {}, consistent with the canonical
+  courtship-command profile: strong ppk23/ppk25 contact-pheromone drive
+  routed through disinhibitory mAL relays (prominent GABA mAL_m1/m4/m5
+  drivers with negative input sign).
+- Clusters dominated by DA1/VA1v olfactory drive (via ACh mAL subtypes)
+  are candidates for odour-tuned P1 populations, a role more aligned
+  with upstream pheromone-odour integration than with copulatory motor
+  output, matching the hypothesis that non-P1a P1 cells subserve other
+  courtship stages.
+- A subset of P1 subtypes show a balanced mix of excitatory olfactory
+  and inhibitory contact inputs: these likely act as contextual gate /
+  gain-control neurons rather than dedicated command units.
+
+Overall, P1 subtypes partition into a small number (k=3) of input
+regimes that align reasonably with hypothesised behavioural roles,
+though boundaries are gradient-like rather than categorical.
+

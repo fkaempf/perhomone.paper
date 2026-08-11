@@ -1,0 +1,33 @@
+PANEL M dual counterfactual: GABA sign-inverter pool BEFORE vs AFTER (mirrors panel C)
+======================================================================================
+
+DESIGN
+------
+Mirrors the panel C `panel_M_C_dual_channel` layout but reframes it as a
+BEFORE / AFTER counterfactual on E/I balance:
+  BEFORE : real channel-specific E/I = (exc - inh)/(exc + inh) per mAL_m
+           subtype, computed from all cached strongest channel -> mAL_m paths.
+  AFTER  : same metric, but the inhibitory contribution from any path whose
+           interior contains a GABA sign-inverter (SI) pool member is removed.
+           Excitatory contributions are untouched.
+x-axis ordering and channel colours are identical to panel C.
+
+POOL (11 types): AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b
+
+PER-CHANNEL SHIFTS (after - before)
+-----------------------------------
+  ppk23 : real +0.3142 -> after +0.6138  (mean shift +0.2995 | median +0.2959 | +ve 16 / -ve 0 / zero 0 / n=16)
+  ppk25 : real +0.4240 -> after +0.7049  (mean shift +0.2810 | median +0.2392 | +ve 16 / -ve 0 / zero 0 / n=16)
+
+INTERPRETATION
+--------------
+A positive mean shift in a given channel quantifies the inhibitory path
+strength that the GABA sign-inverter pool carries on that channel in the
+cached path set: removing paths through the pool shifts E/I by that amount
+(more excitatory). Comparing ppk23 vs ppk25 shows which contact-pheromone
+stream is most reshaped by the SI pool under this counterfactual.
+
+CAVEAT: this is an in-silico counterfactual on the cached path set
+(counterfactual: zero out inhibitory paths that traverse any pool member),
+not an in-vivo knockout; rewiring effects are not modeled.
+

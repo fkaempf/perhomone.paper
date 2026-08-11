@@ -1,12 +1,12 @@
 # Render all Figure 6 (Bella's targets) panels
 #
 # PREREQUISITE: Run compute_paths.R first!
-#   source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/compute_paths.R")
+#   source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/compute_paths.R")
 #
 # Then run this:
-#   source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/render_all.R")
+#   source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/render_all.R")
 
-fig6_dir <- "/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets"
+fig6_dir <- "/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets"
 
 panels <- c(paste0("panel_", LETTERS[1:9], ".Rmd"), "panel_J.Rmd", "panel_K.Rmd")
 

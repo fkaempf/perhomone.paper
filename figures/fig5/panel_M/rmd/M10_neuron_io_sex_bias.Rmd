@@ -1,0 +1,162 @@
+---
+title: "Figure 5 CE supp: AN05B035 input/output colored by sex-bias"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(ggplot2); library(dplyr); library(tibble); library(tidyr)
+```
+
+## What this is
+
+A "neuron-centric" visualization. AN05B035 is shown as a single central node.
+Edges on the left = presynaptic partners (input synapses onto AN05B035),
+edges on the right = postsynaptic partners (output synapses from AN05B035).
+
+**Edge color encodes sex-bias:**
+- left edges (inputs): colored by the *presynaptic* partner's own ppk23 - ppk25 bias (red = male-leaning source, blue = female-leaning source, grey = neither / non-pheromonal)
+- right edges (outputs): colored by the *postsynaptic* partner's ppk23 - ppk25 drive balance (red = target that receives more male-contact signal than female, blue = more female than male)
+
+**Edge width** = raw synapse count on that edge.
+
+Goal: show at a glance that AN05B035 collects male-leaning ppk23 signals (mostly red left edges) and redirects them onto male-contact-driven mAL subtypes as INHIBITION (right edges that are red in drive but carry a GABAergic relay so they flip the sign downstream).
+
+```{r build}
+# --- Top-N partners on each side ---
+AN05 <- "AN05B035"
+stopifnot(AN05 %in% rownames(adj.matrix.raw))
+
+N_left  <- 12  # top presynaptic partners by raw synapse count
+N_right <- 16  # keep all male-specific mAL as targets, plus top other
+
+# --- INPUTS to AN05B035 ---
+in_edges <- as.matrix(adj.matrix.raw[, AN05])
+in_edges <- in_edges[in_edges > 0, , drop = FALSE]
+in_df <- tibble(partner = rownames(in_edges), syn = as.numeric(in_edges)) %>%
+  arrange(desc(syn)) %>% slice_head(n = N_left)
+
+# Sex-bias of each input partner: try to derive ppk23 vs ppk25 share of its input
+partner_sex_bias <- function(p) {
+  # Channel-sensillum direct identity:
+  if (p %in% channel_neurons[["ppk23"]]) return(1)    # male
+  if (p %in% channel_neurons[["ppk25"]]) return(-1)   # female
+  # Otherwise, compute ppk23 - ppk25 INPUT share of this partner
+  p_row <- if (p %in% colnames(adj.matrix)) as.matrix(adj.matrix[, p]) else NULL
+  if (is.null(p_row) || sum(p_row) == 0) return(NA_real_)
+  in_from_ppk23 <- sum(p_row[channel_neurons[["ppk23"]][channel_neurons[["ppk23"]] %in% rownames(adj.matrix)], , drop = FALSE])
+  in_from_ppk25 <- sum(p_row[channel_neurons[["ppk25"]][channel_neurons[["ppk25"]] %in% rownames(adj.matrix)], , drop = FALSE])
+  if (in_from_ppk23 + in_from_ppk25 == 0) return(NA_real_)
+  (in_from_ppk23 - in_from_ppk25) / (in_from_ppk23 + in_from_ppk25)
+}
+in_df$sex_bias <- vapply(in_df$partner, partner_sex_bias, numeric(1))
+
+# --- OUTPUTS from AN05B035 ---
+out_edges <- as.matrix(adj.matrix.raw[AN05, ])
+out_edges <- out_edges[out_edges > 0, , drop = FALSE]
+out_df <- tibble(partner = rownames(out_edges), syn = as.numeric(out_edges)) %>%
+  arrange(desc(syn)) %>% slice_head(n = N_right)
+
+# Sex-bias of each target (ppk23 - ppk25 net drive, normalized)
+target_sex_bias <- function(t) {
+  if (!(t %in% rownames(mal_activation_matrix))) return(NA_real_)
+  ppk23_v <- mal_activation_matrix[t, "ppk23"]
+  ppk25_v <- mal_activation_matrix[t, "ppk25"]
+  if (is.na(ppk23_v) || is.na(ppk25_v) || (abs(ppk23_v) + abs(ppk25_v)) == 0) return(NA_real_)
+  (ppk23_v - ppk25_v) / (abs(ppk23_v) + abs(ppk25_v))
+}
+out_df$sex_bias <- vapply(out_df$partner, target_sex_bias, numeric(1))
+
+cat("Inputs (top", N_left, "):\n"); print(in_df)
+cat("\nOutputs (top", N_right, "):\n"); print(out_df)
+```
+
+## Plot
+
+```{r plot, fig.width=12, fig.height=8}
+# Layout: central AN05B035 node at (0, 0); inputs on left at x = -1, outputs on right at x = +1
+n_in  <- nrow(in_df); n_out <- nrow(out_df)
+in_df$x  <- -1
+in_df$y  <- seq(1, -1, length.out = n_in)
+out_df$x <- 1
+out_df$y <- seq(1, -1, length.out = n_out)
+
+# Rescale synapse widths to a visual range
+lwd_in  <- scales::rescale(in_df$syn,  to = c(0.4, 3))
+lwd_out <- scales::rescale(out_df$syn, to = c(0.4, 3))
+
+# Sex-bias color: red (male-lean) to blue (female-lean), grey for NA
+sex_color <- function(b) {
+  # Map [-1,+1] to a diverging scale; NA -> grey70
+  ifelse(is.na(b),
+         "grey70",
+         colorRamp2_safe(b))
+}
+# simple lerp between three stops
+colorRamp2_safe <- function(b) {
+  # clamp
+  b <- pmax(-1, pmin(1, b))
+  if (b >= 0) {
+    # white to red
+    scales::seq_gradient_pal("grey85", "#B2182B")(b)
+  } else {
+    scales::seq_gradient_pal("grey85", "#2166AC")(-b)
+  }
+}
+in_df$color  <- vapply(in_df$sex_bias,  sex_color, character(1))
+out_df$color <- vapply(out_df$sex_bias, sex_color, character(1))
+
+p <- ggplot() +
+  # input edges
+  geom_segment(data = in_df,
+               aes(x = x, y = y, xend = 0, yend = 0),
+               color = in_df$color, linewidth = lwd_in, alpha = 0.85) +
+  # output edges
+  geom_segment(data = out_df,
+               aes(x = 0, y = 0, xend = x, yend = y),
+               color = out_df$color, linewidth = lwd_out, alpha = 0.85) +
+  # central AN05B035 node
+  geom_point(aes(x = 0, y = 0), size = 22, fill = "black", color = "black", shape = 21) +
+  annotate("text", x = 0, y = 0, label = "AN05B035\n(GABA)", color = "white",
+           size = 3.5, fontface = "bold", lineheight = 0.9) +
+  # input/output labels
+  geom_text(data = in_df,  aes(x = x - 0.03, y = y, label = partner),
+            hjust = 1, size = 2.8, color = "grey20") +
+  geom_text(data = in_df,  aes(x = x + 0.04, y = y, label = paste0(syn)),
+            hjust = 0, size = 2.4, color = "grey40", fontface = "italic") +
+  geom_text(data = out_df, aes(x = x + 0.03, y = y, label = partner),
+            hjust = 0, size = 2.8, color = "grey20") +
+  geom_text(data = out_df, aes(x = x - 0.04, y = y, label = paste0(syn)),
+            hjust = 1, size = 2.4, color = "grey40", fontface = "italic") +
+  # side labels
+  annotate("text", x = -1, y = 1.2, label = "INPUTS\n(presynaptic partners)",
+           fontface = "bold", size = 4, color = "grey25", lineheight = 0.9) +
+  annotate("text", x =  1, y = 1.2, label = "OUTPUTS\n(mAL targets)",
+           fontface = "bold", size = 4, color = "grey25", lineheight = 0.9) +
+  # continuous color legend proxy: draw two reference bars
+  annotate("segment", x = -1.35, xend = -1.35, y = -1.0, yend = -0.7,
+           color = "#2166AC", linewidth = 3) +
+  annotate("segment", x = -1.35, xend = -1.35, y = -0.7, yend = -0.4,
+           color = "grey85", linewidth = 3) +
+  annotate("segment", x = -1.35, xend = -1.35, y = -0.4, yend = -0.1,
+           color = "#B2182B", linewidth = 3) +
+  annotate("text", x = -1.42, y = -1.0, label = "more\nfemale",
+           hjust = 1, size = 2.8, color = "#2166AC", lineheight = 0.9) +
+  annotate("text", x = -1.42, y = -0.55, label = "balanced",
+           hjust = 1, size = 2.8, color = "grey40") +
+  annotate("text", x = -1.42, y = -0.1, label = "more\nmale",
+           hjust = 1, size = 2.8, color = "#B2182B", lineheight = 0.9) +
+  scale_x_continuous(limits = c(-1.9, 1.4), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-1.3, 1.35), expand = c(0, 0)) +
+  coord_fixed(ratio = 1, clip = "off") +
+  labs(title = "AN05B035: sign-inverting GABAergic relay",
+       subtitle = "Left edges colored by presynaptic partner's sex-bias; right edges by mAL target's ppk23 - ppk25 drive. Line width = raw synapse count.") +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey30"),
+        plot.margin = margin(10, 10, 10, 10))
+
+save_fig5_plot(p, "panel_M_neuron_io_sex_bias", width = 12, height = 8, subdir = NULL)
+print(p)
+```

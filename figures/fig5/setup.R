@@ -52,6 +52,7 @@ library(igraph)
 library(coconatfly)
 library(fafbseg)
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(neuprintr)
 
 library(Matrix)
@@ -85,7 +86,7 @@ source(file.path(project_root, "R", "visualization.R"))
 source(file.path(project_root, "R", "neuroglancer.R"))
 
 # -- Neuprint login --------------------------------------------------------
-neuprint_login(server = "https://neuprint-cns.janelia.org", dataset = "male-cns:v0.9")
+neuprint_login(server = "https://neuprint-cns.janelia.org", dataset = "male-cns:v1.0")
 choose_mcns()
 
 # -- Load core data --------------------------------------------------------
@@ -159,12 +160,12 @@ message(sprintf("  mAL types discovered: %d (%d male-specific, %d shared)",
 # -- Discover ALL P1 types from connectome -----------------------------------
 # Search both mba and conn to catch all P1-prefixed types
 p1_from_mba <- mba %>%
-  filter(grepl("^P1", type)) %>%
+  filter(grepl("^pC1", type)) %>%
   pull(type) %>% unique()
 
 p1_from_conn <- unique(c(
-  conn$pre_type[grepl("^P1", conn$pre_type)],
-  conn$post_type[grepl("^P1", conn$post_type)]
+  conn$pre_type[grepl("^pC1", conn$pre_type)],
+  conn$post_type[grepl("^pC1", conn$post_type)]
 ))
 
 p1_subtypes <- sort(unique(c(p1_from_mba, p1_from_conn)))

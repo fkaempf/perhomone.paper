@@ -13,7 +13,7 @@ KEY OBSERVATIONS
 1. Path-based mAL: of 37 subtypes, 22 receive detectable ppk input.
    Selectivity: 7 ppk23-biased, 12 ppk25-biased, 18 balanced, 0 none.
 
-2. Signal flow mAL: 31 / 37 subtypes show detectable ppk drive.
+2. Signal flow mAL: 30 / 37 subtypes show detectable ppk drive.
    Models largely agree on which subtypes are ppk-responsive.
 
 3. Signal flow P1: 45 / 45 P1 subtypes receive detectable ppk drive.

@@ -1,0 +1,36 @@
+PANEL CE1: AN05B035 as the GABAergic sign-inverter in the ppk23 -> mAL pathway
+==============================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Horizontal stacked bars (one per male-specific mAL_m subtype) partitioning
+total ppk23 -> mAL path strength into two routes:
+  BLUE  : paths whose intermediate nodes contain AN05B035 (GABAergic relay)
+  RED   : all other paths (direct, or via AN09B017 a-e / other excitatory relays)
+Bars are normalized to 100% and rows sorted by AN05B035 fraction (top = highest).
+
+METHOD
+------
+For each ppk23 -> mAL_m path (K=50 strongest paths per channel, loaded via
+mal_paths / setup_mspecific.R), we check whether 'AN05B035' appears anywhere
+in the path string. Path strength is summed separately for each route per mAL.
+
+KEY OBSERVATIONS
+----------------
+- 0 / 16 mAL_m subtypes are AN05B035-dominant (inh route >= 50%):
+    
+- 9 / 16 mAL_m subtypes are AN09B017-dominant (inh route <= 10%):
+    mAL_m3c, mAL_m4, mAL_m3a, mAL_m11, mAL_m5c
+- 7 mAL_m subtypes show mixed routing.
+
+INTERPRETATION
+--------------
+Panel C showed that ppk23 produces net-negative drive at a specific subset of
+mAL_m subtypes. This panel mechanistically pins that sign reversal on a single
+ascending neuron: AN05B035. mALs that sit in the AN05B035-dominant group inherit
+ppk23 signals almost entirely through the GABAergic relay, accounting for their
+negative ppk23 response in panel C. mALs in the AN09B017-dominant group receive
+ppk23 through the parallel excitatory relay, matching their positive ppk23
+response. This bar chart is therefore the mechanistic bridge between panel C
+(sign-reversal outcome) and panel E (E/I decomposition).
+

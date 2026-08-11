@@ -153,7 +153,7 @@ if (file.exists(ppn1_rds) && file.exists(vab3_rds)) {
 mal_all_types <- sort(all_types[grepl("^mAL", all_types)])
 targets$mAL_all <- mal_all_types
 # Add P1_all target group: all P1 types in the adjacency matrix
-p1_all_types <- sort(all_types[grepl("^P1", all_types)])
+p1_all_types <- sort(all_types[grepl("^pC1", all_types)])
 targets$P1_all <- p1_all_types
 message(sprintf("  mAL_all: %d types", length(mal_all_types)))
 message(sprintf("  P1_all: %d types", length(p1_all_types)))

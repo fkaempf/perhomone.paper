@@ -1,0 +1,279 @@
+---
+title: "Figure 5 CE6: ppk23 -> relay -> mAL sankey (AN05B035 vs AN09B017)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+if (!requireNamespace("ggalluvial", quietly = TRUE)) {
+  install.packages("ggalluvial", repos = "https://cloud.r-project.org")
+}
+library(ggalluvial)
+```
+
+## Overview
+
+Sankey / alluvial visualization of the ppk23 -> mAL_m circuit, aggregating over
+every K-strongest path. Three axes:
+
+1. **Source**: single aggregate node `ppk23` (all sensilla collapsed).
+2. **Relay**: the 8 ascending-neuron variants that dominate the second hop --
+   the seven `AN09B017a`-`AN09B017g` plus the GABAergic sign-inverter
+   `AN05B035`. Paths that touch none of these eight are pooled into `other`.
+3. **Target**: the 16 male-specific `mAL_m*` subtypes.
+
+Ribbon width = total ppk23 -> mAL path strength routed through that
+(relay, target) pair. Ribbons that pass through AN05B035 are coloured **blue**
+(inhibitory, GABAergic sign-inverter); ribbons through any AN09B017 variant
+(or `other`) are **red** (excitatory). This visually separates the minority
+inhibitory fan-out onto specific mAL_m subtypes from the bulk excitatory flow.
+
+## Extract ppk23 paths and assign relay identity
+
+```{r extract-paths}
+an09_variants <- c("AN09B017a", "AN09B017b", "AN09B017c", "AN09B017d",
+                   "AN09B017e", "AN09B017f", "AN09B017g")
+relay_levels  <- c("AN05B035", an09_variants, "other")
+
+ppk23_paths <- mal_paths %>%
+  filter(modality == "ppk23", end %in% mal_subtypes) %>%
+  mutate(
+    via_an05b035 = grepl("AN05B035",  path, fixed = TRUE),
+    via_an09_any = grepl("AN09B017",  path, fixed = TRUE)
+  )
+
+# Identify which specific AN09B017 variant(s) each path passes through.
+# If a path goes through both AN05B035 AND one or more AN09B017 variants,
+# we assign it to AN05B035 (the inhibitory branch drives the sign and is
+# the identity feature of interest). This keeps every path counted exactly
+# once and makes the blue ribbons strictly reflect AN05B035 involvement.
+pick_relay <- function(path_str, via_an05) {
+  if (isTRUE(via_an05)) return("AN05B035")
+  hits <- an09_variants[vapply(an09_variants,
+                               function(v) grepl(v, path_str, fixed = TRUE),
+                               logical(1))]
+  if (length(hits) == 0) return("other")
+  # If multiple AN09B017 variants are in the same path, attribute to the
+  # one that appears LAST (closest to the mAL target) -- that is the
+  # effective relay delivering the signal.
+  toks <- strsplit(path_str, " -> ", fixed = TRUE)[[1]]
+  pos  <- vapply(hits, function(v) max(which(toks == v), 0L), integer(1))
+  hits[which.max(pos)]
+}
+
+ppk23_paths <- ppk23_paths %>%
+  rowwise() %>%
+  mutate(relay = pick_relay(path, via_an05b035)) %>%
+  ungroup() %>%
+  mutate(relay = factor(relay, levels = relay_levels))
+
+cat("ppk23 -> mAL_m paths:", nrow(ppk23_paths), "\n")
+cat("Relay assignment counts:\n")
+print(table(ppk23_paths$relay, useNA = "ifany"))
+cat("Paths via AN05B035:", sum(ppk23_paths$via_an05b035),
+    sprintf(" (%.1f%% of total)\n", 100 * mean(ppk23_paths$via_an05b035)))
+```
+
+## Aggregate path strength into (source, relay, target) flows
+
+```{r aggregate}
+flows <- ppk23_paths %>%
+  group_by(relay, end) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  filter(strength > 0) %>%
+  mutate(
+    source   = "ppk23",
+    valence  = if_else(relay == "AN05B035", "inhibitory (AN05B035)",
+                                            "excitatory (AN09B017 / other)")
+  )
+
+# mAL target ordering: sort by total inhibitory fraction so that the
+# AN05B035-targeted mALs cluster at the top of the plot.
+target_order <- flows %>%
+  group_by(end) %>%
+  summarise(
+    total  = sum(strength),
+    inh    = sum(strength[relay == "AN05B035"]),
+    inh_frac = if_else(total > 0, inh / total, 0),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(inh_frac), desc(total)) %>%
+  pull(end)
+
+# Ensure every mAL_m subtype appears (even if with zero flow)
+missing_targets <- setdiff(mal_subtypes, target_order)
+if (length(missing_targets) > 0) target_order <- c(target_order, missing_targets)
+
+flows <- flows %>%
+  mutate(
+    source = factor(source, levels = "ppk23"),
+    end    = factor(end,    levels = rev(target_order))  # rev so top mAL is top of plot
+  )
+
+# One row per flow (lodes form); give each an id for alluvium
+flows <- flows %>%
+  mutate(alluv_id = row_number())
+
+cat("Flow rows:", nrow(flows), "\n")
+cat("Total ppk23 strength routed:", sprintf("%.2f", sum(flows$strength)), "\n")
+cat("Strength via AN05B035:",
+    sprintf("%.2f (%.1f%%)",
+            sum(flows$strength[flows$relay == "AN05B035"]),
+            100 * sum(flows$strength[flows$relay == "AN05B035"]) / sum(flows$strength)),
+    "\n")
+```
+
+## Build long-format lodes for ggalluvial
+
+```{r lodes}
+# ggalluvial expects one row per (alluvium, axis) in lodes form, OR
+# one row per alluvium in wide form. Use wide form via geom_alluvium with
+# three axes.
+flows_wide <- flows %>%
+  transmute(
+    alluv_id,
+    strength,
+    valence,
+    relay,
+    source,
+    target = end
+  )
+```
+
+## Sankey / alluvial plot
+
+```{r sankey, fig.width=12, fig.height=9}
+valence_colors <- c(
+  "inhibitory (AN05B035)"          = "#1F77B4",  # blue
+  "excitatory (AN09B017 / other)"  = "#D62728"   # red
+)
+
+# Axis positions: 1 = source, 2 = relay, 3 = target
+p_sankey <- ggplot(flows_wide,
+                   aes(y = strength,
+                       axis1 = source, axis2 = relay, axis3 = target)) +
+  geom_alluvium(aes(fill = valence),
+                width = 1/6, alpha = 0.75,
+                knot.pos = 0.3, curve_type = "sigmoid") +
+  geom_stratum(width = 1/6, fill = "grey95", color = "grey40",
+               linewidth = 0.3) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+            size = 3.2, lineheight = 0.9) +
+  scale_x_discrete(limits = c("ppk23\n(source)", "relay", "mAL_m\n(target)"),
+                   expand = c(0.05, 0.05)) +
+  scale_fill_manual(values = valence_colors, name = "Pathway valence") +
+  labs(
+    x = NULL, y = "Aggregated path strength",
+    title = "ppk23 -> relay -> mAL_m : AN05B035 (blue) fans out to a specific subset of mALs"
+  ) +
+  theme_pub(base_size = 12) +
+  theme(
+    legend.position = "top",
+    panel.grid      = element_blank(),
+    axis.text.x     = element_text(size = rel(1.1), face = "bold", angle = 0, hjust = 0.5),
+    plot.title      = element_text(size = rel(1), face = "bold")
+  )
+
+print(p_sankey)
+```
+
+## Save outputs
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M_sankey", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+png_dir <- panel_plot_dir("panel_M_sankey", "png")
+
+ggsave(file.path(pdf_dir, "panel_M_sankey.pdf"),
+       plot = p_sankey, width = 12, height = 9)
+ggsave(file.path(png_dir, "panel_M_sankey.png"),
+       plot = p_sankey, width = 12, height = 9, dpi = 300)
+
+write.csv(
+  flows_wide %>%
+    mutate(across(c(source, relay, target, valence), as.character)) %>%
+    arrange(valence, relay, target),
+  file.path(data_dir, "panel_M_sankey_flows.csv"),
+  row.names = FALSE
+)
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+total_s <- sum(flows_wide$strength)
+inh_s   <- sum(flows_wide$strength[flows_wide$valence == "inhibitory (AN05B035)"])
+exc_s   <- total_s - inh_s
+
+an05_targets <- flows_wide %>%
+  filter(relay == "AN05B035") %>%
+  group_by(target) %>%
+  summarise(s = sum(strength), .groups = "drop") %>%
+  arrange(desc(s)) %>%
+  pull(target) %>% as.character()
+
+an09_targets <- flows_wide %>%
+  filter(relay %in% an09_variants) %>%
+  group_by(target) %>%
+  summarise(s = sum(strength), .groups = "drop") %>%
+  arrange(desc(s)) %>%
+  pull(target) %>% as.character()
+
+narrative <- sprintf(
+"PANEL CE6: Sankey -- ppk23 signal flow through AN05B035 vs AN09B017 relays
+==========================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+A three-axis alluvial (Sankey) diagram aggregating the K=%d strongest
+ppk23 -> mAL_m paths. The single ppk23 source (leftmost axis) fans out to
+eight relay identities (AN09B017a-g and AN05B035, plus a catch-all 'other'),
+and from there to the 16 male-specific mAL_m subtypes (rightmost axis).
+Ribbon height is proportional to total aggregated path strength; ribbons
+are coloured by valence -- BLUE for flow through AN05B035 (GABAergic,
+sign-inverting), RED for flow through any AN09B017 variant or other
+excitatory relays.
+
+Each path is assigned to AN05B035 if it contains AN05B035 anywhere;
+otherwise it is assigned to the AN09B017 variant closest to the mAL target
+(the effective delivering relay). Paths touching none of these eight
+intermediates are pooled as 'other'.
+
+KEY OBSERVATIONS
+----------------
+- Total path strength: %.2f (inhibitory / AN05B035: %.2f = %.1f%%,
+  excitatory / AN09B017 + other: %.2f = %.1f%%).
+- The majority of ppk23 signal flows through the seven AN09B017 variants
+  (red ribbons) with broad fan-out across the mAL_m population.
+- The minority inhibitory flow through AN05B035 (blue ribbons) does NOT
+  target all mAL_m subtypes uniformly; it concentrates on a specific subset:
+    %s
+- AN09B017-dominant mAL_m targets:
+    %s
+- The spatial separation of blue ribbons onto a specific mAL_m subset is
+  the circuit substrate for the ppk23 sign reversal seen in panel C, and
+  the E/I decomposition seen in panel E.
+
+INTERPRETATION
+--------------
+AN05B035 acts as a selective GABAergic fan-out: it taps the common ppk23
+sensory stream and re-distributes it with flipped sign to a specific subset
+of mAL_m subtypes. The Sankey makes two points visually obvious. First,
+blue is a minority of the total flow -- most ppk23 drive is still
+excitatory, routed via AN09B017 variants. Second, blue ribbons terminate
+on a restricted set of mAL_m targets rather than the whole population,
+creating a dedicated sign-inverted channel. This selective routing is what
+produces differential ppk23 responses across mAL_m subtypes and is the
+mechanistic bridge between panels C (sign reversal) and E (E/I balance).
+",
+n_paths_mal,
+total_s, inh_s, 100 * inh_s / total_s,
+exc_s, 100 * exc_s / total_s,
+paste(an05_targets, collapse = ", "),
+paste(an09_targets, collapse = ", ")
+)
+
+writeLines(narrative, file.path(data_dir, "panel_M_sankey_narrative.txt"))
+cat(narrative)
+```

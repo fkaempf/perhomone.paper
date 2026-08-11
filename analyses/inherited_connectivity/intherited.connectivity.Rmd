@@ -6,6 +6,7 @@ output: html_document
 ```{r}
 #Imports
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(coconatfly)
 library(fafbseg)
 library(neuprintr)
@@ -25,8 +26,8 @@ library(Matrix)
 library(RCy3)
 library(dplyr)
 
-#conna = neuprint_login(dataset='male-cns:v0.9',server='https://neuprint-cns.janelia.org/')
-#mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.9')
+#conna = neuprint_login(dataset='male-cns:v1.0',server='https://neuprint-cns.janelia.org/')
+#mcns.rois = neuprint_ROIs(dataset = 'male-cns:v1.0')
 #neuprint_get_synapses(13693,roi='VNC')
 ```
 
@@ -48,7 +49,7 @@ knitr::opts_chunk$set(
 ### 1.1 Load male boday annotations
 ```{r}
 
-snapshot=neuprintr::neuprint_login(server='https://neuprint-cns.janelia.org/', dataset="male-cns:v0.9")
+snapshot=neuprintr::neuprint_login(server='https://neuprint-cns.janelia.org/', dataset="male-cns:v1.0")
 
 synapse_threshold=5
 mba<-mcns_body_annotations()

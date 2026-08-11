@@ -1,0 +1,7 @@
+Panel F: Path Diversity — Measures how concentrated or distributed the strongest paths are per modality. For each (target, modality) pair, computes the number of paths needed to accumulate 80%% of total strength. Dot plots and bar charts compare path diversity across modalities and between excitatory/inhibitory valence classes.
+
+______________________________
+
+Figure legend:
+
+(F) Path diversity per modality. The number of paths required to accumulate 80%% of total strength measures how concentrated or distributed signal routing is. Dot plots show per-neuron values with median overlay; bar charts summarize means with standard errors. Faceted views split by excitatory and inhibitory valence.

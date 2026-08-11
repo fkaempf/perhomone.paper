@@ -1,0 +1,43 @@
+PANEL M: SI-traversing path contribution vs other paths
+========================================================
+
+DESIGN
+------
+For each (channel, mAL_m) pair, paths in mal_paths (top-50 strongest
+from ORN -> mAL_m per pair) are partitioned by whether any interior
+node is a GABA sign-inverter pool member. Stacked bars show the
+partitioned total strength; the SI fraction is (SI-traversing
+strength) / (total strength).
+
+POOL (n=11): AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a/b.
+
+CHANNEL-LEVEL SI FRACTION
+-------------------------
+ppk23: 22.1% of total drive routes via the SI pool (raw strength 0.351)
+ppk25: 19.5% of total drive routes via the SI pool (raw strength 0.273)
+
+TOP 5 mAL_m SUBTYPES BY SI FRACTION
+-----------------------------------
+  mAL_m1        ppk25   SI=0.037 / total=0.125  (29.4%)
+  mAL_m10       ppk23   SI=0.005 / total=0.018  (29.1%)
+  mAL_m1        ppk23   SI=0.048 / total=0.166  (28.8%)
+  mAL_m2b       ppk23   SI=0.022 / total=0.078  (28.7%)
+  mAL_m5a       ppk25   SI=0.043 / total=0.153  (28.4%)
+
+BOTTOM 5 mAL_m SUBTYPES BY SI FRACTION
+--------------------------------------
+  mAL_m3b       ppk25   SI=0.005 / total=0.075  (7.1%)
+  mAL_m3a       ppk25   SI=0.012 / total=0.111  (10.8%)
+  mAL_m3c       ppk25   SI=0.017 / total=0.147  (11.6%)
+  mAL_m3b       ppk23   SI=0.008 / total=0.063  (12.7%)
+  mAL_m11       ppk23   SI=0.004 / total=0.030  (14.1%)
+
+INTERPRETATION
+--------------
+A stacked bar heavily blue means the mAL_m subtype gets most of its
+channel drive through the SI pool; a mostly-grey bar means SI pool
+routing is a minor slice. This complements
+panel_M_inhibitory_sources (which restricts to inhibitory paths and
+decomposes SI vs mAL-lateral vs other) by instead partitioning
+TOTAL drive (excitatory + inhibitory) into SI-traversing vs not.
+

@@ -1,0 +1,11 @@
+[DEPRECATED] PANEL CE1: AN05B035 as the GABAergic sign-inverter in ppk23 -> mAL
+================================================================================
+
+2-category, ppk23-only view. Superseded by panel_M_inhibitory_sources which
+shows the full 4-source decomposition on BOTH ppk23 and ppk25.
+
+Group counts (retained for reference):
+  AN05B035-dominant (fraction >= 50%):  0 / 16
+  non-AN05B035-dominant (<= 10%):        9 / 16
+  mixed:                                 7
+

@@ -1,0 +1,399 @@
+---
+title: "Figure 5 CE3: GABA sign-inverter layer - 3-layer bipartite network"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+```
+
+```{r paths}
+plot_name <- "panel_M_bipartite_network"
+pdf_dir   <- panel_plot_dir(plot_name, "pdf")
+png_dir   <- panel_plot_dir(plot_name, "png")
+```
+
+## Goal
+
+Show the **GABA sign-inverter layer** as a distributed inhibitory relay
+with a 3-layer bipartite network:
+
+- **Top layer**: ppk23 AND ppk25 sensory neuron types, stacked as two
+  rows (ppk23 above, ppk25 below) that feed into a shared middle SI
+  layer. Source rows are color-coded by channel.
+- **Middle layer**: individual GABAergic sign-inverter (SI) types drawn
+  from the `gaba_sign_inverter_types` pool (all AN05B/IN05* GABA cells
+  that appear as interior relays on ppk -> mAL_m inhibitory paths). The
+  lowest-throughput SIs may be collapsed into "other GABA SIs" to keep
+  the layout legible.
+- **Bottom layer**: the male-specific mAL_m subtypes.
+
+Edge thickness is proportional to raw synapse count (`adj.matrix.raw`).
+All GABA-SI-incident edges are drawn in deep blue; any non-SI excitatory
+relay edges (shown as a faint grey reference layer) are included only
+when they help place ppk23 inputs that feed the SIs; the focus is the
+GABA sign-inverter layer itself.
+
+## Build edge list from raw synapse counts
+
+```{r edges}
+ppk23_srcs <- channel_neurons[["ppk23"]]
+ppk25_srcs <- channel_neurons[["ppk25"]]
+
+# GABA sign-inverter pool (from setup_mspecific.R)
+gaba_si_pool <- gaba_sign_inverter_types
+
+# mal_subtypes is already filtered to mAL_m* after setup_mspecific.R
+mal_m_subtypes_used <- mal_subtypes
+
+raw_rows <- rownames(adj.matrix.raw)
+raw_cols <- colnames(adj.matrix.raw)
+
+# ppk23 + ppk25 sources -> GABA SIs (layer 1 -> 2)
+src_rows_23 <- intersect(ppk23_srcs, raw_rows)
+src_rows_25 <- intersect(ppk25_srcs, raw_rows)
+si_cols     <- intersect(gaba_si_pool, raw_cols)
+
+e_top_23 <- expand.grid(from = src_rows_23, to = si_cols,
+                        stringsAsFactors = FALSE) %>%
+  mutate(weight = mapply(function(a, b) adj.matrix.raw[a, b],
+                         from, to),
+         src_channel = "ppk23") %>%
+  filter(is.finite(weight) & weight > 0)
+
+e_top_25 <- expand.grid(from = src_rows_25, to = si_cols,
+                        stringsAsFactors = FALSE) %>%
+  mutate(weight = mapply(function(a, b) adj.matrix.raw[a, b],
+                         from, to),
+         src_channel = "ppk25") %>%
+  filter(is.finite(weight) & weight > 0)
+
+e_top <- bind_rows(e_top_23, e_top_25)
+
+# GABA SIs -> mAL_m subtypes (layer 2 -> 3)
+si_rows   <- intersect(gaba_si_pool, raw_rows)
+mal_cols  <- intersect(mal_m_subtypes_used, raw_cols)
+
+e_bot <- expand.grid(from = si_rows, to = mal_cols,
+                     stringsAsFactors = FALSE) %>%
+  mutate(weight = mapply(function(a, b) adj.matrix.raw[a, b],
+                         from, to)) %>%
+  filter(is.finite(weight) & weight > 0)
+
+# Inter-SI connections (cross-talk within the GABA SI layer)
+e_inter <- expand.grid(from = si_rows, to = si_cols,
+                       stringsAsFactors = FALSE) %>%
+  filter(from != to) %>%
+  mutate(weight = mapply(function(a, b) adj.matrix.raw[a, b],
+                         from, to)) %>%
+  filter(is.finite(weight) & weight > 0)
+
+cat("n edges ppk23 -> GABA SIs:", nrow(e_top_23), "\n")
+cat("n edges ppk25 -> GABA SIs:", nrow(e_top_25), "\n")
+cat("n edges GABA SIs -> mAL_m:", nrow(e_bot), "\n")
+cat("n edges SI <-> SI (inter-layer):", nrow(e_inter), "\n")
+
+# Throughput per SI (inflow + outflow, used for sizing + collapsing)
+si_throughput <- data.frame(
+  name = gaba_si_pool,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    in_w  = vapply(name, function(x) sum(e_top$weight[e_top$to  == x]),
+                   numeric(1)),
+    out_w = vapply(name, function(x) sum(e_bot$weight[e_bot$from == x]),
+                   numeric(1)),
+    total = in_w + out_w
+  ) %>%
+  arrange(desc(total))
+
+cat("\nSI throughput (ppk23 in + mAL_m out, raw synapse counts):\n")
+print(si_throughput)
+
+# Collapse lowest-throughput SIs if the layer has > 8 nodes: keep the
+# top 7 individually and bin the rest.
+N_KEEP <- 7L
+collapse_rule <- nrow(si_throughput) > 8
+if (collapse_rule) {
+  keep_si <- si_throughput$name[seq_len(min(N_KEEP, nrow(si_throughput)))]
+} else {
+  keep_si <- si_throughput$name
+}
+binned_si <- setdiff(si_throughput$name, keep_si)
+cat("\nKeeping as individual middle nodes:",
+    paste(keep_si, collapse = ", "), "\n")
+if (length(binned_si) > 0) {
+  cat("Collapsed into 'other GABA SIs':",
+      paste(binned_si, collapse = ", "), "\n")
+}
+
+collapse_name <- "other GABA SIs"
+collapse_map <- function(x) {
+  ifelse(x %in% keep_si, x,
+         ifelse(x %in% binned_si, collapse_name, x))
+}
+
+e_top <- e_top %>%
+  mutate(to = collapse_map(to)) %>%
+  group_by(from, to, src_channel) %>%
+  summarise(weight = sum(weight), .groups = "drop")
+
+e_bot <- e_bot %>%
+  mutate(from = collapse_map(from)) %>%
+  group_by(from, to) %>% summarise(weight = sum(weight), .groups = "drop")
+
+e_inter <- e_inter %>%
+  mutate(from = collapse_map(from), to = collapse_map(to)) %>%
+  filter(from != to) %>%
+  group_by(from, to) %>% summarise(weight = sum(weight), .groups = "drop")
+
+# Final middle-layer node order: keep_si in descending throughput, then
+# collapse bin on the right.
+mid_order <- c(keep_si,
+               if (length(binned_si) > 0) collapse_name else character(0))
+
+# Per-node total throughput (for sizing)
+node_throughput <- data.frame(name = mid_order, stringsAsFactors = FALSE) %>%
+  mutate(
+    in_w  = vapply(name, function(x) sum(e_top$weight[e_top$to  == x]),
+                   numeric(1)),
+    out_w = vapply(name, function(x) sum(e_bot$weight[e_bot$from == x]),
+                   numeric(1)),
+    total = in_w + out_w
+  )
+cat("\nMiddle-layer nodes (throughput):\n"); print(node_throughput)
+```
+
+## Node positions (hand-placed, 3 horizontal layers)
+
+```{r positions}
+even_x <- function(labels, xmin = 0, xmax = 1) {
+  n <- length(labels)
+  if (n == 1) return(setNames((xmin + xmax) / 2, labels))
+  setNames(seq(xmin, xmax, length.out = n), labels)
+}
+
+# Wider horizontal spread for all layers to reduce edge-crowding
+# Stacked top layer: ppk23 on the upper row, ppk25 just below it.
+top_x_23 <- even_x(ppk23_srcs, 0.04, 0.96)
+top_x_25 <- even_x(ppk25_srcs, 0.04, 0.96)
+mid_x    <- even_x(mid_order,  0.06, 0.94)
+bot_x    <- even_x(mal_m_subtypes_used, 0.00, 1.00)
+
+Y_PPK23 <- 3.6
+Y_PPK25 <- 2.9
+Y_SI    <- 2.0
+Y_MAL   <- 0.8
+
+# Size the middle-layer nodes by total throughput
+size_scale <- scales::rescale(node_throughput$total, to = c(9, 18))
+names(size_scale) <- node_throughput$name
+
+nodes <- bind_rows(
+  data.frame(name = ppk23_srcs,          layer = "ppk23",
+             x = top_x_23[ppk23_srcs],   y = Y_PPK23,
+             size_pt = 7,
+             stringsAsFactors = FALSE),
+  data.frame(name = ppk25_srcs,          layer = "ppk25",
+             x = top_x_25[ppk25_srcs],   y = Y_PPK25,
+             size_pt = 7,
+             stringsAsFactors = FALSE),
+  data.frame(name = mid_order,           layer = "GABA_SI",
+             x = mid_x[mid_order],       y = Y_SI,
+             size_pt = unname(size_scale[mid_order]),
+             stringsAsFactors = FALSE),
+  data.frame(name = mal_m_subtypes_used, layer = "mAL_m",
+             x = bot_x[mal_m_subtypes_used], y = Y_MAL,
+             size_pt = 7,
+             stringsAsFactors = FALSE)
+)
+
+# Note: if a name appears in both ppk23 and ppk25 (unlikely but possible),
+# node rows will duplicate. Join for edges uses per-channel y below.
+
+attach_xy <- function(edges, nodes) {
+  edges %>%
+    left_join(nodes %>% select(name, x, y) %>%
+                distinct(name, .keep_all = TRUE) %>%
+                rename(x_from = x, y_from = y),
+              by = c("from" = "name")) %>%
+    left_join(nodes %>% select(name, x, y) %>%
+                distinct(name, .keep_all = TRUE) %>%
+                rename(x_to = x, y_to = y),
+              by = c("to" = "name"))
+}
+
+# Top edges: resolve source coords per channel (ppk23 row vs ppk25 row).
+top_nodes_23 <- nodes %>% filter(layer == "ppk23") %>%
+  select(name, x_from = x, y_from = y) %>% mutate(src_channel = "ppk23")
+top_nodes_25 <- nodes %>% filter(layer == "ppk25") %>%
+  select(name, x_from = x, y_from = y) %>% mutate(src_channel = "ppk25")
+top_src_lookup <- bind_rows(top_nodes_23, top_nodes_25)
+
+mid_lookup <- nodes %>% filter(layer == "GABA_SI") %>%
+  select(name, x_to = x, y_to = y)
+
+e_top_xy <- e_top %>%
+  left_join(top_src_lookup, by = c("from" = "name", "src_channel")) %>%
+  left_join(mid_lookup,     by = c("to"   = "name")) %>%
+  mutate(edge_kind = ifelse(src_channel == "ppk23",
+                            "ppk23_to_GABA_SI",
+                            "ppk25_to_GABA_SI"))
+
+e_bot_xy <- attach_xy(e_bot, nodes) %>%
+  mutate(edge_kind = "GABA_SI_out",
+         src_channel = NA_character_)
+e_inter_xy <- attach_xy(e_inter, nodes) %>%
+  mutate(edge_kind = "GABA_SI_inter",
+         src_channel = NA_character_,
+         # offset slightly so mid-row curves are visible
+         y_from = Y_SI + 0.05,
+         y_to   = Y_SI - 0.05)
+
+edges_all <- bind_rows(e_top_xy, e_bot_xy, e_inter_xy) %>%
+  filter(!is.na(x_from), !is.na(x_to))
+```
+
+## Colors
+
+```{r colors}
+edge_colors <- c(
+  "ppk23_to_GABA_SI" = unname(panel_M_palette["ppk23"]),   # ppk23 -> SI
+  "ppk25_to_GABA_SI" = "#2BA89F",  # ppk25 -> SI (teal)
+  "GABA_SI_out"      = unname(panel_M_palette["gaba_si"]), # GABA SI -> mAL_m (inhibitory)
+  "GABA_SI_inter"    = "#3B6CAE"   # SI <-> SI cross-talk
+)
+
+node_fill <- c(
+  "ppk23"   = unname(panel_M_palette["ppk23"]),    # shared palette (red)
+  "ppk25"   = unname(panel_M_palette["ppk25"]),    # shared palette (orange)
+  "GABA_SI" = unname(panel_M_palette["gaba_si"]),  # shared palette (dark blue)
+  "mAL_m"   = "grey85"
+)
+```
+
+## Plot
+
+```{r plot, fig.width=14, fig.height=8}
+# Edge widths on a shared scale
+all_w <- edges_all$weight
+edges_all$lw <- scales::rescale(all_w, to = c(0.18, 1.8))
+
+# Alpha: main inflow/outflow edges solid; SI-SI cross-talk lighter
+edges_all$alpha_e <- ifelse(edges_all$edge_kind == "GABA_SI_inter",
+                            0.55, 0.75)
+
+# Draw in two passes: straight edges first, inter-SI curves second
+e_straight <- edges_all %>% filter(edge_kind != "GABA_SI_inter")
+e_curve    <- edges_all %>% filter(edge_kind == "GABA_SI_inter")
+
+# Halo behind each middle-layer node
+mid_pos <- nodes %>% filter(layer == "GABA_SI")
+
+p <- ggplot() +
+  # Halo behind each GABA SI middle node
+  geom_point(data = mid_pos,
+             aes(x = x, y = y, size = size_pt * 1.8),
+             shape = 21, fill = "#D0E2F5", color = NA,
+             alpha = 0.50, show.legend = FALSE) +
+  # Straight edges (ppk23 -> SI, SI -> mAL_m)
+  geom_segment(data = e_straight,
+               aes(x = x_from, y = y_from, xend = x_to, yend = y_to,
+                   color = edge_kind, linewidth = lw, alpha = alpha_e),
+               lineend = "round") +
+  # Curved inter-SI cross-talk edges
+  geom_curve(data = e_curve,
+             aes(x = x_from, y = y_from, xend = x_to, yend = y_to,
+                 color = edge_kind, linewidth = lw, alpha = alpha_e),
+             curvature = -0.25, lineend = "round") +
+  scale_color_manual(values = edge_colors,
+                     breaks = c("ppk23_to_GABA_SI",
+                                "ppk25_to_GABA_SI",
+                                "GABA_SI_out",
+                                "GABA_SI_inter"),
+                     labels = c("ppk23 -> GABA SI (to inhibitor)",
+                                "ppk25 -> GABA SI (to inhibitor)",
+                                "GABA SI -> mAL_m (inhibitory)",
+                                "GABA SI <-> GABA SI (cross-talk)"),
+                     name = "Edge type") +
+  scale_linewidth_identity() +
+  scale_alpha_identity() +
+  scale_size_identity() +
+  # Nodes
+  geom_point(data = nodes %>% filter(layer != "GABA_SI"),
+             aes(x = x, y = y, fill = layer, size = size_pt),
+             shape = 21, color = "black", stroke = 0.4) +
+  geom_point(data = mid_pos,
+             aes(x = x, y = y, size = size_pt),
+             shape = 21, fill = unname(panel_M_palette["gaba_si"]),
+             color = "black", stroke = 1.1) +
+  # Labels
+  geom_text(data = nodes %>% filter(layer == "ppk23"),
+            aes(x = x, y = y + 0.20, label = name),
+            angle = 30, hjust = 0, size = 3.2, color = "#8A6A1F") +
+  geom_text(data = nodes %>% filter(layer == "ppk25"),
+            aes(x = x, y = y - 0.20, label = name),
+            angle = -30, hjust = 1, size = 3.2, color = "#1F6F68") +
+  geom_text(data = mid_pos,
+            aes(x = x, y = y + 0.34, label = name),
+            size = 3.6, color = unname(panel_M_palette["gaba_si"]), fontface = "bold") +
+  geom_text(data = nodes %>% filter(layer == "mAL_m"),
+            aes(x = x, y = y - 0.28, label = name),
+            angle = 30, hjust = 1, size = 3.2) +
+  scale_fill_manual(values = node_fill, name = "Layer",
+                    breaks = c("ppk23", "ppk25", "GABA_SI", "mAL_m"),
+                    labels = c("ppk23 sensory",
+                               "ppk25 sensory",
+                               "GABA sign-inverter layer",
+                               "mAL_m (male-specific)")) +
+  coord_cartesian(xlim = c(-0.05, 1.05), ylim = c(0.15, 4.25), clip = "off") +
+  labs(
+    caption = paste(
+      panel_M_pool_caption,
+      "NODES: middle-layer = individual GABA sign-inverter types; size ~ total throughput (ppk23+ppk25 inflow + mAL_m outflow).",
+      "EDGES: thickness ~ raw synapse count.",
+      "COLORS: gold = ppk23 -> SI; teal = ppk25 -> SI; deep blue = SI -> mAL_m (inhibitory); lighter blue = SI <-> SI cross-talk.",
+      sep = "\n"
+    )
+  ) +
+  theme_void(base_size = 13) +
+  theme(
+    legend.position   = "right",
+    legend.box        = "vertical",
+    legend.title      = element_text(size = rel(1.0), face = "bold"),
+    legend.text       = element_text(size = rel(0.9)),
+    plot.margin       = margin(24, 28, 18, 28),
+    plot.caption      = element_text(size = rel(0.85), hjust = 0.5,
+                                     color = "grey25",
+                                     margin = margin(t = 10))
+  ) +
+  guides(
+    fill  = guide_legend(override.aes = list(size = 5), order = 1),
+    color = guide_legend(override.aes = list(linewidth = 1.5), order = 2),
+    size  = "none"
+  )
+
+# Landscape 14 x 8
+ggsave(file.path(pdf_dir, paste0(plot_name, ".pdf")),
+       plot = p, width = 14, height = 8)
+ggsave(file.path(png_dir, paste0(plot_name, ".png")),
+       plot = p, width = 14, height = 8, dpi = 300)
+
+print(p)
+```
+
+## Fan-out summary
+
+```{r fanout}
+si_fanout <- e_bot %>%
+  group_by(from) %>%
+  summarise(n_mal = n(), total = sum(weight), .groups = "drop") %>%
+  arrange(desc(total))
+
+cat("GABA SI layer fan-out onto mAL_m:\n")
+print(si_fanout)
+cat("\nTotal GABA SI -> mAL_m synapses:", sum(e_bot$weight), "\n")
+cat("Distinct mAL_m targets reached:",
+    length(unique(e_bot$to)), "/", length(mal_m_subtypes_used), "\n")
+```

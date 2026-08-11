@@ -1,5 +1,5 @@
 ---
-title: "Figure 6H: Spotlight Examples — Individual Integration Nodes"
+title: "Figure 6H: Spotlight Examples — Best Integrator per Target Set"
 output: html_document
 ---
 
@@ -13,175 +13,182 @@ knitr::opts_chunk$set(
   fig.height = 7
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
-panel_desc <- "Panel H: Spotlight Integration Nodes — Spotlights 3-4 top multimodal integration neurons with individual radar/spider plots showing their modality input profiles. Excitatory and inhibitory inputs are overlaid as separate polygons. Stacked bar charts show absolute and proportional modality breakdown per neuron."
-panel_legend <- "(H) Spotlight profiles of top multimodal integration nodes. Radar plots show the normalized modality input profile of individual hub neurons, with excitatory (solid) and inhibitory (dashed) contributions overlaid. Stacked bar charts display absolute and proportional modality composition."
+panel_desc <- "Panel H: Spotlight Integration Nodes — For each of 5 target sets (aSP-f, aSP-g, vAB3, PPN1, vAB3+PPN1), identifies the best multimodal integrator (highest entropy, >= 3 modalities). Radar plots show modality input profiles; valence radars overlay excitatory and inhibitory contributions; stacked bars show absolute and proportional modality breakdown."
+panel_legend <- "(H) Best multimodal integrator per target set. For each target set, the neuron with the highest Shannon entropy across modalities is spotlighted. Radar plots show normalized modality profiles; excitatory (solid blue) and inhibitory (dashed red) contributions are overlaid; stacked bars display absolute and proportional modality composition."
 cat(panel_desc)
 writeLines(c(panel_desc, "", paste(rep("_", 30), collapse = ""), "", "Figure legend:", "", panel_legend), file.path(panel_plot_dir("panel_H_description", "txt"), "panel_H_description.txt"))
 ```
 
 ## Overview
 
-Panel H spotlights 3-4 specific neurons that serve as top multimodal
-integration nodes. Each neuron receives input from multiple sensory
-modalities, and we visualize its input profile using radar/spider plots
-and stacked bar charts broken down by excitatory vs. inhibitory valence.
+Panel H spotlights the **best multimodal integrator** from each of 5 target
+sets. For each target set we compute a strength matrix (targets × modalities),
+calculate Shannon entropy per target neuron, and pick the neuron with the
+highest entropy (requiring input from at least 3 modalities). Each spotlight
+neuron is shown with radar plots and stacked bar charts.
 
-## Step 1: Compute entropy and rank neurons
+## Step 1: Pick best integrator per target set
 
-Shannon entropy across the 7 modality channels quantifies how evenly a
-neuron integrates across modalities. Higher entropy = more multimodal.
-
-```{r compute-entropy}
+```{r pick-best-integrators}
 # ---------------------------------------------------------------------------
-# Compute Shannon entropy for each neuron (row) in the combined strength matrix
+# Define 5 target sets
 # ---------------------------------------------------------------------------
-entropy_vals <- apply(strength.aspf_aspg, 1, shannon_entropy)
+target_sets <- list(
+  "aSP-f"     = paths.aspf,
+  "aSP-g"     = paths.aspg,
+  "vAB3"      = paths.vab3,
+  "PPN1"      = paths.ppn1,
+  "vAB3+PPN1" = bind_rows(paths.vab3, paths.ppn1)
+)
 
-entropy_df <- data.frame(
-  neuron    = names(entropy_vals),
-  entropy   = entropy_vals,
-  n_modalities = apply(strength.aspf_aspg > 0, 1, sum),
-  total_strength = rowSums(strength.aspf_aspg),
-  stringsAsFactors = FALSE
-) %>%
-  arrange(desc(entropy))
+target_set_colors_h <- c(
+  "aSP-f"     = "#E41A1C",
+  "aSP-g"     = "#FF7F00",
+  "vAB3"      = "#377EB8",
+  "PPN1"      = "#4DAF4A",
+  "vAB3+PPN1" = "#984EA3"
+)
 
-# Show the top 20 most multimodal neurons
-head(entropy_df, 20)
-```
-
-## Step 2: Identify spotlight neurons
-
-Select the top-entropy neurons. Also look for known neurons from the
-literature (AL-AST1, LH008/LH002-containing aSP-f subtypes, aSP-g
-subtypes) to provide biologically meaningful examples.
-
-```{r select-spotlight}
 # ---------------------------------------------------------------------------
-# Inspect what neuron names exist in the strength matrix
+# Forced neuron picks per target set (NULL = auto-pick by entropy)
+# A target set can have multiple forced neurons.
 # ---------------------------------------------------------------------------
-all_neurons <- rownames(strength.aspf_aspg)
-message("Total neurons in combined matrix: ", length(all_neurons))
+forced_picks <- list(
+  "aSP-f"     = NULL,
+  "aSP-g"     = NULL,
+  "vAB3"      = "AVLP743m",
+  "PPN1"      = "DNp103",
+  "vAB3+PPN1" = c("LH004m", "AVLP597")
+)
 
-# Check for known neuron types from the literature
-known_patterns <- c("AL-AST1", "LH008", "LH002", "aSP-f", "aSP-g",
-                     "SMP", "SIP", "SLP", "LH")
-known_hits <- lapply(known_patterns, function(pat) {
-  grep(pat, all_neurons, value = TRUE, ignore.case = TRUE)
-})
-names(known_hits) <- known_patterns
+# ---------------------------------------------------------------------------
+# For each target set: compute strength, entropy, assign spotlight neurons
+# ---------------------------------------------------------------------------
+# spotlight_data is a flat list keyed by "target_set::neuron"
+spotlight_data  <- list()
+spotlight_order <- character()
 
-# Print matches for each pattern
-for (pat in known_patterns) {
-  if (length(known_hits[[pat]]) > 0) {
-    message(sprintf("  Pattern '%s': %s", pat,
-                    paste(known_hits[[pat]], collapse = ", ")))
+for (ts_name in names(target_sets)) {
+  ts_paths <- target_sets[[ts_name]]
+
+  str_total <- compute_strength_matrix(ts_paths)
+  str_exc   <- compute_valence_strength(ts_paths, "excitatory")
+  str_inh   <- compute_valence_strength(ts_paths, "inhibitory")
+
+  ent_vals <- apply(str_total, 1, shannon_entropy)
+  n_mods   <- apply(str_total > 0, 1, sum)
+
+  edf <- data.frame(
+    neuron         = names(ent_vals),
+    entropy        = ent_vals,
+    n_modalities   = n_mods,
+    total_strength = rowSums(str_total),
+    stringsAsFactors = FALSE
+  ) %>% arrange(desc(entropy))
+
+  # Determine neurons for this target set
+  picks <- forced_picks[[ts_name]]
+  if (is.null(picks)) {
+    best <- edf %>% filter(n_modalities >= 3) %>% slice_head(n = 1)
+    if (nrow(best) == 0) best <- edf %>% filter(n_modalities >= 2) %>% slice_head(n = 1)
+    if (nrow(best) == 0) best <- edf %>% slice_head(n = 1)
+    picks <- best$neuron
+  }
+
+  for (nn in picks) {
+    nn_row <- edf %>% filter(neuron == nn)
+    nn_ent <- if (nrow(nn_row) > 0) nn_row$entropy else 0
+    nn_mod <- if (nrow(nn_row) > 0) nn_row$n_modalities else 0
+
+    key <- paste0(ts_name, "::", nn)
+    spotlight_data[[key]] <- list(
+      neuron     = nn,
+      target_set = ts_name,
+      entropy    = nn_ent,
+      n_mod      = nn_mod,
+      str_total  = str_total,
+      str_exc    = str_exc,
+      str_inh    = str_inh,
+      entropy_df = edf
+    )
+    spotlight_order <- c(spotlight_order, key)
+
+    message(sprintf("  [%s] Spotlight: %s (H=%.2f, %d modalities)",
+                    ts_name, nn, nn_ent, nn_mod))
   }
 }
 
-# ---------------------------------------------------------------------------
-# Build a candidate list: top-entropy neurons + known types if present
-# ---------------------------------------------------------------------------
-# Start with top 4 by entropy
-top_entropy <- entropy_df %>%
-  filter(n_modalities >= 3) %>%     # require input from at least 3 modalities
-  head(6) %>%
-  pull(neuron)
-
-# Add known neurons if they are present and have reasonable entropy
-known_candidates <- c(
-  grep("AL-AST1", all_neurons, value = TRUE, ignore.case = TRUE),
-  grep("LH008", all_neurons, value = TRUE, ignore.case = TRUE),
-  grep("LH002", all_neurons, value = TRUE, ignore.case = TRUE)
-)
-known_candidates <- intersect(known_candidates, entropy_df$neuron)
-
-# Combine and deduplicate, then take 3-4
-spotlight_candidates <- unique(c(top_entropy, known_candidates))
-
-# Final selection: pick top 4 by entropy from the candidate pool
-spotlight_neurons <- entropy_df %>%
-  filter(neuron %in% spotlight_candidates) %>%
-  arrange(desc(entropy)) %>%
-  head(4) %>%
-  pull(neuron)
-
-message("Spotlight neurons: ", paste(spotlight_neurons, collapse = ", "))
-
-# Look up synonyms/descriptions from mba for annotation
-spotlight_info <- mba %>%
-  filter(type %in% spotlight_neurons) %>%
-  select(type, synonyms) %>%
-  distinct(type, .keep_all = TRUE)
-
-spotlight_info
+spotlight_neurons <- sapply(spotlight_data[spotlight_order], function(x) x$neuron)
+n_spotlights <- length(spotlight_order)
 ```
 
-## Step 3: Prepare per-neuron data for plotting
-
-Extract strength values (total, excitatory, inhibitory) for each
-spotlight neuron across all 7 modalities.
+## Step 2: Prepare per-neuron long-format data
 
 ```{r prepare-neuron-data}
 # ---------------------------------------------------------------------------
-# Build a long-format dataframe for spotlight neurons
+# Build long-format data: for each spotlight neuron, use its target-set-specific
+# strength matrices so the radar shows what reaches that neuron in context.
 # ---------------------------------------------------------------------------
+spotlight_long <- bind_rows(lapply(spotlight_order, function(key) {
+  sd <- spotlight_data[[key]]
+  nn <- sd$neuron
+  ts_name <- sd$target_set
 
-# Total strength
-spotlight_total <- as.data.frame(strength.aspf_aspg[spotlight_neurons, , drop = FALSE]) %>%
-  rownames_to_column("neuron") %>%
-  pivot_longer(cols = all_of(modality_order), names_to = "modality",
-               values_to = "strength") %>%
-  mutate(valence = "total")
+  # Total
+  total_row <- if (nn %in% rownames(sd$str_total)) {
+    sd$str_total[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
 
-# Excitatory strength (handle neurons that may be absent from exc/inh matrices)
-exc_neurons <- intersect(spotlight_neurons, rownames(strength.aspf_aspg.exc))
-inh_neurons <- intersect(spotlight_neurons, rownames(strength.aspf_aspg.inh))
+  # Excitatory
+  exc_row <- if (nn %in% rownames(sd$str_exc)) {
+    sd$str_exc[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
 
-spotlight_exc <- if (length(exc_neurons) > 0) {
-  as.data.frame(strength.aspf_aspg.exc[exc_neurons, , drop = FALSE]) %>%
-    rownames_to_column("neuron") %>%
-    pivot_longer(cols = all_of(modality_order), names_to = "modality",
-                 values_to = "strength") %>%
-    mutate(valence = "excitatory")
-} else {
-  data.frame(neuron = character(), modality = character(),
-             strength = numeric(), valence = character())
-}
+  # Inhibitory
+  inh_row <- if (nn %in% rownames(sd$str_inh)) {
+    sd$str_inh[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
 
-spotlight_inh <- if (length(inh_neurons) > 0) {
-  as.data.frame(strength.aspf_aspg.inh[inh_neurons, , drop = FALSE]) %>%
-    rownames_to_column("neuron") %>%
-    pivot_longer(cols = all_of(modality_order), names_to = "modality",
-                 values_to = "strength") %>%
-    mutate(valence = "inhibitory")
-} else {
-  data.frame(neuron = character(), modality = character(),
-             strength = numeric(), valence = character())
-}
+  bind_rows(
+    data.frame(neuron = nn, modality = modality_order,
+               strength = as.numeric(total_row), valence = "total",
+               target_set = ts_name, stringsAsFactors = FALSE),
+    data.frame(neuron = nn, modality = modality_order,
+               strength = as.numeric(exc_row), valence = "excitatory",
+               target_set = ts_name, stringsAsFactors = FALSE),
+    data.frame(neuron = nn, modality = modality_order,
+               strength = as.numeric(inh_row), valence = "inhibitory",
+               target_set = ts_name, stringsAsFactors = FALSE)
+  )
+})) %>%
+  mutate(modality = factor(modality, levels = modality_order),
+         target_set = factor(target_set, levels = names(target_sets)))
 
-# Combine all
-spotlight_long <- bind_rows(spotlight_total, spotlight_exc, spotlight_inh) %>%
-  mutate(modality = factor(modality, levels = modality_order))
+# Construct a combined entropy_df for lookup
+entropy_df <- bind_rows(lapply(spotlight_data, function(sd) {
+  sd$entropy_df %>% mutate(target_set = sd$target_set)
+}))
 ```
 
-## Step 4: Individual radar plots (total strength)
+## Step 3: Individual radar plots (total strength)
 
-One radar per spotlight neuron showing total input strength across the 7
-modalities.
+```{r radar-individual, fig.width=21, fig.height=4}
+# ---------------------------------------------------------------------------
+# Radar plot function: uses per-neuron data from spotlight_data
+# ---------------------------------------------------------------------------
+make_neuron_radar <- function(key) {
+  sd <- spotlight_data[[key]]
+  nn <- sd$neuron
+  ts <- sd$target_set
 
-```{r radar-individual, fig.width=14, fig.height=4}
-# ---------------------------------------------------------------------------
-# Build a custom radar plot for each spotlight neuron
-# ---------------------------------------------------------------------------
-make_neuron_radar <- function(neuron_name, strength_mat, fill_color = "steelblue",
-                               fill_alpha = 0.3, line_color = "steelblue") {
-  vals <- strength_mat[neuron_name, modality_order]
-  # Normalize to 0-1 for comparable radar shape
+  vals <- if (nn %in% rownames(sd$str_total)) {
+    sd$str_total[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
+
   max_val <- max(vals, na.rm = TRUE)
   if (max_val == 0) max_val <- 1
   vals_norm <- vals / max_val
@@ -192,41 +199,17 @@ make_neuron_radar <- function(neuron_name, strength_mat, fill_color = "steelblue
     raw      = as.numeric(vals)
   )
 
-  # Close the polygon by appending the first point
-  radar_closed <- bind_rows(radar_df, radar_df[1, ])
-
-  # Look up synonym if available
-  syn <- mba %>%
-    filter(type == neuron_name) %>%
-    pull(synonyms) %>%
-    unique() %>%
-    na.omit()
-  subtitle_text <- if (length(syn) > 0 && nchar(syn[1]) > 0) {
-    paste0("(", substr(syn[1], 1, 60), ")")
-  } else {
-    ""
-  }
-
-  # Entropy for this neuron
-  ent <- entropy_df %>% filter(neuron == neuron_name) %>% pull(entropy)
-  ent_label <- sprintf("H = %.2f", ent)
+  ent_label <- sprintf("H = %.2f  |  %d mod.", sd$entropy, sd$n_mod)
 
   ggplot(radar_df, aes(x = modality, y = value, group = 1)) +
-    # Grid circles at 25%, 50%, 75%, 100%
-    annotate("path",
-             x = rep(1:7, each = 100) + rep(seq(0, 1, length.out = 100) - 0.5, 7),
-             y = rep(0.25, 700), alpha = 0, color = NA) +
-    geom_polygon(fill = alpha(fill_color, fill_alpha), color = line_color,
-                 linewidth = 0.8) +
+    geom_polygon(fill = alpha(target_set_colors_h[[ts]], 0.3),
+                 color = target_set_colors_h[[ts]], linewidth = 0.8) +
     geom_point(aes(color = modality), size = 3, show.legend = FALSE) +
     scale_color_manual(values = modality_colors) +
     coord_polar(start = 0) +
     scale_y_continuous(limits = c(0, 1.05), breaks = c(0.25, 0.5, 0.75, 1.0),
                        labels = c("25%", "50%", "75%", "100%")) +
-    labs(
-      title    = neuron_name,
-      subtitle = paste(subtitle_text, ent_label)
-    ) +
+    labs(title = nn, subtitle = paste0(ts, " target  |  ", ent_label)) +
     theme_minimal(base_size = 11) +
     theme(
       axis.title        = element_blank(),
@@ -238,52 +221,40 @@ make_neuron_radar <- function(neuron_name, strength_mat, fill_color = "steelblue
     )
 }
 
-# Generate individual radar plots
-radar_plots <- lapply(spotlight_neurons, function(n) {
-  make_neuron_radar(n, strength.aspf_aspg)
-})
-names(radar_plots) <- spotlight_neurons
+radar_plots <- lapply(spotlight_order, make_neuron_radar)
+names(radar_plots) <- spotlight_order
 
-# Arrange in a single row
 radar_combined <- plot_grid(
-  plotlist = radar_plots,
-  nrow = 1,
-  labels = LETTERS[1:length(radar_plots)],
-  label_size = 12
+  plotlist = radar_plots, nrow = 1,
+  labels = LETTERS[seq_along(radar_plots)], label_size = 12
 )
 radar_combined
 ```
 
 ```{r save-radar-individual}
-save_fig6_plot(radar_combined, "panel_H_radar_individual_aspf_aspg",
-               width = 3.5 * length(spotlight_neurons), height = 4)
+save_fig6_plot(radar_combined, "panel_H_radar_individual",
+               width = 3.5 * n_spotlights, height = 4)
 ```
 
-## Step 5: Excitatory vs. inhibitory overlaid radars
+## Step 4: Excitatory vs. inhibitory overlaid radars
 
-For each spotlight neuron, overlay excitatory (solid) and inhibitory
-(dashed) radar polygons on the same chart.
-
-```{r radar-valence, fig.width=14, fig.height=4.5}
+```{r radar-valence, fig.width=21, fig.height=4.5}
 # ---------------------------------------------------------------------------
-# Dual-valence radar: excitatory (solid) + inhibitory (dashed) overlaid
+# Dual-valence radar per spotlight neuron
 # ---------------------------------------------------------------------------
-make_valence_radar <- function(neuron_name) {
-  # Get excitatory values
-  exc_vals <- if (neuron_name %in% rownames(strength.aspf_aspg.exc)) {
-    strength.aspf_aspg.exc[neuron_name, modality_order]
-  } else {
-    setNames(rep(0, 7), modality_order)
-  }
+make_valence_radar <- function(key) {
+  sd <- spotlight_data[[key]]
+  nn <- sd$neuron
+  ts <- sd$target_set
 
-  # Get inhibitory values
-  inh_vals <- if (neuron_name %in% rownames(strength.aspf_aspg.inh)) {
-    strength.aspf_aspg.inh[neuron_name, modality_order]
-  } else {
-    setNames(rep(0, 7), modality_order)
-  }
+  exc_vals <- if (nn %in% rownames(sd$str_exc)) {
+    sd$str_exc[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
 
-  # Normalize both to the same scale (max across both)
+  inh_vals <- if (nn %in% rownames(sd$str_inh)) {
+    sd$str_inh[nn, modality_order]
+  } else { setNames(rep(0, 7), modality_order) }
+
   global_max <- max(c(exc_vals, inh_vals), na.rm = TRUE)
   if (global_max == 0) global_max <- 1
 
@@ -298,15 +269,12 @@ make_valence_radar <- function(neuron_name) {
     geom_polygon(aes(fill = valence, linetype = valence, color = valence),
                  alpha = 0.2, linewidth = 0.9) +
     geom_point(aes(color = valence), size = 2) +
-    scale_fill_manual(values = c("excitatory" = "#2166AC",
-                                  "inhibitory" = "#B2182B")) +
-    scale_color_manual(values = c("excitatory" = "#2166AC",
-                                   "inhibitory" = "#B2182B")) +
-    scale_linetype_manual(values = c("excitatory" = "solid",
-                                      "inhibitory" = "dashed")) +
+    scale_fill_manual(values = c("excitatory" = "#2166AC", "inhibitory" = "#B2182B")) +
+    scale_color_manual(values = c("excitatory" = "#2166AC", "inhibitory" = "#B2182B")) +
+    scale_linetype_manual(values = c("excitatory" = "solid", "inhibitory" = "dashed")) +
     coord_polar(start = 0) +
     scale_y_continuous(limits = c(0, 1.05)) +
-    labs(title = neuron_name) +
+    labs(title = nn, subtitle = paste0(ts, " target")) +
     theme_minimal(base_size = 10) +
     theme(
       axis.title        = element_blank(),
@@ -314,169 +282,148 @@ make_valence_radar <- function(neuron_name) {
       axis.text.x       = element_text(size = 8, face = "bold"),
       panel.grid.major  = element_line(color = "grey85", linewidth = 0.3),
       plot.title         = element_text(hjust = 0.5, face = "bold", size = 11),
+      plot.subtitle      = element_text(hjust = 0.5, size = 8, color = "grey40"),
       legend.position    = "bottom",
       legend.title       = element_blank(),
       legend.text        = element_text(size = 8)
     )
 }
 
-valence_radars <- lapply(spotlight_neurons, make_valence_radar)
-names(valence_radars) <- spotlight_neurons
+valence_radars <- lapply(spotlight_order, make_valence_radar)
+names(valence_radars) <- spotlight_order
 
 valence_combined <- plot_grid(
-  plotlist = valence_radars,
-  nrow = 1,
-  labels = LETTERS[1:length(valence_radars)],
-  label_size = 12
+  plotlist = valence_radars, nrow = 1,
+  labels = LETTERS[seq_along(valence_radars)], label_size = 12
 )
 valence_combined
 ```
 
 ```{r save-radar-valence}
-save_fig6_plot(valence_combined, "panel_H_radar_valence_aspf_aspg",
-               width = 3.5 * length(spotlight_neurons), height = 5)
+save_fig6_plot(valence_combined, "panel_H_radar_valence",
+               width = 3.5 * n_spotlights, height = 5)
 ```
 
-## Step 6: Input breakdown stacked bar (excitatory/inhibitory by modality)
+## Step 5: Input breakdown stacked bar (excitatory/inhibitory by modality)
 
-For each spotlight neuron, a stacked bar chart showing the proportion of
-each modality split by valence.
+```{r stacked-bar, fig.width=21, fig.height=5}
+# ---------------------------------------------------------------------------
+# Stacked bar: faceted by neuron, coloured by target set border
+# ---------------------------------------------------------------------------
+# Build ordered facet labels matching spotlight_order
+facet_levels <- sapply(spotlight_order, function(key) {
+  sd <- spotlight_data[[key]]
+  sprintf("%s\n(%s target)", sd$neuron, sd$target_set)
+})
 
-```{r stacked-bar, fig.width=14, fig.height=5}
-# ---------------------------------------------------------------------------
-# Build stacked bar data for spotlight neurons
-# ---------------------------------------------------------------------------
 bar_data <- spotlight_long %>%
-  filter(valence %in% c("excitatory", "inhibitory"),
-         neuron %in% spotlight_neurons) %>%
-  # Compute proportion within each neuron
-  group_by(neuron) %>%
+  filter(valence %in% c("excitatory", "inhibitory")) %>%
+  group_by(neuron, target_set) %>%
   mutate(
-    total_all = sum(strength, na.rm = TRUE),
+    total_all  = sum(strength, na.rm = TRUE),
     proportion = ifelse(total_all > 0, strength / total_all, 0)
   ) %>%
   ungroup() %>%
-  # Add modality group for ordering
   mutate(
-    mod_group = modality_group[as.character(modality)],
-    modality  = factor(modality, levels = modality_order)
+    facet_label = sprintf("%s\n(%s target)", neuron, target_set),
+    facet_label = factor(facet_label, levels = facet_levels)
   )
 
-# ---------------------------------------------------------------------------
-# Stacked bar: faceted by neuron, x = modality, fill = valence
-# ---------------------------------------------------------------------------
-p_stacked <- ggplot(bar_data,
-                     aes(x = modality, y = strength, fill = valence)) +
+p_stacked <- ggplot(bar_data, aes(x = modality, y = strength, fill = valence)) +
   geom_col(position = "stack", width = 0.7, color = "white", linewidth = 0.2) +
-  facet_wrap(~ neuron, scales = "free_y", nrow = 1) +
-  scale_fill_manual(values = c("excitatory" = "#2166AC",
-                                "inhibitory" = "#B2182B"),
+  facet_wrap(~ facet_label, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = c("excitatory" = "#2166AC", "inhibitory" = "#B2182B"),
                      name = "Valence") +
-  labs(
-    x     = "Modality",
-    y     = "Summed path strength",
-    title = "Input breakdown by modality and valence"
-  ) +
+  labs(x = "Modality", y = "Summed path strength",
+       title = "Input breakdown by modality and valence") +
   theme_bw(base_size = 11) +
   theme(
     axis.text.x     = element_text(angle = 45, hjust = 1, size = 8),
-    strip.text       = element_text(face = "bold", size = 10),
+    strip.text       = element_text(face = "bold", size = 9),
     legend.position  = "bottom",
     panel.grid.minor = element_blank()
   )
-
 p_stacked
 ```
 
 ```{r save-stacked-bar}
-save_fig6_plot(p_stacked, "panel_H_stacked_bar_aspf_aspg",
-               width = 3.5 * length(spotlight_neurons), height = 5)
+save_fig6_plot(p_stacked, "panel_H_stacked_bar",
+               width = 3.5 * n_spotlights, height = 5)
 ```
 
-## Step 6b: Proportional stacked bar (normalized to 100%)
+## Step 5b: Proportional stacked bar (normalized to 100%)
 
-Same breakdown but normalized so each neuron sums to 100%, making the
-modality proportions directly comparable.
-
-```{r stacked-bar-proportional, fig.width=14, fig.height=5}
-p_stacked_prop <- ggplot(bar_data,
-                          aes(x = modality, y = proportion, fill = valence)) +
+```{r stacked-bar-proportional, fig.width=21, fig.height=5}
+p_stacked_prop <- ggplot(bar_data, aes(x = modality, y = proportion, fill = valence)) +
   geom_col(position = "stack", width = 0.7, color = "white", linewidth = 0.2) +
-  facet_wrap(~ neuron, nrow = 1) +
-  scale_fill_manual(values = c("excitatory" = "#2166AC",
-                                "inhibitory" = "#B2182B"),
+  facet_wrap(~ facet_label, nrow = 1) +
+  scale_fill_manual(values = c("excitatory" = "#2166AC", "inhibitory" = "#B2182B"),
                      name = "Valence") +
   scale_y_continuous(labels = percent_format()) +
-  labs(
-    x     = "Modality",
-    y     = "Proportion of total input",
-    title = "Proportional input breakdown by modality and valence"
-  ) +
+  labs(x = "Modality", y = "Proportion of total input",
+       title = "Proportional input breakdown") +
   theme_bw(base_size = 11) +
   theme(
     axis.text.x     = element_text(angle = 45, hjust = 1, size = 8),
-    strip.text       = element_text(face = "bold", size = 10),
+    strip.text       = element_text(face = "bold", size = 9),
     legend.position  = "bottom",
     panel.grid.minor = element_blank()
   )
-
 p_stacked_prop
 ```
 
 ```{r save-stacked-prop}
-save_fig6_plot(p_stacked_prop, "panel_H_stacked_bar_proportional_aspf_aspg",
-               width = 3.5 * length(spotlight_neurons), height = 5)
+save_fig6_plot(p_stacked_prop, "panel_H_stacked_bar_proportional",
+               width = 3.5 * n_spotlights, height = 5)
 ```
 
-## Step 7: Neuron annotation summary table
-
-Print a summary table for the spotlight neurons with their entropy,
-number of modalities, total strength, and synonyms.
+## Step 6: Annotation summary table
 
 ```{r annotation-table}
 # ---------------------------------------------------------------------------
-# Build annotation table
+# Summary table for the 5 spotlight neurons
 # ---------------------------------------------------------------------------
-annotation_table <- entropy_df %>%
-  filter(neuron %in% spotlight_neurons) %>%
+annotation_table <- bind_rows(lapply(spotlight_order, function(key) {
+  sd <- spotlight_data[[key]]
+  data.frame(
+    neuron         = sd$neuron,
+    target_set     = sd$target_set,
+    entropy        = sd$entropy,
+    n_modalities   = sd$n_mod,
+    total_strength = sum(sd$str_total[sd$neuron, ]),
+    stringsAsFactors = FALSE
+  )
+})) %>%
   left_join(
-    mba %>%
-      select(type, synonyms) %>%
-      distinct(type, .keep_all = TRUE),
+    mba %>% select(type, synonyms) %>% distinct(type, .keep_all = TRUE),
     by = c("neuron" = "type")
   ) %>%
   mutate(
-    synonyms = ifelse(is.na(synonyms) | synonyms == "", "—", synonyms),
-    # Truncate long synonym strings
-    synonyms = ifelse(nchar(synonyms) > 80,
-                       paste0(substr(synonyms, 1, 77), "..."),
-                       synonyms)
-  ) %>%
-  arrange(desc(entropy))
+    synonyms = ifelse(is.na(synonyms) | synonyms == "", "\u2014", synonyms),
+    synonyms = ifelse(nchar(synonyms) > 60, paste0(substr(synonyms, 1, 57), "..."), synonyms)
+  )
 
 knitr::kable(annotation_table, digits = 3,
-             caption = "Spotlight neuron summary",
-             col.names = c("Neuron type", "Entropy (bits)",
+             caption = "Best integrator per target set",
+             col.names = c("Neuron", "Target set", "Entropy",
                            "N modalities", "Total strength", "Synonyms"))
 ```
 
-## Step 8: Combined final panel
+## Step 7: Combined final panel
 
-Assemble the main panel figure: radars on top, stacked bars on bottom.
-
-```{r combined-panel, fig.width=14, fig.height=9}
+```{r combined-panel, fig.width=21, fig.height=9}
 panel_H <- plot_grid(
   radar_combined,
   valence_combined,
   p_stacked,
-  ncol    = 1,
+  ncol        = 1,
   rel_heights = c(1, 1, 1),
-  labels  = c("i", "ii", "iii"),
-  label_size = 14
+  labels      = c("i", "ii", "iii"),
+  label_size  = 14
 )
 panel_H
 ```
 
 ```{r save-combined}
-save_fig6_plot(panel_H, "panel_H_combined_aspf_aspg", width = 14, height = 12)
+save_fig6_plot(panel_H, "panel_H_combined", width = 3.5 * n_spotlights, height = 12)
 ```

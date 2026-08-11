@@ -1,0 +1,46 @@
+PANEL CE6: Sankey -- ppk23 signal flow through AN05B035 vs AN09B017 relays
+==========================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+A three-axis alluvial (Sankey) diagram aggregating the K=50 strongest
+ppk23 -> mAL_m paths. The single ppk23 source (leftmost axis) fans out to
+eight relay identities (AN09B017a-g and AN05B035, plus a catch-all 'other'),
+and from there to the 16 male-specific mAL_m subtypes (rightmost axis).
+Ribbon height is proportional to total aggregated path strength; ribbons
+are coloured by valence -- BLUE for flow through AN05B035 (GABAergic,
+sign-inverting), RED for flow through any AN09B017 variant or other
+excitatory relays.
+
+Each path is assigned to AN05B035 if it contains AN05B035 anywhere;
+otherwise it is assigned to the AN09B017 variant closest to the mAL target
+(the effective delivering relay). Paths touching none of these eight
+intermediates are pooled as 'other'.
+
+KEY OBSERVATIONS
+----------------
+- Total path strength: 1.59 (inhibitory / AN05B035: 0.15 = 9.6%,
+  excitatory / AN09B017 + other: 1.43 = 90.4%).
+- The majority of ppk23 signal flows through the seven AN09B017 variants
+  (red ribbons) with broad fan-out across the mAL_m population.
+- The minority inhibitory flow through AN05B035 (blue ribbons) does NOT
+  target all mAL_m subtypes uniformly; it concentrates on a specific subset:
+    mAL_m1, mAL_m5a, mAL_m2b, mAL_m6, mAL_m2a, mAL_m5b, mAL_m7, mAL_m9, mAL_m5c, mAL_m8, mAL_m3c, mAL_m3a, mAL_m3b, mAL_m4, mAL_m11, mAL_m10
+- AN09B017-dominant mAL_m targets:
+    mAL_m3c, mAL_m5a, mAL_m1, mAL_m6, mAL_m3a, mAL_m4, mAL_m5c, mAL_m2a, mAL_m9, mAL_m5b, mAL_m2b, mAL_m3b, mAL_m8, mAL_m7, mAL_m11, mAL_m10
+- The spatial separation of blue ribbons onto a specific mAL_m subset is
+  the circuit substrate for the ppk23 sign reversal seen in panel C, and
+  the E/I decomposition seen in panel E.
+
+INTERPRETATION
+--------------
+AN05B035 acts as a selective GABAergic fan-out: it taps the common ppk23
+sensory stream and re-distributes it with flipped sign to a specific subset
+of mAL_m subtypes. The Sankey makes two points visually obvious. First,
+blue is a minority of the total flow -- most ppk23 drive is still
+excitatory, routed via AN09B017 variants. Second, blue ribbons terminate
+on a restricted set of mAL_m targets rather than the whole population,
+creating a dedicated sign-inverted channel. This selective routing is what
+produces differential ppk23 responses across mAL_m subtypes and is the
+mechanistic bridge between panels C (sign reversal) and E (E/I balance).
+

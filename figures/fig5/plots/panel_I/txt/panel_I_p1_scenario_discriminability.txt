@@ -1,0 +1,24 @@
+P1 scenario-discriminability
+=============================
+For each of 45 P1 courtship subtypes the signal-flow drive (p1_all_combos$net_input)
+under three encounter scenarios was extracted; spread = max-min across scenarios.
+
+Top 10 most-discriminating P1s (by spread):
+  P1_3c      spread=0.0693  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  P1_3a      spread=0.0457  best=Female (ppk25)  worst=cVA + male (cVA+ppk23)
+  P1_1b      spread=0.0454  best=cVA + male (cVA+ppk23)  worst=Female (ppk25)
+  P1_3b      spread=0.0431  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  P1_2c      spread=0.0334  best=Female (ppk25)  worst=cVA + male (cVA+ppk23)
+  P1_13a     spread=0.0321  best=cVA + male (cVA+ppk23)  worst=Female (ppk25)
+  P1_6a      spread=0.0307  best=cVA + male (cVA+ppk23)  worst=Female (ppk25)
+  P1_14b     spread=0.0300  best=cVA + male (cVA+ppk23)  worst=Female (ppk25)
+  P1_1a      spread=0.0285  best=cVA + female (cVA+ppk25)  worst=Female (ppk25)
+  P1_10d     spread=0.0226  best=cVA + male (cVA+ppk23)  worst=Female (ppk25)
+
+Best-predicted scenario across all P1s (argmax-of-drive count):
+  Female (ppk25): 4
+  cVA + male (cVA+ppk23): 25
+  cVA + female (cVA+ppk25): 16
+
+Combined plot saved to plots*/panel_I/{png,pdf}/panel_I_p1_scenario_discriminability.
+

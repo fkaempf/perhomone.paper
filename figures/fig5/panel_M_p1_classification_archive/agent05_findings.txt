@@ -1,0 +1,29 @@
+Panel I P1 scenario-decoder: full vs male-specific comparison
+==============================================================
+
+Method. For each of 45 P1 courtship subtypes (and 20 level-1 P1 groups
+collapsing P1_3a/b/c -> P1_3 etc.), drive under three encounter scenarios
+was taken from the signal-flow model net_input: (i) Female encounter
+(ppk23+ppk25), (ii) cVA + male (DA1+ppk23), (iii) cVA + female
+(DA1+ppk23+ppk25). Each P1's 3-scenario vector was z-scored across
+scenarios, so the readout is purely "which scenario is disproportionately
+elevated for this P1," independent of overall activation magnitude.
+
+Top P1 predictors (identical in full and male-specific variants):
+  Female encounter  ->  P1_2c (z=1.12), P1_9b (z=1.11), P1_4a (z=1.05)
+  cVA + male         ->  P1_13b (z=1.02), P1_9a (z=0.95), P1_4b (z=0.87)
+  cVA + female       ->  P1_15b (z=1.15), P1_8b (z=1.15), P1_12b (z=1.07)
+
+Scenario distribution. The multi-modal cVA + female scenario is the
+preferred scenario for the majority of P1 subtypes (~26/45) and level-1
+groups (~15/20), consistent with it being the richest input vector. Female
+encounter best-predicts ~7 subtypes / 2 groups; cVA + male best-predicts
+~8 subtypes / 3 groups. The male-specific (cVA + male) winners include
+P1_13b, P1_9a and P1_4b, matching known aSP-f / cVA-responsive P1 classes.
+
+Full vs male-specific divergence. Essentially none. The two decoder runs
+produce byte-identical summary tables: identical per-scenario winners,
+identical top-3 z-scores, identical group-level assignments. The mAL
+male-specific subset used by setup_mspecific.R does not alter the relative
+scenario preferences across P1s - their drive vectors are dominated by
+shared olfactory/gustatory channels rather than by the mAL restriction.

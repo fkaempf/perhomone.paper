@@ -1,0 +1,138 @@
+---
+title: "Figure 5 CE2: AN05B035-routed ppk23 input vs mAL E/I balance"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(ggrepel)
+```
+
+## Goal
+
+Test whether mAL_m subtypes whose ppk23 drive is routed more heavily through
+the GABAergic sign-inverter AN05B035 exhibit a more inhibitory (more negative)
+E/I balance. We compute, for each of the 16 male-specific mAL subtypes:
+
+- x: fraction of total ppk23->mAL path strength (from `mal_paths`) that passes
+  through AN05B035 (AN05B035 appears as an intermediate node in the path).
+- y: ppk23 E/I balance index `(exc - inh)/(exc + inh)` from
+  `mal_strength_exc` / `mal_strength_inh`.
+
+## Compute AN05B035 routing fraction per mAL_m subtype
+
+```{r compute-fraction}
+an05_node <- "AN05B035"
+
+# Restrict to ppk23 paths that end on a male-specific mAL
+ppk23_paths <- mal_paths %>%
+  filter(modality == "ppk23", end %in% mal_subtypes) %>%
+  mutate(
+    nodes_list = strsplit(path, " -> ", fixed = TRUE),
+    has_an05   = vapply(nodes_list, function(x) an05_node %in% x, logical(1))
+  )
+
+cat(sprintf("ppk23 paths to mAL_m subtypes: %d total, %d via AN05B035\n",
+            nrow(ppk23_paths), sum(ppk23_paths$has_an05)))
+
+an05_frac <- ppk23_paths %>%
+  group_by(end) %>%
+  summarise(
+    total_strength  = sum(strength, na.rm = TRUE),
+    an05_strength   = sum(strength[has_an05], na.rm = TRUE),
+    an05_fraction   = ifelse(total_strength > 0, an05_strength / total_strength, 0),
+    .groups = "drop"
+  )
+
+# Ensure all 16 mAL_m subtypes present (fill zero if no ppk23 paths)
+an05_frac <- tibble(end = mal_subtypes) %>%
+  left_join(an05_frac, by = "end") %>%
+  mutate(across(c(total_strength, an05_strength, an05_fraction),
+                ~ replace_na(.x, 0)))
+
+print(an05_frac)
+```
+
+## ppk23 E/I balance per subtype
+
+```{r ei-balance}
+exc <- mal_strength_exc[mal_subtypes, "ppk23"]
+inh <- mal_strength_inh[mal_subtypes, "ppk23"]
+
+ei_df <- tibble(
+  subtype    = mal_subtypes,
+  exc        = exc,
+  inh        = inh,
+  ei_balance = ifelse(exc + inh > 0, (exc - inh) / (exc + inh), 0),
+  nt         = mal_nt[mal_subtypes]
+)
+
+plot_df <- ei_df %>%
+  left_join(an05_frac, by = c("subtype" = "end"))
+
+print(plot_df)
+```
+
+## Linear regression
+
+```{r regression}
+fit <- lm(ei_balance ~ an05_fraction, data = plot_df)
+fit_summary <- summary(fit)
+r2    <- fit_summary$r.squared
+slope <- coef(fit)[["an05_fraction"]]
+pval  <- if (nrow(fit_summary$coefficients) >= 2) fit_summary$coefficients[2, 4] else NA_real_
+
+cat(sprintf("Linear fit: y = %.3f + %.3f * x\n", coef(fit)[["(Intercept)"]], slope))
+cat(sprintf("R^2 = %.3f, p = %.3g, n = %d\n", r2, pval, nrow(plot_df)))
+```
+
+## Scatter plot
+
+```{r scatter, fig.width=8, fig.height=7}
+label_r2  <- sprintf("R^2 == %.3f", r2)
+label_p   <- sprintf("italic(p) == %.3g", pval)
+
+p_scatter <- ggplot(plot_df, aes(x = an05_fraction, y = ei_balance)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, color = "grey40") +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+              color = "black", fill = "grey80", linewidth = 0.6, alpha = 0.3) +
+  geom_point(aes(color = nt), size = 4.5) +
+  ggrepel::geom_text_repel(aes(label = subtype), size = 3,
+                            max.overlaps = Inf, min.segment.length = 0,
+                            seed = 1) +
+  scale_color_manual(values = nt_colors, name = "Neurotransmitter") +
+  annotate("text", x = min(plot_df$an05_fraction, na.rm = TRUE),
+           y = max(plot_df$ei_balance, na.rm = TRUE),
+           label = label_r2, parse = TRUE, hjust = 0, vjust = 1, size = 4) +
+  annotate("text", x = min(plot_df$an05_fraction, na.rm = TRUE),
+           y = max(plot_df$ei_balance, na.rm = TRUE) - 0.08,
+           label = label_p, parse = TRUE, hjust = 0, vjust = 1, size = 4) +
+  labs(
+    x = "Fraction of ppk23 -> mAL path strength routed via AN05B035",
+    y = "ppk23 E/I balance  (exc - inh) / (exc + inh)"
+  )
+
+# Save via canonical plots_mspecific path
+pdf_dir <- panel_plot_dir("panel_M_vs_balance", "pdf")
+png_dir <- panel_plot_dir("panel_M_vs_balance", "png")
+ggsave(file.path(pdf_dir, "panel_M_vs_balance.pdf"),
+       plot = p_scatter + theme_pub(base_size = 14),
+       width = 8, height = 7)
+ggsave(file.path(png_dir, "panel_M_vs_balance.png"),
+       plot = p_scatter + theme_pub(base_size = 14),
+       width = 8, height = 7, dpi = 300)
+
+print(p_scatter)
+```
+
+## Summary
+
+```{r summary, echo=FALSE}
+cat(sprintf(
+"CE2 summary: for %d mAL_m subtypes, ppk23 E/I balance vs AN05B035-routed
+ppk23 path fraction yields slope = %.3f, R^2 = %.3f, p = %.3g.
+Negative slope is consistent with AN05B035 acting as a GABAergic sign-inverter
+that pushes mAL subtypes toward inhibitory (negative) ppk23 E/I balance.\n",
+nrow(plot_df), slope, r2, pval))
+```

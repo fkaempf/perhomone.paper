@@ -1,0 +1,76 @@
+MANUSCRIPT DRAFT — FOR REFERENCE BY SYNTHESIS AGENTS
+=====================================================
+Title: Connectomic analysis of sexually dimorphic pheromone pathways in male Drosophila
+
+KEY STRUCTURAL INFORMATION FOR FIG 5/6 DESIGN:
+
+PAPER STRUCTURE (existing figures):
+- Fig 1: Contact pheromone sensory neurons in legs/wings (WG1-4, LgLG types, receptor typing)
+- Fig 2: Ascending pathways from VNC to brain (AN populations)
+- Fig 3: Olfactory pheromone pathways (DA1/cVA, VA1v, VA1d → central brain)
+- Fig 5: mAL subtypes and their sensory specialization
+- Fig 6: Multimodal sensory interaction in the courtship circuit [THIS IS WHAT WE'RE REDESIGNING]
+- [Fig 5 is also being designed as a new figure based on Ryba et al.]
+
+CRITICAL CIRCUIT ELEMENTS ESTABLISHED BY THE PAPER:
+1. Contact pheromone sensory neurons:
+   - ppk23+/ppk25+ = WG3 (wing), LgLG1b (leg) — glutamatergic — "F" cells tuned to female pheromones (7,11-HD)
+   - ppk23+/ppk25- = WG4 (wing), LgLG1a (leg) — cholinergic — "M" cells tuned to male pheromones (7-T, cVA)
+   - IR52a+/IR52b+ = WG1 (wing) — candidate pheromone receptor
+   - Male-specific bilateral projections in T1: LgLG5, LgLG8 (ppk23+/ppk25+), plus cholinergic bilateral types (ppk23+/ppk25-)
+
+2. Key downstream circuit nodes:
+   - PPN1: ascending taste projection neuron, major downstream of ppk23+/ppk25+ (WG3/LgLG1b)
+   - vAB3: ascending neuron receiving contact pheromone input
+   - mAL neurons: inhibitory interneurons (GABAergic), multiple subtypes with different sensory specializations
+   - aSP-f: male-specific third-order neurons (8 types in connectome), associated with male aggression circuit
+   - aSP-g: female-specific third-order neurons (5 types in connectome), associated with female acceptance circuit
+   - P1 neurons: courtship command neurons
+
+3. The aSP-f/aSP-g dimorphic switch (Kohl et al. 2013, ref 18):
+   - cVA-responsive second-order neurons connect to aSP-f in males, aSP-g in females
+   - fruitless shifts dendritic position, rerouting pheromone information
+   - Both cell types exist in both sexes but with different connectivity
+
+4. Key pheromone molecules:
+   - cVA (11-cis-vaccenyl acetate): volatile male pheromone, detected by DA1 ORNs
+   - 7-T (Z-7-Tricosene): contact male pheromone, increases female receptivity
+   - 7,11-HD/7,11-ND: contact female pheromones, male aphrodisiacs
+   - Wang et al. 2011 (ref 20): cVA and 7-T cooperate to promote aggression
+
+5. The manuscript DIRECTLY cites Wang et al. 2011 (nn.2800) as reference 20:
+   "cVA and a male contact pheromone (7-tricosene) cooperate to promote aggression"
+
+IMPLICATIONS FOR FIG 6 REDESIGN:
+- The figure needs to show multimodal sensory INTERACTION at the level of the courtship circuit
+- It should build on Figs 1-5 which establish the individual pathways
+- The "matrix multiplication" approach is one way to model interactions; we're exploring alternatives
+- The Wang et al. hierarchy (contact > olfactory) should be visible in the analysis
+- The paper emphasizes resolving confusions between morphologically similar but connectomically distinct neurons
+
+IMPLICATIONS FOR FIG 5 (NEW, RYBA-INSPIRED):
+- Should complement the existing Fig 5 (mAL sensory specialization)
+- Could become a new figure number or subsection of the integration analysis
+- The mAL → P1 inhibitory pathway is central to both this paper's circuit mapping and Ryba et al.'s behavioral findings
+- The paper's typing of ppk23+/ppk25+ ("F" cells) vs ppk23+/ppk25- ("M" cells) is directly relevant to Ryba's finding that 7-T detection is conserved peripherally but differs centrally
+
+FULL MANUSCRIPT TEXT FOLLOWS:
+=============================
+
+[Abstract]
+Drosophila males pursue females with an elaborate courtship ritual while showing aggressive behaviour towards rival males. Flexible direction of social behaviours towards the appropriate target requires multimodal sensory information. Critical cues include volatile olfactory and nonvolatile gustatory pheromones, which constitute the chemosensory profile defining the species and sex identity of other flies. Here, we use the first full CNS connectome of male Drosophila melanogaster to map the neural circuits through which volatile and contact chemosensory pheromones guide courtship behavior. We identify the receptor expression of discrete sensory neuron populations in the legs and wings and use these receptor types to trace the putative pathways of contact pheromone information to central brain neurons known to be involved in courtship and mating. We investigate the circuits downstream of neurons previously described to respond to volatile olfactory pheromones, revealing several key nodes integrating information about volatile and contact pheromones. Finally, we investigate nodes of multisensory integration in a Drosophila courtship circuit, revealing key areas for future study.
+
+[Statement of significance]
+Contact and volatile pheromones are key signals of social identity. There is an extensive literature on initial sensory detection of pheromones and their impact on behaviour. However, it has been much more challenging to piece together the complete sensory-motor circuits that organise behaviour and especially to understand the distinct circuit logic underlying behaviours that differ between the sexes. For these reasons pheromone pathways provide an outstanding showcase for the power of the new male CNS connectome to trace out brain spanning circuits with sex-specific organisation. This relies both on the fully proofread and annotated status of the connectome and specifically on high quality annotation identifying dimorphic and sex-specific cell types associated with pheromone processing. Finally, connectome data leads us to resolve some critical confusions in the past literature: groups did not realise that they were studying distinct pheromone pathways involving neurons that could be confused due to their similar morphology but which make discrete connections.
+
+[Main text - Introduction through Results, with references]
+(See full manuscript for complete text including all sections on chemosensation, pheromone processing, contact pheromone sensory neurons, ascending pathways, olfactory pathways, integration, and methods.)
+
+KEY REFERENCES:
+- Ref 11: Taisz et al. 2023 — aSP-g mediates cVA aphrodisiac action in females
+- Ref 12: Thistle et al. 2012 — Contact chemoreceptors mediate male-male repulsion and male-female attraction
+- Ref 18: Kohl et al. 2013 — Bidirectional circuit switch reroutes pheromone signals in male and female brains
+- Ref 20: Wang et al. 2011 — Hierarchical chemosensory regulation (THE nn.2800 PAPER)
+- Ref 23: Berg et al. 2025 — Male CNS connectome
+- Ref 38: Kallman et al. 2015 — Excitation and inhibition onto central courtship neurons biases mate choice
+- Ref 44: Clowney et al. 2015 — Multimodal chemosensory circuits controlling male courtship

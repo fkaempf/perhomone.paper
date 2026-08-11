@@ -1,0 +1,82 @@
+PANEL M (dual): ppk23 + ppk25 -> GABA SI layer -> mAL_m Sankey
+==============================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+Three-axis alluvial diagram of aggregated path strength from BOTH ppk23 and
+ppk25 sensory channels, through the GABAergic sign-inverter layer (a pool
+of 11 AN05B/IN05* GABA cells), to the male-specific mAL_m subtypes. Each
+individual GABA sign-inverter type is shown as its own middle-layer node;
+low-throughput SIs may be aggregated into an 'other GABA SIs' bin.
+
+Colour scheme:
+- ppk23 excitatory routes = red
+- ppk25 excitatory routes = blue
+- Any route through the GABA SI layer = dark purple / near-black
+
+mAL_m targets are ordered so those with the largest GABA-SI inflow
+fraction cluster at the top of the target axis.
+
+KEY NUMBERS
+-----------
+Total aggregated path strength across both channels: 2.99.
+Per-source breakdown (total / via GABA SI layer / inhibitory fraction):
+  ppk23: total=1.59  via GABA SI=0.35 (22.1%)
+  ppk25: total=1.40  via GABA SI=0.27 (19.5%)
+
+Individual GABA SI throughput (descending):
+  AN05B035: 0.26
+  AN05B023c: 0.10
+  IN05B011b: 0.09
+  IN05B002: 0.08
+  other GABA SIs: 0.06
+  AN05B025: 0.05
+
+GABA-SI-routed mAL_m subtypes per source (by descending strength):
+  ppk23 -> mAL_m1 (0.05)
+  ppk23 -> mAL_m5a (0.05)
+  ppk23 -> mAL_m3c (0.03)
+  ppk23 -> mAL_m6 (0.03)
+  ppk23 -> mAL_m4 (0.03)
+  ppk23 -> mAL_m2a (0.02)
+  ppk23 -> mAL_m2b (0.02)
+  ppk23 -> mAL_m9 (0.02)
+  ppk23 -> mAL_m5b (0.02)
+  ppk23 -> mAL_m3a (0.02)
+  ppk23 -> mAL_m5c (0.02)
+  ppk23 -> mAL_m8 (0.01)
+  ppk23 -> mAL_m7 (0.01)
+  ppk23 -> mAL_m3b (0.01)
+  ppk23 -> mAL_m10 (0.01)
+  ppk23 -> mAL_m11 (0.00)
+  ppk25 -> mAL_m5a (0.04)
+  ppk25 -> mAL_m1 (0.04)
+  ppk25 -> mAL_m4 (0.02)
+  ppk25 -> mAL_m6 (0.02)
+  ppk25 -> mAL_m9 (0.02)
+  ppk25 -> mAL_m2a (0.02)
+  ppk25 -> mAL_m3c (0.02)
+  ppk25 -> mAL_m2b (0.02)
+  ppk25 -> mAL_m5c (0.01)
+  ppk25 -> mAL_m5b (0.01)
+  ppk25 -> mAL_m7 (0.01)
+  ppk25 -> mAL_m3a (0.01)
+  ppk25 -> mAL_m8 (0.01)
+  ppk25 -> mAL_m3b (0.01)
+  ppk25 -> mAL_m10 (0.00)
+  ppk25 -> mAL_m11 (0.00)
+
+INTERPRETATION
+--------------
+Both pheromone channels (ppk23, ppk25) share the GABA sign-inverter layer
+as a common inhibitory relay. The Sankey makes two points visual:
+(1) both sources converge onto the GABA SI pool -- the dark-purple ribbons
+enter the middle stratum from both ppk23 and ppk25 and spread across
+multiple GABAergic cell types rather than concentrating on a single node;
+(2) from the GABA SI layer the flow diverges onto a SPECIFIC SUBSET of
+mAL_m subtypes rather than spreading uniformly. This selective fan-out is
+the circuit substrate that converts a shared excitatory sensory drive into
+a subtype-specific inhibitory signature across a distributed GABAergic
+pool, producing the differential ppk23 vs ppk25 responses and the E/I
+balance shifts seen in earlier panels.
+

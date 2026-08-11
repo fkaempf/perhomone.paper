@@ -2,12 +2,12 @@
 # Figure 6: Multimodal Sensory Integration - Shared Setup
 # =============================================================================
 # Source this file at the top of each panel script:
-#   source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+#   source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 # =============================================================================
 
 # -- Project root ----------------------------------------------------------
 project_root <- "/Users/fkampf/Documents/pheromone.paper"
-fig6_dir     <- file.path(project_root, "fig6")
+fig6_dir     <- file.path(project_root, "figures", "fig6")
 feather_dir  <- file.path(project_root, "feather")
 paths_dir    <- file.path(feather_dir, "strongest.paths")
 plot_dir_png <- file.path(fig6_dir, "plots", "png")
@@ -16,11 +16,19 @@ plot_dir_pdf <- file.path(fig6_dir, "plots", "pdf")
 dir.create(plot_dir_png, recursive = TRUE, showWarnings = FALSE)
 dir.create(plot_dir_pdf, recursive = TRUE, showWarnings = FALSE)
 
+# -- Publication mode ---------------------------------------------------------
+# Set to TRUE for compact, title-free plots suitable for multi-panel figures
+pub_mode <- TRUE
+
 # -- Per-panel plot directory helper ----------------------------------------
 # Extracts panel letter from "panel_X_..." name and returns plots/panel_X/{fmt}/
-panel_plot_dir <- function(name, fmt = "png") {
+panel_plot_dir <- function(name, fmt = "png", subdir = NULL) {
   panel <- sub("^(panel_[A-K])_.*", "\\1", name)
-  pdir <- file.path(fig6_dir, "plots", panel, fmt)
+  if (!is.null(subdir)) {
+    pdir <- file.path(fig6_dir, "plots", panel, subdir, fmt)
+  } else {
+    pdir <- file.path(fig6_dir, "plots", panel, fmt)
+  }
   dir.create(pdir, recursive = TRUE, showWarnings = FALSE)
   pdir
 }
@@ -36,6 +44,7 @@ library(reshape2)
 
 library(ggplot2)
 library(ggpubr)
+library(ggExtra)
 library(cowplot)
 library(patchwork)
 library(pheatmap)
@@ -47,9 +56,30 @@ library(igraph)
 library(coconatfly)
 library(fafbseg)
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(neuprintr)
 
 library(Matrix)
+
+# -- Publication theme for ggplot ---------------------------------------------
+theme_pub <- function(base_size = 8) {
+  theme_minimal(base_size = base_size) %+replace%
+    theme(
+      plot.title       = element_blank(),
+      plot.subtitle    = element_blank(),
+      plot.margin      = margin(2, 2, 2, 2),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(linewidth = 0.3, color = "grey90"),
+      axis.title       = element_text(size = rel(1)),
+      axis.text        = element_text(size = rel(0.85)),
+      legend.title     = element_text(size = rel(0.9)),
+      legend.text      = element_text(size = rel(0.8)),
+      legend.key.size  = unit(0.35, "cm"),
+      legend.margin    = margin(0, 0, 0, 0),
+      legend.spacing   = unit(0.1, "cm"),
+      strip.text       = element_text(size = rel(0.9), face = "bold")
+    )
+}
 
 # -- Source helper functions ------------------------------------------------
 source(file.path(project_root, "R", "utils.R"))
@@ -243,13 +273,20 @@ draw_heatmap_fixed_annot <- function(mat, row_annot, col_annot, ann_colors,
   n_bands <- ncol(row_annot)
   band_w  <- unit(total_annot_cm / n_bands, "cm")
 
-  hm <- pheatmap(mat,
+  dots <- list(...)
+  if (pub_mode) {
+    dots$main <- ""
+    if (!is.null(dots$fontsize_row) && dots$fontsize_row > 5) dots$fontsize_row <- 5
+    if (!is.null(dots$fontsize_col) && dots$fontsize_col > 8) dots$fontsize_col <- 8
+  }
+
+  hm <- do.call(pheatmap, c(list(
+    mat               = mat,
     annotation_row    = row_annot,
     annotation_col    = col_annot,
     annotation_colors = ann_colors,
-    silent            = TRUE,
-    ...
-  )
+    silent            = TRUE
+  ), dots))
 
   gt <- hm$gtable
   ann_idx <- grep("row_annotation", gt$layout$name)
@@ -271,17 +308,26 @@ save_heatmap_fixed_annot <- function(mat, row_annot, col_annot, ann_colors,
   n_bands <- ncol(row_annot)
   band_w  <- unit(total_annot_cm / n_bands, "cm")
 
+  # Capture extra args and apply pub_mode overrides
+  dots <- list(...)
+  if (pub_mode) {
+    dots$main <- ""
+    if (!is.null(dots$fontsize_row) && dots$fontsize_row > 5) dots$fontsize_row <- 5
+    if (!is.null(dots$fontsize_col) && dots$fontsize_col > 8) dots$fontsize_col <- 8
+  }
+
   is_pdf <- grepl("\\.pdf$", filename, ignore.case = TRUE)
   if (is_pdf) pdf(filename, width = width, height = height)
   else        png(filename, width = width, height = height, units = "in", res = 300)
 
-  hm <- pheatmap(mat,
+  hm <- do.call(pheatmap, c(list(
+    mat               = mat,
     annotation_row    = row_annot,
     annotation_col    = col_annot,
     annotation_colors = ann_colors,
-    silent            = TRUE,
-    ...
-  )
+    silent            = TRUE
+  ), dots))
+
   gt <- hm$gtable
   ann_idx <- grep("row_annotation", gt$layout$name)
   for (idx in ann_idx) {
@@ -300,9 +346,9 @@ save_heatmap_fixed_annot <- function(mat, row_annot, col_annot, ann_colors,
 # Saves 4 files: name.png, name.pdf, name_horizontal.png, name_horizontal.pdf
 save_heatmap_both_orientations <- function(mat, row_annot, col_annot, ann_colors,
                                            name, width = 8, height = 10,
-                                           total_annot_cm = 1.5, ...) {
-  pdir_png <- panel_plot_dir(name, "png")
-  pdir_pdf <- panel_plot_dir(name, "pdf")
+                                           total_annot_cm = 1.5, subdir = NULL, ...) {
+  pdir_png <- panel_plot_dir(name, "png", subdir = subdir)
+  pdir_pdf <- panel_plot_dir(name, "pdf", subdir = subdir)
 
   # --- Vertical (standard) ---
   save_heatmap_fixed_annot(
@@ -346,9 +392,15 @@ save_heatmap_both_orientations <- function(mat, row_annot, col_annot, ann_colors
 }
 
 # -- Save plot helper ------------------------------------------------------
-save_fig6_plot <- function(plot_obj, name, width = 10, height = 8) {
-  pdir_png <- panel_plot_dir(name, "png")
-  pdir_pdf <- panel_plot_dir(name, "pdf")
+save_fig6_plot <- function(plot_obj, name, width = 10, height = 8, subdir = NULL) {
+  pdir_png <- panel_plot_dir(name, "png", subdir = subdir)
+  pdir_pdf <- panel_plot_dir(name, "pdf", subdir = subdir)
+
+  # Apply publication theme if pub_mode is on
+  if (pub_mode) {
+    plot_obj <- plot_obj + theme_pub()
+  }
+
   ggsave(file.path(pdir_png, paste0(name, ".png")),
          plot = plot_obj, width = width, height = height, dpi = 300)
   ggsave(file.path(pdir_pdf, paste0(name, ".pdf")),

@@ -1,0 +1,15 @@
+[DEPRECATED] PANEL M extension: AN05B035-attributed inhibition on ppk23 AND ppk25
+=================================================================================
+
+This figure is a 2-category subset of the primary panel_M_inhibitory_sources
+figure (AN05B035 vs not-via-AN05B035 only). Retained for reproducibility.
+
+KEY NUMBERS
+-----------
+  Mean %  AN05B035-attributable inhibition (ppk23):  24.8 %
+  Mean %  AN05B035-attributable inhibition (ppk25):  22.9 %
+  Median % (ppk23):                                  23.7 %
+  Median % (ppk25):                                  22.3 %
+  Inhibitory paths (ppk23+ppk25, mAL_m targets):      9177
+  Of those via AN05B035:                              1313 (14.3 %)
+

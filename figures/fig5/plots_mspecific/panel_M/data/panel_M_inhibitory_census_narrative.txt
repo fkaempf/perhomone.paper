@@ -1,0 +1,22 @@
+Panel M: ppk23/ppk25 inhibitory path census
+============================================
+131 unique cell types appear as interior nodes on inhibitory
+ppk23 / ppk25 -> mAL_m paths. 11 of them are in the GABA sign-inverter
+pool: AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b.
+
+Pool contribution per channel:
+  ppk23: 29% of inhibitory path strength, 26% of path instances
+  ppk25: 31% of inhibitory path strength, 25% of path instances
+
+Remaining non-SI types on these paths are either (a) other GABA cells that
+did not make the pool (e.g. local mAL-lateral GABA, non-AN05B/IN05
+classes), or (b) excitatory passthrough nodes -- inhibition on those paths
+is still contributed by an SI pool member elsewhere in the chain.
+
+Top 5 by combined total path strength (ppk23 + ppk25):
+  AN05B035        strength=0.227  n_paths=1313  role=GABA sign-inverter (pool)
+  AN09B017a       strength=0.186  n_paths=1499  role=passthrough (glutamate)
+  AN09B017g       strength=0.186  n_paths=2137  role=passthrough (glutamate)
+  mAL_m1          strength=0.148  n_paths=929  role=GABA (not in SI pool)
+  AN09B017b       strength=0.118  n_paths=679  role=passthrough (glutamate)
+

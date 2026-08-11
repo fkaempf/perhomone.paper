@@ -1,0 +1,373 @@
+---
+title: "Panel M: Example ppk25 -> mAL path traces (GABA sign-inverter pool, F-cell channel)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(ggrepel)
+```
+
+## Goal
+
+F-cell (ppk25, female contact pheromone) counterpart of `M9_example_traces`.
+Same construction as the ppk23 panel but drawn from `mal_paths` filtered on
+`modality == "ppk25"`. Three illustrative male-specific mAL subtypes are
+chosen to span the ppk25 GABA-sign-inverter-routing axis:
+
+- highest GABA SI fraction (most ppk25-inhibited),
+- balanced (near-median fraction),
+- lowest GABA SI fraction (most ppk25-excited).
+
+For each, the top 10 strongest ppk25 -> mAL paths are drawn as a small
+layered network. Edge color encodes route (red = direct/other relay;
+blue = passes through any member of the GABA sign-inverter pool). Edge
+width scales with path strength.
+
+## Per-subtype stats: GABA SI fraction and ppk25 E/I balance
+
+```{r subtype-stats}
+ppk25_paths <- mal_paths %>%
+  filter(modality == "ppk25", end %in% mal_subtypes) %>%
+  mutate(
+    nodes_list  = strsplit(path, " -> ", fixed = TRUE),
+    via_gaba_si = vapply(nodes_list,
+                         function(x) any(x %in% gaba_sign_inverter_types),
+                         logical(1))
+  )
+
+subtype_stats <- ppk25_paths %>%
+  group_by(end) %>%
+  summarise(
+    total_strength   = sum(strength, na.rm = TRUE),
+    gaba_si_strength = sum(strength[via_gaba_si], na.rm = TRUE),
+    gaba_si_fraction = ifelse(total_strength > 0, gaba_si_strength / total_strength, 0),
+    n_paths          = n(),
+    .groups = "drop"
+  )
+
+exc <- mal_strength_exc[mal_subtypes, "ppk25"]
+inh <- mal_strength_inh[mal_subtypes, "ppk25"]
+ei_df <- tibble(
+  end = mal_subtypes,
+  exc = exc,
+  inh = inh,
+  ei_balance = ifelse(exc + inh > 0, (exc - inh) / (exc + inh), 0)
+)
+
+stats_df <- subtype_stats %>%
+  left_join(ei_df, by = "end") %>%
+  filter(n_paths >= 5, total_strength > 0) %>%
+  arrange(ei_balance)
+
+print(stats_df)
+```
+
+## Pick three illustrative subtypes
+
+```{r pick-examples}
+sub_inh <- stats_df %>% arrange(desc(gaba_si_fraction)) %>% slice(1) %>% pull(end)
+sub_exc <- stats_df %>% arrange(gaba_si_fraction)       %>% slice(1) %>% pull(end)
+
+med_frac <- median(stats_df$gaba_si_fraction)
+sub_bal <- stats_df %>%
+  filter(!end %in% c(sub_inh, sub_exc)) %>%
+  mutate(d = abs(gaba_si_fraction - med_frac)) %>%
+  arrange(d) %>%
+  slice(1) %>% pull(end)
+
+chosen <- c(sub_inh, sub_bal, sub_exc)
+cat("Chosen example subtypes (ppk25 channel):\n")
+print(stats_df %>% filter(end %in% chosen) %>%
+        mutate(role = case_when(
+          end == sub_inh ~ "most ppk25-inhibited (highest GABA SI fraction)",
+          end == sub_exc ~ "most ppk25-excited (lowest GABA SI fraction)",
+          TRUE           ~ "balanced (near-median GABA SI fraction)"
+        )) %>% arrange(desc(gaba_si_fraction)))
+```
+
+## Build path-trace data for one subtype
+
+```{r build-trace-fn}
+build_trace <- function(subtype, topk = 10) {
+  sub_paths <- ppk25_paths %>%
+    filter(end == subtype) %>%
+    arrange(desc(strength)) %>%
+    slice_head(n = topk) %>%
+    mutate(path_id = row_number())
+
+  if (nrow(sub_paths) == 0) return(list(edges = NULL, nodes = NULL, paths = sub_paths))
+
+  max_hops <- max(vapply(sub_paths$nodes_list, length, integer(1)))
+
+  node_long <- purrr::imap_dfr(sub_paths$nodes_list, function(nodes, i) {
+    tibble(
+      path_id = sub_paths$path_id[i],
+      hop     = seq_along(nodes),
+      node    = nodes
+    )
+  })
+
+  # Canonical hop per unique node: most common hop across top-K paths,
+  # ties broken by smallest hop -> each node appears at exactly one (x, y).
+  node_hop_counts <- node_long %>%
+    count(node, hop, name = "n_at_hop")
+
+  canonical_hop <- node_hop_counts %>%
+    group_by(node) %>%
+    arrange(desc(n_at_hop), hop, .by_group = TRUE) %>%
+    slice(1) %>%
+    ungroup() %>%
+    select(node, hop)
+
+  node_freq <- node_long %>%
+    distinct(path_id, node) %>%
+    count(node, name = "n_paths_with_node")
+
+  node_layout <- canonical_hop %>%
+    left_join(node_freq, by = "node") %>%
+    group_by(hop) %>%
+    arrange(desc(n_paths_with_node), node, .by_group = TRUE) %>%
+    mutate(
+      n_in_hop = n(),
+      y_rank   = row_number(),
+      y_pos    = {
+        k <- y_rank
+        sgn <- ifelse(k %% 2 == 0, 1, -1)
+        mag <- ceiling((k - 1) / 2)
+        sgn * mag
+      }
+    ) %>%
+    ungroup() %>%
+    mutate(x_pos = hop - 1) %>%
+    select(hop, node, x_pos, y_pos, n_paths_with_node)
+
+  node_layout <- node_layout %>%
+    group_by(hop) %>%
+    mutate(
+      y_max = max(abs(y_pos)),
+      y_pos = if_else(y_max > 0, y_pos / y_max, 0)
+    ) %>%
+    ungroup() %>%
+    select(-y_max)
+
+  edges <- purrr::map_dfr(seq_len(nrow(sub_paths)), function(i) {
+    nodes <- sub_paths$nodes_list[[i]]
+    if (length(nodes) < 2) return(tibble())
+    from_nodes <- nodes[-length(nodes)]
+    to_nodes   <- nodes[-1]
+    via_gaba <- sub_paths$via_gaba_si[i]
+
+    tibble(
+      path_id  = sub_paths$path_id[i],
+      strength = sub_paths$strength[i],
+      from     = from_nodes,
+      to       = to_nodes,
+      route    = factor(if_else(via_gaba, "via GABA sign-inverter", "direct / other relay"),
+                        levels = c("direct / other relay", "via GABA sign-inverter"))
+    )
+  })
+
+  # Join canonical layout by node identity (not per-path hop)
+  node_coords <- node_layout %>% select(node, x_pos, y_pos)
+  edges <- edges %>%
+    left_join(node_coords %>% rename(x = x_pos, y = y_pos),
+              by = c("from" = "node")) %>%
+    left_join(node_coords %>% rename(xend = x_pos, yend = y_pos),
+              by = c("to" = "node"))
+
+  list(edges = edges, nodes = node_layout, paths = sub_paths, max_hops = max_hops)
+}
+```
+
+## Plotting helper
+
+```{r plot-fn}
+short_label <- function(x) {
+  out <- sub("ORN_", "", x)
+  out <- ifelse(nchar(out) > 12, paste0(substr(out, 1, 11), "..."), out)
+  out
+}
+
+route_colors <- c(
+  "direct / other relay"   = "#C0272D",
+  "via GABA sign-inverter" = "#1F4E79"
+)
+
+plot_trace <- function(trace, subtype, ei_balance, gaba_si_fraction) {
+  edges <- trace$edges
+  nodes <- trace$nodes
+  max_hops <- trace$max_hops
+
+  title_lab <- sprintf(
+    "%s  \u2014  ppk25 E/I = %+.2f, GABA SI frac = %.0f%%",
+    subtype, ei_balance, 100 * gaba_si_fraction
+  )
+
+  nodes <- nodes %>% mutate(size_pt = 4 + 1.6 * sqrt(n_paths_with_node))
+
+  if (nrow(edges) > 0) {
+    s_med <- stats::median(edges$strength, na.rm = TRUE)
+    edges <- edges %>%
+      mutate(lw = ifelse(strength >= s_med, 1.8, 0.8))
+  }
+
+  p <- ggplot() +
+    {
+      if (!is.null(edges) && nrow(edges) > 0) {
+        geom_segment(
+          data = edges,
+          aes(x = x, y = y, xend = xend, yend = yend, color = route),
+          linewidth = edges$lw, alpha = 0.75, lineend = "round"
+        )
+      }
+    } +
+    geom_point(
+      data = nodes,
+      aes(x = x_pos, y = y_pos, size = size_pt),
+      color = "grey25", fill = "white", shape = 21, stroke = 0.4
+    ) +
+    geom_text_repel(
+      data = nodes,
+      aes(x = x_pos, y = y_pos, label = short_label(node)),
+      size = 3.2, min.segment.length = 0, seed = 1,
+      segment.size = 0.25, max.overlaps = Inf,
+      box.padding = 0.45, point.padding = 0.25,
+      force = 2
+    ) +
+    scale_color_manual(values = route_colors, name = "Route", drop = FALSE) +
+    scale_size_identity() +
+    scale_x_continuous(
+      breaks = 0:(max_hops - 1),
+      labels = c("ppk25 source",
+                 paste("hop", seq_len(max_hops - 2)),
+                 "mAL target")[1:max_hops],
+      expand = expansion(add = 0.25)
+    ) +
+    scale_y_continuous(expand = expansion(add = 0.55)) +
+    labs(x = NULL, y = NULL, title = title_lab) +
+    theme_pub(base_size = 10) +
+    theme(
+      plot.title     = element_text(size = rel(1), face = "bold", hjust = 0.5),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor   = element_blank(),
+      axis.text.y    = element_blank(),
+      axis.text.x    = element_text(size = rel(0.9)),
+      legend.position = "bottom"
+    )
+
+  p
+}
+```
+
+## Build the three sub-plots
+
+```{r build-plots, fig.width=16, fig.height=6}
+subtype_roles <- list(
+  list(subtype = sub_inh, role = "(a) Most GABA-SI-routed (ppk25-inhibited)"),
+  list(subtype = sub_bal, role = "(b) Balanced (near-median GABA-SI fraction)"),
+  list(subtype = sub_exc, role = "(c) Least GABA-SI-routed (ppk25-excited)")
+)
+seen <- c()
+subtype_roles <- Filter(function(x) {
+  keep <- !(x$subtype %in% seen)
+  if (keep) seen <<- c(seen, x$subtype)
+  keep
+}, subtype_roles)
+
+stats_df_lookup <- stats_df
+
+plots <- lapply(subtype_roles, function(info) {
+  subtype <- info$subtype
+  st <- stats_df_lookup %>% filter(end == subtype)
+  tr <- build_trace(subtype, topk = 10)
+  p <- plot_trace(tr, subtype,
+                  ei_balance = st$ei_balance,
+                  gaba_si_fraction = st$gaba_si_fraction)
+  p + labs(subtitle = info$role) +
+    theme(plot.subtitle = element_text(size = rel(0.95), face = "italic",
+                                       hjust = 0.5, color = "grey30"))
+})
+
+p_combined <- wrap_plots(plots, nrow = 1, guides = "collect") +
+  plot_annotation(
+    title    = "ppk25 (female contact) channel: GABA sign-inverter (blue) vs direct (red) routes",
+    subtitle = "Top-10 ppk25 \u2192 mAL paths for three example male-specific mAL subtypes spanning the E/I axis.",
+    theme = theme(
+      plot.title    = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.subtitle = element_text(size = 10, color = "grey25", hjust = 0.5)
+    )
+  ) & theme(legend.position = "bottom")
+
+print(p_combined)
+```
+
+## Save outputs
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M_example_traces_ppk25", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+png_dir <- panel_plot_dir("panel_M_example_traces_ppk25", "png")
+
+ggsave(file.path(pdf_dir, "panel_M_example_traces_ppk25.pdf"),
+       plot = p_combined, width = 16, height = 6)
+ggsave(file.path(png_dir, "panel_M_example_traces_ppk25.png"),
+       plot = p_combined, width = 16, height = 6, dpi = 300)
+
+trace_tables <- purrr::imap_dfr(subtype_roles, function(info, .) {
+  tr <- build_trace(info$subtype, topk = 10)
+  if (is.null(tr$edges)) return(tibble())
+  tr$edges %>% mutate(subtype = info$subtype, role = info$role)
+})
+write.csv(trace_tables,
+          file.path(data_dir, "panel_M_example_traces_ppk25_edges.csv"),
+          row.names = FALSE)
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+row_inh <- stats_df_lookup %>% filter(end == sub_inh)
+row_bal <- stats_df_lookup %>% filter(end == sub_bal)
+row_exc <- stats_df_lookup %>% filter(end == sub_exc)
+
+narrative <- sprintf(
+"PANEL M: Example ppk25 -> mAL path traces (F-cell channel, GABA sign-inverter pool)
+==============================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+F-cell counterpart of the ppk23 example traces. For three mAL_m subtypes we
+draw the top 10 strongest ppk25 -> mAL paths. Nodes are placed at their
+canonical hop level along x (ppk25 source left, mAL target right); each
+unique node appears at exactly ONE (x, y) (canonical hop = most common hop
+across top-K paths). Edges are colored by route: red = path does NOT
+traverse any GABA sign-inverter; blue = path passes through at least one
+member of the GABA sign-inverter pool (%s). Edge width scales with path
+strength; node size scales with how many of the top-10 paths pass through
+that node.
+
+CHOSEN EXAMPLES
+---------------
+* Most ppk25-INHIBITED:  %s  (E/I = %+.2f, GABA SI fraction = %.0f%%)
+* Balanced:              %s  (E/I = %+.2f, GABA SI fraction = %.0f%%)
+* Most ppk25-EXCITED:    %s  (E/I = %+.2f, GABA SI fraction = %.0f%%)
+
+INTERPRETATION
+--------------
+Together with the ppk23 traces, this panel shows that the GABA sign-inverter
+pool sits on the sign-inverting route for BOTH pheromone channels. The
+per-subtype distribution of GABA-SI routing differs between ppk23 and ppk25,
+which is what produces the channel-specific E/I asymmetries summarized in
+panels C and E.
+",
+paste(gaba_sign_inverter_types, collapse = ", "),
+row_inh$end, row_inh$ei_balance, 100 * row_inh$gaba_si_fraction,
+row_bal$end, row_bal$ei_balance, 100 * row_bal$gaba_si_fraction,
+row_exc$end, row_exc$ei_balance, 100 * row_exc$gaba_si_fraction
+)
+
+writeLines(narrative, file.path(data_dir, "panel_M_example_traces_ppk25_narrative.txt"))
+cat(narrative)
+```

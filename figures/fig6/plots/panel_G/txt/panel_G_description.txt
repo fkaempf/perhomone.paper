@@ -1,0 +1,7 @@
+Panel G: Shared Intermediate Nodes — Identifies hidden integration hubs: intermediate neurons that appear in the strongest paths from multiple sensory modalities. Ranks intermediates by total path strength and Shannon entropy, shows modality strength heatmaps, source vs. target diversity scatter, and co-innervation analysis. AN neurons (AN09B017, AN05B102 and variants) are excluded.
+
+______________________________
+
+Figure legend:
+
+(G) Intermediate integration hubs shared across modalities. Neurons appearing in strongest paths from multiple sensory modalities are ranked by total path strength and Shannon entropy. Heatmaps show per-modality strength profiles; scatter plots display source diversity vs. target diversity, identifying convergence-divergence hubs.

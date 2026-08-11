@@ -1,0 +1,7 @@
+Panel E: Modality Co-occurrence / Correlation — Examines which sensory modality pairs tend to co-target the same downstream neurons. Pairwise Pearson and Spearman correlations between modality strength vectors are shown as heatmaps and a network graph. High correlation = shared targeting; negative correlation = mutual exclusivity.
+
+______________________________
+
+Figure legend:
+
+(E) Pairwise modality co-occurrence analysis. Pearson and Spearman correlation heatmaps quantify the tendency of modality pairs to co-target the same neurons. Network graph visualizes significant positive correlations as edges, with edge width proportional to correlation strength.

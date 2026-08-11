@@ -1,0 +1,17 @@
+Agent 02 Findings: P1 subtype classification by canonical descending-neuron output
+=====================================================================
+
+All 45/45 P1 subtypes were analyzed from the input-normalized type-level adjacency matrix (entries = fraction of post's total inputs supplied by the P1 type). Per-P1 top-20 downstream targets: p1_top20_downstream.csv.
+
+DN availability in MCNS v0.9: Courtship DNs matched (16): DNa01, DNp24, pIP10, vMS11, vMS12_a, vMS12_b, vMS12_c, vMS12_d, vMS12_e, vMS13, vMS16, vMS17, vPR6, vPR9_a, vPR9_b, vPR9_c. ABSENT as exact labels: pMP4, vPR13, vPR16, DNp02b, DN_p (vPR9 present only as vPR9_a/b/c; vMS11-17 included as song-circuit). Aggression DNs matched (23): aIPg1-10, aIPg_m1-m4, pC1x_a-d, aSP10A/B/C, aSP22. ABSENT: aDT8.
+
+Top courtship-DN output: P1_14a (0.029), P1_5b, P1_7b, P1_19, P1_7a.
+Top aggression-DN output (incl. pC1x): P1_9a (0.167), P1_18b, P1_7a, P1_4a, P1_7b.
+Top aggression-DN output STRICT (pC1x excluded, aIPg/aSP only): P1_9a, P1_4a, P1_7a.
+
+Magnitude of asymmetry: max courtship score = 0.029; max aggression = 0.167; max aggression-strict = 0.167. Aggression-DN output dominates across the P1 population by roughly an order of magnitude. No P1 is courtship>aggression under the liberal scoring; the least aggressive are P1_13a (asym -0.10) and P1_14b (-0.28). Under strict scoring, P1_14b and P1_18b flip to courtship-biased, and P1_14a becomes balanced.
+
+Pure-aggression (zero output to matched courtship-DNs): P1_10a/c/d, P1_11a, P1_12a/b, P1_13c, P1_17b, P1_18a, P1_1a/b, P1_2a/2b, P1_2b/c, P1_3a/b/c, P1_4a/b, P1_6b, P1_8b/c, P1_9a/b.
+
+Confidence & caveats: (1) pC1 in MCNS is labeled pC1x_* and is a P1-downstream integrator rather than a pure DN - including it inflates aggression scores, hence both raw and strict versions are reported. (2) Several canonical song DNs (pMP4, vPR13/16, DNp02b) lack exact MCNS labels, likely undercounting courtship output. (3) aDT8 is absent; 'Tk'/Tachykinin and 'fight' text searches returned nothing. (4) Scores depend on each DN's total input count, so absolute magnitudes are comparable across P1s but not across DNs. (5) Classification thresholds (|asym|>=0.3) are heuristic. Overall interpretation: the matched DN panel is biased toward aggression-/social-integrator labels in MCNS, so this analysis more cleanly ranks P1s along an aggression axis; candidate courtship-leaning P1s are P1_14a, P1_14b, P1_5b, P1_19, P1_13a pending inclusion of pMP4/DNp02b once those labels exist.
+

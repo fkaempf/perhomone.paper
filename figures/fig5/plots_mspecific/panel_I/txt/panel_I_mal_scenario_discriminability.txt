@@ -1,0 +1,24 @@
+mAL scenario-discriminability (P1-style)
+=========================================
+For each of 16 mAL subtypes the signal-flow drive (mal_all_combos$net_input)
+under three encounter scenarios was extracted; spread = max-min across scenarios.
+
+Top 10 most-discriminating mAL subtypes (by spread):
+  mAL_m3c      spread=0.0830  best=cVA + female (cVA+ppk25)  worst=Female (ppk25)
+  mAL_m3a      spread=0.0810  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m5a      spread=0.0667  best=Female (ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m1       spread=0.0637  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m3b      spread=0.0453  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m2a      spread=0.0406  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m4       spread=0.0393  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m2b      spread=0.0335  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m9       spread=0.0331  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+  mAL_m5c      spread=0.0206  best=cVA + female (cVA+ppk25)  worst=cVA + male (cVA+ppk23)
+
+Best-predicted scenario across all mAL subtypes (argmax-of-drive count):
+  Female (ppk25): 1
+  cVA + male (cVA+ppk23): 1
+  cVA + female (cVA+ppk25): 14
+
+Plots saved to plots*/panel_I/{png,pdf}/panel_I_mal_scenario_{spread_bar, spread_scatter, trajectories, discriminability}.
+

@@ -1,0 +1,32 @@
+Panel A supplement -- path-count confound checks
+=================================================
+
+Top-50 fraction per modality (Diagnostic 0):
+  DA1: 1.000 (mean n per pair 50)
+  VA1d: 1.000 (mean n per pair 50)
+  VA1v: 1.000 (mean n per pair 50)
+  auditory: 1.000 (mean n per pair 50)
+  ppk23: 0.769 (mean n per pair 500)
+  ppk25: 0.762 (mean n per pair 500)
+  visual: 0.790 (mean n per pair 350)
+
+Interpretation thresholds:
+  > 0.9  head-dominant -- count inflation is cosmetic.
+  0.7-0.9  partial inflation -- consider reporting Check 1 or 4 alongside.
+  < 0.7  tail-substantial -- raw panel A is leaning on redundant sampling.
+
+Heatmaps produced (all in plots/panel_A/supp/):
+  - panel_A_supp_check1_top50_per_pair            (equal K across modalities)
+  - panel_A_supp_check2_per_source_neuron         (divide by n sensory sources)
+  - panel_A_supp_check3_per_total_paths           (divide by total paths / modality)
+  - panel_A_supp_check4_mean_path_strength        (per-pair mean strength)
+
+Cross-method comparison bar plot:
+  - panel_A_supp_method_comparison
+
+If all four checks preserve the same qualitative pattern (same clustering groups,
+same sign pattern for ppk23 sign reversal, same dominance of ppk25 in the
+male-specific ensemble), the raw panel A is robust. If Check 1 or 4 reshuffles
+the story, the methods section should use the corresponding normalized variant
+(or show both).
+

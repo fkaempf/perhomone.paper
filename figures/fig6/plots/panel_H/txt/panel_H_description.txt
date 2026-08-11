@@ -1,0 +1,7 @@
+Panel H: Spotlight Integration Nodes — For each of 5 target sets (aSP-f, aSP-g, vAB3, PPN1, vAB3+PPN1), identifies the best multimodal integrator (highest entropy, >= 3 modalities). Radar plots show modality input profiles; valence radars overlay excitatory and inhibitory contributions; stacked bars show absolute and proportional modality breakdown.
+
+______________________________
+
+Figure legend:
+
+(H) Best multimodal integrator per target set. For each target set, the neuron with the highest Shannon entropy across modalities is spotlighted. Radar plots show normalized modality profiles; excitatory (solid blue) and inhibitory (dashed red) contributions are overlaid; stacked bars display absolute and proportional modality composition.

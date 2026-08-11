@@ -1,0 +1,225 @@
+---
+title: "Panel M (PRIMARY): inhibitory source attribution (GABA sign-inverter pool vs mAL lateral vs other)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(ggplot2); library(dplyr); library(tidyr); library(patchwork)
+```
+
+## Status
+
+**PRIMARY inhibition-attribution figure for Panel M.**
+Two sibling figures (`panel_M_E_inhibition_attribution`,
+`panel_M_an05b035_fraction_bar`) have been marked deprecated -- they are
+strict subsets of this decomposition. The remaining
+sibling (`panel_M_an05_share_per_channel`) is kept as a supplementary
+absolute-strength view.
+
+## What this is
+
+Panel M's central summary: ppk23 and ppk25 inhibition onto male-specific
+mAL_m subtypes comes from TWO main sources Panel M focuses on:
+
+1. **GABA sign-inverter pool** -- a distributed pool of 11 ascending/interneuron
+   GABA relay types (AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a,
+   IN05B002, IN05B011a, IN05B011b). These are the cell types defined in
+   `gaba_sign_inverter_types` (see `setup_mspecific.R`). Any inhibitory path
+   whose interior passes through one of these types is attributed here.
+2. **mAL lateral** -- mAL<->mAL GABA inhibition (covered in detail in Panel G).
+
+One additional category is shown for completeness:
+- **other** -- paths that reach the target via an unclassified GABA node,
+  i.e. neither category 1 nor 2 was present. Kept dim to emphasise sources 1+2.
+
+## Shared palette (used by all four panel_M inhibition-attribution figures)
+
+```{r palette}
+# Canonical palette -- identical across panel_M_inhibitory_sources,
+# panel_M_E_inhibition_attribution (deprecated), panel_M_an05_share_per_channel,
+# and panel_M_an05b035_fraction_bar (deprecated).
+pal_inh <- c(
+  "GABA sign-inverter" = "#1F4E79",  # deep blue = pool of GABA sign-inverters
+  "mAL lateral"        = "grey55",   # grey = covered elsewhere (panel G)
+  "other"              = "grey85"    # very dim = unclassified GABA
+)
+
+source_levels <- c("GABA sign-inverter", "mAL lateral", "other")
+
+# Informative facet labels (Pass 8)
+channel_labeller <- as_labeller(c(
+  "ppk23" = "ppk23 channel (male contact pheromone)",
+  "ppk25" = "ppk25 channel (female contact pheromone)"
+))
+```
+
+## Classify paths
+
+```{r classify}
+inh_paths <- mal_paths %>%
+  filter(valence == "inhibitory",
+         modality %in% c("ppk23", "ppk25"),
+         end %in% mal_subtypes)
+
+nt_lookup <- mba %>% select(type, consensus_nt) %>% distinct() %>%
+  group_by(type) %>% slice(1) %>% ungroup()
+
+classify_relay <- function(node, nt) {
+  if (node %in% gaba_sign_inverter_types) return("GABA sign-inverter")
+  if (grepl("^mAL", node) && !is.na(nt) && nt == "gaba")
+    return("mAL lateral")
+  return("other")
+}
+
+path_source_weight <- function(path) {
+  toks <- strsplit(path, " -> ", fixed = TRUE)[[1]]
+  if (length(toks) <= 2) return(NULL)
+  ints <- toks[-c(1, length(toks))]
+  nts  <- nt_lookup$consensus_nt[match(ints, nt_lookup$type)]
+  cats <- mapply(classify_relay, ints, nts)
+  cats <- setdiff(unique(cats), "other")
+  if (length(cats) == 0) cats <- "other"
+  cats
+}
+
+inh_attrib <- inh_paths %>%
+  rowwise() %>%
+  mutate(cats = list(path_source_weight(path))) %>%
+  ungroup()
+
+attrib_long <- inh_attrib %>%
+  mutate(n_cats = lengths(cats)) %>%
+  tidyr::unnest(cats) %>%
+  rename(source = cats) %>%
+  mutate(contrib = strength / n_cats)
+
+agg <- attrib_long %>%
+  group_by(end, modality, source) %>%
+  summarise(val = sum(contrib), .groups = "drop")
+
+total_by_cell <- agg %>% group_by(end, modality) %>%
+  summarise(tot = sum(val), .groups = "drop")
+agg <- agg %>% left_join(total_by_cell, by = c("end", "modality")) %>%
+  mutate(share = val / tot)
+
+# Pass 2: sort mAL rows by GABA sign-inverter share (descending)
+sort_order <- agg %>%
+  filter(source == "GABA sign-inverter") %>%
+  group_by(end) %>% summarise(s = sum(share)) %>%
+  arrange(desc(s)) %>% pull(end)
+# Any mALs missing from the GABA SI slice get appended at the bottom
+sort_order <- c(sort_order, setdiff(mal_subtypes, sort_order))
+agg$end <- factor(agg$end, levels = rev(sort_order))  # top = highest GABA SI share
+
+agg$source <- factor(agg$source, levels = source_levels)
+
+global_means <- agg %>% group_by(modality, source) %>%
+  summarise(mean_share = mean(share) * 100, .groups = "drop")
+cat("Mean share (% of inhibitory drive) per source, per channel:\n")
+print(global_means %>% pivot_wider(names_from = modality, values_from = mean_share))
+
+# Export shared sort order for supplementary figures (Pass 2 consistency)
+saveRDS(sort_order,
+        file.path(fig5_dir, "plots_mspecific", "panel_M",
+                  "panel_M_mal_sort_order.rds"))
+```
+
+## Plot
+
+```{r plot, fig.width=15, fig.height=9}
+# Pass 3: percentage labels inside segments > 8% only
+agg <- agg %>% mutate(
+  lbl = ifelse(share > 0.08,
+               sprintf("%.0f%%", share * 100),
+               ""),
+  lbl_col = ifelse(source %in% c("GABA sign-inverter"), "white", "grey15")
+)
+
+p_bars <- ggplot(agg, aes(x = share, y = end, fill = source)) +
+  geom_col(position = "stack", width = 0.82) +
+  geom_text(aes(label = lbl, color = lbl_col),
+            position = position_stack(vjust = 0.5),
+            size = 3, family = "sans", show.legend = FALSE) +
+  scale_color_identity() +
+  facet_wrap(~ modality, nrow = 1, labeller = channel_labeller) +
+  scale_fill_manual(values = pal_inh, breaks = source_levels) +
+  # Pass 6: explicit [0, 100%] x-axis range
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1),
+                     limits = c(0, 1.001),
+                     breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(
+    x = "Share of total inhibitory path strength (per mAL_m subtype, per channel)",
+    y = NULL,
+    fill = "Inhibitory source (GABAergic interior node type)",
+    title = "Where does the inhibition in each ppk23/ppk25 -> mAL_m path come from?",
+    subtitle = paste0(
+      "Each ppk -> mAL_m path tagged as inhibitory (from mal_paths) is attributed by ",
+      "which GABAergic interior node(s) sit on it.\nExcitatory passthrough nodes along the ",
+      "path (e.g. AN09B017 glutamate relays) are NOT shown as a category -- ",
+      "they are part of the path but don't contribute to the sign inversion."
+    )
+  ) +
+  theme_pub(base_size = 12) +
+  theme(
+    # Pass 7: larger mAL subtype labels
+    axis.text.y   = element_text(size = rel(1.15), face = "bold"),
+    axis.text.x   = element_text(angle = 0, hjust = 0.5),
+    strip.text    = element_text(face = "bold", size = rel(1.05)),
+    legend.position = "bottom",
+    plot.title.position = "plot"
+  )
+
+# Footer: sectioned tags for scannability.
+footer_note <- paste(
+  "INPUT: every cached ppk23/ppk25 -> mAL_m path tagged inhibitory (mal_paths valence == \"inhibitory\"); excitatory paths not shown.",
+  panel_M_pool_caption,
+  "CATEGORIES: GABA sign-inverter = pool member; mAL lateral = mAL GABA cell (see Panel G); other = unclassified GABA interior.",
+  "ATTRIBUTION: each inhibitory path split equally (1/k) across the GABAergic interior categories it traverses.",
+  "EXCLUDE: excitatory passthrough nodes (ACh, Glu; e.g. AN09B017) are part of the path but not counted as inhibitory sources.",
+  "CAVEAT: equal-split attribution is descriptive; no sensitivity analysis, not a claim about biological weighting.",
+  sep = "\n"
+)
+
+# Attach the footer as a proper plot caption so there is no secondary
+# coordinate system rendered underneath the bars.
+p <- p_bars +
+  plot_annotation(caption = footer_note,
+                  theme = theme(plot.caption = element_text(
+                    hjust = 0, size = 9, color = "grey25",
+                    lineheight = 1.15, margin = margin(t = 10))))
+
+save_fig5_plot(p, "panel_M_inhibitory_sources", width = 15, height = 9)
+print(p)
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+sum_tab <- global_means %>%
+  pivot_wider(names_from = modality, values_from = mean_share)
+
+narrative <- paste0(
+"PANEL M (PRIMARY): inhibitory source attribution\n",
+"=================================================\n\n",
+"For every male-specific mAL_m subtype and each of ppk23 / ppk25, every\n",
+"cached inhibitory path is classified by the first relay category it\n",
+"passes through:\n",
+"  1. GABA sign-inverter pool (11 AN05B/IN05 GABA relay types:\n",
+"     AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a,\n",
+"     IN05B002, IN05B011a, IN05B011b)\n",
+"  2. mAL lateral (mAL <-> mAL GABA)\n",
+"  3. other (unclassified GABA node; not in 1-2)\n",
+"Paths crossing multiple categories are split equally across the categories\n",
+"they touch (fractional attribution). Rows are sorted by GABA sign-inverter share.\n\n",
+"Mean share of inhibitory drive (across ", length(mal_subtypes), " mAL_m subtypes):\n",
+paste0(sprintf("  %-20s  ppk23 = %5.1f%%  |  ppk25 = %5.1f%%",
+               sum_tab$source, sum_tab$ppk23, sum_tab$ppk25),
+       collapse = "\n"),
+"\n"
+)
+save_panel_narrative("panel_M_inhibitory_sources", narrative)
+cat(narrative)
+```

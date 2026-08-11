@@ -50,6 +50,7 @@ library(RCy3)
 library(coconatfly)
 library(fafbseg)
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(neuprintr)
 
 # Statistical/ML

@@ -1,0 +1,7 @@
+Panel I: aSP-f vs. aSP-g Comparison — Directly compares modality input profiles between aSP-f and aSP-g neuron populations. Includes paired bar charts, radar overlays, butterfly divergence plots, entropy boxplots, modality scatter (aSP-f mean vs. aSP-g mean), and valence-split versions of all comparisons.
+
+______________________________
+
+Figure legend:
+
+(I) Comparison of modality input to aSP-f vs. aSP-g populations. Paired bar charts and radar overlays compare mean normalized strength profiles. Scatter plots correlate per-modality mean strengths between the two target sets. Boxplots compare Shannon entropy distributions. All analyses are repeated separately for excitatory and inhibitory inputs.

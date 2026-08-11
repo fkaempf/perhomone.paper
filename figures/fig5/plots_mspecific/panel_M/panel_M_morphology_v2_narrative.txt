@@ -1,0 +1,55 @@
+PANEL M v2: AN05B035 (example GABA sign-inverter) morphology with ppk23/ppk25 channel-resolved synapses
+=========================================================================================================
+
+FRAMING
+-------
+AN05B035 is shown here as an EXAMPLE GABA sign-inverter, not as THE canonical
+sign-inverter. It is the highest-throughput member of an 11-cell pool
+(AN05B021, AN05B023a, AN05B023b, AN05B023c, AN05B023d, AN05B025, AN05B035,
+AN05B050_a, IN05B002, IN05B011a, IN05B011b) that collectively carries the
+GABAergic sign inversion from ppk23/ppk25 contact sensilla to mAL_m targets.
+Because morphology intrinsically shows a single neuron's actual skeleton,
+this figure renders AN05B035 alone, as a representative case.
+
+WHAT THIS PANEL SHOWS
+---------------------
+Four 2D projections of the AN05B035 skeleton (bodyids 18696, 27346, 800035, 38322, 805770, 800320, 18324, 59387, 114184, 46466, 200336, 517601, 801269, 17492, 800040, 807376, 18627, 18430, 520195, 23513, 910810, 100234). Top row: input
+synapses. Bottom row: output synapses. Left column: frontal (XY) view.
+Right column: dorsal (XZ) view.
+
+Each synapse is coloured by one of 5+1 discrete categories (not a blended
+bias gradient):
+  ppk23-sensillum      : partner type in channel_neurons$ppk23
+  ppk25-sensillum      : partner type in channel_neurons$ppk25
+  relay-ppk23          : AN09B017 variant with log2(ppk23/ppk25) > 1
+  relay-ppk25          : AN09B017 variant with log2(ppk25/ppk23) > 1
+  mAL_m (ppk23-biased) : output target whose mal_activation_matrix score
+                         is higher for ppk23 than ppk25
+  mAL_m (ppk25-biased) : output target biased to ppk25
+  other                : everything else (interneurons, unlabeled, etc.)
+
+Synapse count by category
+-------------------------
+INPUTS:
+  ppk23 sensillum: 50409
+  ppk25 sensillum: 22959
+  ppk25-biased partner: 171
+  other: 96805
+
+OUTPUTS:
+  ppk23-biased partner: 1566
+  ppk25-biased partner: 1211
+  other: 278239
+
+WHY TWO CHANNELS SEPARATED
+--------------------------
+The previous version compressed ppk23 and ppk25 contributions into one
+red-blue bias score per partner type, which collapsed the two channels
+at partners that received both. Here the direct sensillum channels are
+kept as their own categories and the AN09B017 relay channel is split
+by which contact modality dominates its input, so the reader can see
+on the neuron where each channel terminates independently.
+
+A Neuroglancer URL is saved to
+panel_M_morphology_v2_neuroglancer_url.txt for 3D inspection.
+

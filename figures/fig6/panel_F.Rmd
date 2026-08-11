@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 7
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -32,372 +32,443 @@ routes. We quantify this by computing the number of paths required to
 accumulate 80% of total strength per (target, modality) pair, then visualise
 the distribution across modalities and valence classes.
 
-## 1. Compute cumulative strength and paths-to-80%
+## 1. Define target sets
 
-For each (end neuron, modality) combination, rank paths by descending strength,
-compute the cumulative fraction of total strength, and identify the minimum
-number of paths needed to capture 80% of total strength.
-
-```{r cumulative-strength}
-# ---------------------------------------------------------------------------
-# Rank paths within each (end, modality) group and compute cumulative fraction
-# ---------------------------------------------------------------------------
-cumulative_df <- paths.aspf_aspg %>%
-  filter(!is.na(strength), strength > 0) %>%
-  group_by(end, modality) %>%
-  arrange(desc(strength), .by_group = TRUE) %>%
-  mutate(
-    rank           = row_number(),
-    total_strength = sum(strength),
-    cum_strength   = cumsum(strength),
-    cum_frac       = cum_strength / total_strength
-  ) %>%
-  ungroup()
-
-# ---------------------------------------------------------------------------
-# For each (end, modality), find paths needed to reach 80% of total strength
-# ---------------------------------------------------------------------------
-paths_to_80 <- cumulative_df %>%
-  group_by(end, modality) %>%
-  summarise(
-    n_paths        = n(),
-    total_strength = first(total_strength),
-    paths_to_80pct = min(rank[cum_frac >= 0.80], na.rm = TRUE),
-    .groups        = "drop"
-  ) %>%
-  # If all paths together still < 80% (rare edge case), set to total n_paths
-
-  mutate(
-    paths_to_80pct = ifelse(is.infinite(paths_to_80pct), n_paths, paths_to_80pct)
-  )
-
-# Enforce modality ordering
-paths_to_80 <- paths_to_80 %>%
-  mutate(modality = factor(modality, levels = modality_order))
+```{r define-path-sets}
+path_sets <- list(
+  aspf_aspg   = list(paths = paths.aspf_aspg,
+                     label = "aSP-f/aSP-g", suffix = "aspf_aspg"),
+  vab3_ppn1   = list(paths = bind_rows(paths.vab3, paths.ppn1),
+                     label = "vAB3+PPN1",   suffix = "vab3_ppn1"),
+  all_targets = list(paths = paths.all,
+                     label = "All targets",  suffix = "all_targets")
+)
 ```
 
-## 2. Summary statistics by modality
+## 2. Path diversity analysis for each target set
 
-```{r summary-stats}
-# ---------------------------------------------------------------------------
-# Mean, median, and SE of paths_to_80pct per modality
-# ---------------------------------------------------------------------------
-summary_80 <- paths_to_80 %>%
-  group_by(modality) %>%
-  summarise(
-    n_targets   = n(),
-    mean_p80    = mean(paths_to_80pct),
-    median_p80  = median(paths_to_80pct),
-    sd_p80      = sd(paths_to_80pct),
-    se_p80      = sd(paths_to_80pct) / sqrt(n()),
-    .groups     = "drop"
-  )
+```{r run-all-sets, fig.width=10, fig.height=7, results='asis'}
+for (set_name in names(path_sets)) {
 
-summary_80
-```
+  ps       <- path_sets[[set_name]]
+  paths_df <- ps$paths
+  label    <- ps$label
+  suffix   <- ps$suffix
 
-## 3. Plot 1 -- Dot plot: paths-to-80% by modality
+  cat(sprintf("\n\n---\n\n### Target set: %s\n\n", label))
 
-Individual points per target neuron with jitter, overlaid with the modality
-median.
+  # ==== Cumulative strength and paths-to-80% ====
+  cumulative_df <- paths_df %>%
+    filter(!is.na(strength), strength > 0) %>%
+    group_by(end, modality) %>%
+    arrange(desc(strength), .by_group = TRUE) %>%
+    mutate(
+      rank           = row_number(),
+      total_strength = sum(strength),
+      cum_strength   = cumsum(strength),
+      cum_frac       = cum_strength / total_strength
+    ) %>%
+    ungroup()
 
-```{r dot-plot, fig.width=9, fig.height=6}
-# ---------------------------------------------------------------------------
-# Dot plot with jitter + median overlay
-# ---------------------------------------------------------------------------
-p_dot <- ggplot(paths_to_80, aes(x = modality, y = paths_to_80pct)) +
-  geom_jitter(
-    aes(color = modality),
-    width  = 0.2,
-    alpha  = 0.4,
-    size   = 1.2,
-    stroke = 0
-  ) +
-  stat_summary(
-    fun    = median,
-    geom   = "point",
-    aes(color = modality),
-    size   = 3,
-    shape  = 18
-  ) +
-  scale_color_manual(values = modality_colors) +
-  labs(
-    x     = "Sensory modality",
-    y     = "Paths needed for 80% of total strength",
-    title = ""
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    text = element_text(color = "grey20"),
-    axis.title = element_text(size = rel(0.9), color = "grey30"),
-    axis.text = element_text(size = rel(0.85), color = "grey40"),
-    axis.line = element_line(linewidth = 0.3, color = "grey70"),
-    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
-    panel.grid = element_blank(),
-    legend.position = "none",
-    axis.text.x = element_text(angle = 30, hjust = 1)
-  )
+  paths_to_80 <- cumulative_df %>%
+    group_by(end, modality) %>%
+    summarise(
+      n_paths        = n(),
+      total_strength = first(total_strength),
+      paths_to_80pct = min(rank[cum_frac >= 0.80], na.rm = TRUE),
+      .groups        = "drop"
+    ) %>%
+    mutate(
+      paths_to_80pct = ifelse(is.infinite(paths_to_80pct), n_paths, paths_to_80pct),
+      modality       = factor(modality, levels = modality_order)
+    )
 
-p_dot
-```
+  # ==== Summary statistics ====
+  summary_80 <- paths_to_80 %>%
+    group_by(modality) %>%
+    summarise(
+      n_targets  = n(),
+      mean_p80   = mean(paths_to_80pct),
+      median_p80 = median(paths_to_80pct),
+      sd_p80     = sd(paths_to_80pct),
+      se_p80     = sd(paths_to_80pct) / sqrt(n()),
+      .groups    = "drop"
+    )
+  cat("\n\n")
+  print(knitr::kable(summary_80, digits = 2,
+        caption = sprintf("Summary: paths to 80%% (%s)", label)))
+  cat("\n\n")
 
-```{r save-dot}
-save_fig6_plot(p_dot, "panel_F_dot_paths_to_80pct_aspf_aspg", width = 7, height = 5)
-```
+  # ==== Dot plot ====
+  p_dot <- ggplot(paths_to_80, aes(x = modality, y = paths_to_80pct)) +
+    geom_jitter(aes(color = modality), width = 0.2, alpha = 0.4, size = 1.2, stroke = 0) +
+    stat_summary(fun = median, geom = "point", aes(color = modality), size = 3, shape = 18) +
+    scale_color_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Paths needed for 80% of total strength", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(), legend.position = "none",
+      axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_dot)
+  save_fig6_plot(p_dot, sprintf("panel_F_dot_paths_to_80pct_%s", suffix), width = 4.5, height = 5)
 
-## 4. Plot 2 -- Cumulative strength curves (faceted by target)
-
-Select a subset of target neurons that receive input from multiple modalities,
-then plot cumulative strength curves coloured by modality.
-
-```{r select-interesting-targets}
-# ---------------------------------------------------------------------------
-# Pick targets that are reached by at least 4 modalities and have
-# reasonable total path counts, for readable facets
-# ---------------------------------------------------------------------------
-targets_multi <- paths_to_80 %>%
-  group_by(end) %>%
-  summarise(n_modalities = n_distinct(modality), .groups = "drop") %>%
-  filter(n_modalities >= 4) %>%
-  pull(end)
-
-# If too many, take the top 12 by total path strength
-if (length(targets_multi) > 12) {
-  top_targets <- cumulative_df %>%
-    filter(end %in% targets_multi) %>%
+  # ==== Cumulative curves ====
+  targets_multi <- paths_to_80 %>%
     group_by(end) %>%
-    summarise(total = sum(strength), .groups = "drop") %>%
-    slice_max(total, n = 12) %>%
+    summarise(n_modalities = n_distinct(modality), .groups = "drop") %>%
+    filter(n_modalities >= 4) %>%
     pull(end)
-} else {
-  top_targets <- targets_multi
+  if (length(targets_multi) > 12) {
+    top_targets <- cumulative_df %>%
+      filter(end %in% targets_multi) %>%
+      group_by(end) %>% summarise(total = sum(strength), .groups = "drop") %>%
+      slice_max(total, n = 12) %>% pull(end)
+  } else {
+    top_targets <- targets_multi
+  }
+  if (length(top_targets) < 4) {
+    top_targets <- cumulative_df %>%
+      group_by(end) %>% summarise(total = sum(strength), .groups = "drop") %>%
+      slice_max(total, n = 9) %>% pull(end)
+  }
+
+  cum_subset <- cumulative_df %>%
+    filter(end %in% top_targets) %>%
+    mutate(modality = factor(modality, levels = modality_order))
+
+  p_cum <- ggplot(cum_subset, aes(x = rank, y = cum_frac, color = modality)) +
+    geom_line(linewidth = 0.8, alpha = 0.85) +
+    geom_hline(yintercept = 0.80, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+    facet_wrap(~end, scales = "free_x", ncol = 4) +
+    scale_color_manual(values = modality_colors) +
+    scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1.02)) +
+    labs(x = "Path rank (by descending strength)", y = "Cumulative fraction of total strength",
+         color = "Modality", title = sprintf("Cumulative path strength (%s)", label)) +
+    theme_bw(base_size = 11) +
+    theme(strip.text = element_text(size = 8, face = "bold"),
+          legend.position = "bottom", panel.grid.minor = element_blank())
+  print(p_cum)
+  save_fig6_plot(p_cum, sprintf("panel_F_cumulative_curves_%s", suffix), width = 12, height = 8)
+
+  # ==== Bar chart ====
+  p_bar <- ggplot(summary_80, aes(x = modality, y = mean_p80, fill = modality)) +
+    geom_col(width = 0.65, color = "grey30", linewidth = 0.3) +
+    geom_errorbar(aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
+                  width = 0.2, linewidth = 0.4, color = "grey20") +
+    scale_fill_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Mean paths to 80% strength",
+         title = sprintf("Path diversity (%s)", label)) +
+    theme_bw(base_size = 13) +
+    theme(legend.position = "none", panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_bar)
+  save_fig6_plot(p_bar, sprintf("panel_F_bar_paths_to_80pct_%s", suffix), width = 4.5, height = 5)
+
+  # ==== Valence split ====
+  cumulative_valence <- paths_df %>%
+    filter(!is.na(strength), strength > 0, !is.na(valence)) %>%
+    group_by(end, modality, valence) %>%
+    arrange(desc(strength), .by_group = TRUE) %>%
+    mutate(rank = row_number(), total_strength = sum(strength),
+           cum_strength = cumsum(strength), cum_frac = cum_strength / total_strength) %>%
+    ungroup()
+
+  paths_to_80_valence <- cumulative_valence %>%
+    group_by(end, modality, valence) %>%
+    summarise(n_paths = n(), total_strength = first(total_strength),
+              paths_to_80pct = min(rank[cum_frac >= 0.80], na.rm = TRUE), .groups = "drop") %>%
+    mutate(paths_to_80pct = ifelse(is.infinite(paths_to_80pct), n_paths, paths_to_80pct),
+           modality = factor(modality, levels = modality_order))
+
+  summary_valence <- paths_to_80_valence %>%
+    group_by(modality, valence) %>%
+    summarise(n_targets = n(), mean_p80 = mean(paths_to_80pct),
+              median_p80 = median(paths_to_80pct),
+              se_p80 = sd(paths_to_80pct) / sqrt(n()), .groups = "drop")
+
+  p_valence <- ggplot(summary_valence,
+    aes(x = modality, y = mean_p80, fill = modality, alpha = valence)) +
+    geom_col(position = position_dodge(width = 0.7), width = 0.6,
+             color = "grey30", linewidth = 0.3) +
+    geom_jitter(data = paths_to_80_valence,
+                aes(x = modality, y = paths_to_80pct, color = modality, alpha = valence),
+                position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.7),
+                size = 0.8, stroke = 0, inherit.aes = FALSE) +
+    geom_errorbar(aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
+                  position = position_dodge(width = 0.7), width = 0.2,
+                  linewidth = 0.4, color = "grey20") +
+    scale_fill_manual(values = modality_colors) +
+    scale_color_manual(values = modality_colors, guide = "none") +
+    scale_alpha_manual(values = c("excitatory" = 0.7, "inhibitory" = 0.35), name = "Valence") +
+    labs(x = "Sensory modality", y = "Mean paths to 80% strength",
+         title = sprintf("Path diversity by valence (%s)", label)) +
+    guides(fill = "none") +
+    theme_bw(base_size = 13) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
+          axis.text.x = element_text(angle = 30, hjust = 1), legend.position = "top")
+  print(p_valence)
+  save_fig6_plot(p_valence, sprintf("panel_F_valence_paths_to_80pct_%s", suffix), width = 6, height = 5)
+
+  # Valence dot plot
+  p_val_dot <- ggplot(paths_to_80_valence, aes(x = modality, y = paths_to_80pct)) +
+    geom_jitter(aes(color = modality), width = 0.2, alpha = 0.4, size = 1.2, stroke = 0) +
+    stat_summary(fun = median, geom = "point", aes(color = modality), size = 3, shape = 18) +
+    facet_wrap(~valence) +
+    scale_color_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Paths needed for 80% of total strength", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(), legend.position = "none",
+      axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_val_dot)
+  save_fig6_plot(p_val_dot, sprintf("panel_F_valence_dot_paths_to_80pct_%s", suffix), width = 5.5, height = 4.5)
+
+  # ==== Start-type-scaled versions ====
+  start_type_counts <- paths_df %>%
+    filter(!is.na(strength), strength > 0) %>%
+    group_by(modality) %>%
+    summarise(n_start_types = n_distinct(start), .groups = "drop") %>%
+    mutate(modality = factor(modality, levels = modality_order))
+
+  paths_to_80_scaled <- paths_to_80 %>%
+    left_join(start_type_counts, by = "modality") %>%
+    mutate(paths_to_80pct_scaled = paths_to_80pct / n_start_types)
+
+  summary_80_scaled <- paths_to_80_scaled %>%
+    group_by(modality) %>%
+    summarise(n_targets = n(), n_start_types = first(n_start_types),
+              mean_p80 = mean(paths_to_80pct_scaled), median_p80 = median(paths_to_80pct_scaled),
+              sd_p80 = sd(paths_to_80pct_scaled),
+              se_p80 = sd(paths_to_80pct_scaled) / sqrt(n()), .groups = "drop")
+
+  # Scaled dot plot
+  p_dot_scaled <- ggplot(paths_to_80_scaled, aes(x = modality, y = paths_to_80pct_scaled)) +
+    geom_jitter(aes(color = modality), width = 0.2, alpha = 0.4, size = 1.2, stroke = 0) +
+    stat_summary(fun = median, geom = "point", aes(color = modality), size = 3, shape = 18) +
+    scale_color_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Paths to 80% / # start types", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(), legend.position = "none",
+      axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_dot_scaled)
+  save_fig6_plot(p_dot_scaled, sprintf("panel_F_dot_paths_to_80pct_scaled_%s", suffix),
+                 width = 4.5, height = 5, subdir = "scaled_by_start_types")
+
+  # Scaled bar chart
+  p_bar_scaled <- ggplot(summary_80_scaled, aes(x = modality, y = mean_p80, fill = modality)) +
+    geom_col(width = 0.65, color = "grey30", linewidth = 0.3) +
+    geom_errorbar(aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
+                  width = 0.2, linewidth = 0.4, color = "grey20") +
+    scale_fill_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Mean paths to 80% / # start types",
+         title = sprintf("Path diversity scaled (%s)", label)) +
+    theme_bw(base_size = 13) +
+    theme(legend.position = "none", panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_bar_scaled)
+  save_fig6_plot(p_bar_scaled, sprintf("panel_F_bar_paths_to_80pct_scaled_%s", suffix),
+                 width = 4.5, height = 5, subdir = "scaled_by_start_types")
+
+  # Scaled valence
+  paths_to_80_valence_scaled <- paths_to_80_valence %>%
+    left_join(start_type_counts, by = "modality") %>%
+    mutate(paths_to_80pct_scaled = paths_to_80pct / n_start_types)
+
+  summary_valence_scaled <- paths_to_80_valence_scaled %>%
+    group_by(modality, valence) %>%
+    summarise(n_targets = n(), mean_p80 = mean(paths_to_80pct_scaled),
+              median_p80 = median(paths_to_80pct_scaled),
+              se_p80 = sd(paths_to_80pct_scaled) / sqrt(n()), .groups = "drop")
+
+  p_valence_scaled <- ggplot(summary_valence_scaled,
+    aes(x = modality, y = mean_p80, fill = modality, alpha = valence)) +
+    geom_col(position = position_dodge(width = 0.7), width = 0.6,
+             color = "grey30", linewidth = 0.3) +
+    geom_jitter(data = paths_to_80_valence_scaled,
+                aes(x = modality, y = paths_to_80pct_scaled, color = modality, alpha = valence),
+                position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.7),
+                size = 0.8, stroke = 0, inherit.aes = FALSE) +
+    geom_errorbar(aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
+                  position = position_dodge(width = 0.7), width = 0.2,
+                  linewidth = 0.4, color = "grey20") +
+    scale_fill_manual(values = modality_colors) +
+    scale_color_manual(values = modality_colors, guide = "none") +
+    scale_alpha_manual(values = c("excitatory" = 0.7, "inhibitory" = 0.35), name = "Valence") +
+    labs(x = "Sensory modality", y = "Mean paths to 80% / # start types",
+         title = sprintf("Path diversity by valence, scaled (%s)", label)) +
+    guides(fill = "none") +
+    theme_bw(base_size = 13) +
+    theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
+          axis.text.x = element_text(angle = 30, hjust = 1), legend.position = "top")
+  print(p_valence_scaled)
+  save_fig6_plot(p_valence_scaled, sprintf("panel_F_valence_paths_to_80pct_scaled_%s", suffix),
+                 width = 6, height = 5, subdir = "scaled_by_start_types")
+
+  p_val_dot_scaled <- ggplot(paths_to_80_valence_scaled,
+    aes(x = modality, y = paths_to_80pct_scaled)) +
+    geom_jitter(aes(color = modality), width = 0.2, alpha = 0.4, size = 1.2, stroke = 0) +
+    stat_summary(fun = median, geom = "point", aes(color = modality), size = 3, shape = 18) +
+    facet_wrap(~valence) +
+    scale_color_manual(values = modality_colors) +
+    labs(x = "Sensory modality", y = "Paths to 80% / # start types", title = "") +
+    theme_minimal(base_size = 11) +
+    theme(text = element_text(color = "grey20"),
+      axis.title = element_text(size = rel(0.9), color = "grey30"),
+      axis.text = element_text(size = rel(0.85), color = "grey40"),
+      axis.line = element_line(linewidth = 0.3, color = "grey70"),
+      axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
+      panel.grid = element_blank(), legend.position = "none",
+      axis.text.x = element_text(angle = 30, hjust = 1))
+  print(p_val_dot_scaled)
+  save_fig6_plot(p_val_dot_scaled, sprintf("panel_F_valence_dot_paths_to_80pct_scaled_%s", suffix),
+                 width = 5.5, height = 4.5, subdir = "scaled_by_start_types")
+
+  cat(sprintf("\n\n**[%s] Panel F analysis complete.**\n\n", label))
+}
+```
+
+## 3. Cross-target-set comparison: all target sets × valence
+
+```{r cross-target-comparison, fig.width=14, fig.height=6}
+# -- Define the 5 individual target sets --
+comparison_sets <- list(
+  "aSP-f"     = paths.aspf,
+  "aSP-g"     = paths.aspg,
+  "vAB3"      = paths.vab3,
+  "PPN1"      = paths.ppn1,
+  "vAB3+PPN1" = bind_rows(paths.vab3, paths.ppn1)
+)
+
+target_set_order <- names(comparison_sets)
+
+target_set_colors_5 <- c(
+  "aSP-f"     = "#E41A1C",
+  "aSP-g"     = "#FF7F00",
+  "vAB3"      = "#377EB8",
+  "PPN1"      = "#4DAF4A",
+  "vAB3+PPN1" = "#984EA3"
+)
+
+# -- Compute paths-to-80% by valence for each target set --
+all_valence_raw    <- list()
+all_valence_scaled <- list()
+
+for (ts_name in names(comparison_sets)) {
+  pdf <- comparison_sets[[ts_name]] %>%
+    filter(!is.na(strength), strength > 0, !is.na(valence))
+
+  cum_val <- pdf %>%
+    group_by(end, modality, valence) %>%
+    arrange(desc(strength), .by_group = TRUE) %>%
+    mutate(rank = row_number(), total_strength = sum(strength),
+           cum_strength = cumsum(strength),
+           cum_frac = cum_strength / total_strength) %>%
+    ungroup()
+
+  p80_val <- cum_val %>%
+    group_by(end, modality, valence) %>%
+    summarise(n_paths = n(), total_strength = first(total_strength),
+              paths_to_80pct = min(rank[cum_frac >= 0.80], na.rm = TRUE),
+              .groups = "drop") %>%
+    mutate(paths_to_80pct = ifelse(is.infinite(paths_to_80pct), n_paths, paths_to_80pct),
+           modality   = factor(modality, levels = modality_order),
+           target_set = ts_name)
+
+  # Start-type counts for this target set
+  stc <- pdf %>%
+    group_by(modality) %>%
+    summarise(n_start_types = n_distinct(start), .groups = "drop") %>%
+    mutate(modality = factor(modality, levels = modality_order))
+
+  p80_val_s <- p80_val %>%
+    left_join(stc, by = "modality") %>%
+    mutate(paths_to_80pct_scaled = paths_to_80pct / n_start_types)
+
+  all_valence_raw[[ts_name]]    <- p80_val
+  all_valence_scaled[[ts_name]] <- p80_val_s
 }
 
-# Fall back: if fewer than 4 multi-modality targets, just take top 9 by strength
-if (length(top_targets) < 4) {
-  top_targets <- cumulative_df %>%
-    group_by(end) %>%
-    summarise(total = sum(strength), .groups = "drop") %>%
-    slice_max(total, n = 9) %>%
-    pull(end)
-}
+combined_val_raw <- bind_rows(all_valence_raw) %>%
+  mutate(target_set = factor(target_set, levels = target_set_order))
 
-message(sprintf("Showing cumulative curves for %d target neurons", length(top_targets)))
-```
+combined_val_scaled <- bind_rows(all_valence_scaled) %>%
+  mutate(target_set = factor(target_set, levels = target_set_order))
 
-```{r cumulative-curves, fig.width=12, fig.height=8}
-# ---------------------------------------------------------------------------
-# Faceted cumulative strength curves
-# ---------------------------------------------------------------------------
-cum_subset <- cumulative_df %>%
-  filter(end %in% top_targets) %>%
-  mutate(modality = factor(modality, levels = modality_order))
+# -- Summaries (mean ± SE) --
+summary_cross_raw <- combined_val_raw %>%
+  group_by(modality, valence, target_set) %>%
+  summarise(n = n(), mean_p80 = mean(paths_to_80pct),
+            se_p80 = sd(paths_to_80pct) / sqrt(n()), .groups = "drop")
 
-p_cum <- ggplot(cum_subset, aes(x = rank, y = cum_frac, color = modality)) +
-  geom_line(linewidth = 0.8, alpha = 0.85) +
-  geom_hline(yintercept = 0.80, linetype = "dashed", color = "grey40", linewidth = 0.4) +
-  facet_wrap(~end, scales = "free_x", ncol = 4) +
-  scale_color_manual(values = modality_colors) +
-  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1.02)) +
-  labs(
-    x     = "Path rank (by descending strength)",
-    y     = "Cumulative fraction of total strength",
-    color = "Modality",
-    title = "Cumulative path strength saturation per target neuron"
-  ) +
+summary_cross_scaled <- combined_val_scaled %>%
+  group_by(modality, valence, target_set) %>%
+  summarise(n = n(), mean_p80 = mean(paths_to_80pct_scaled),
+            se_p80 = sd(paths_to_80pct_scaled) / sqrt(n()), .groups = "drop")
+
+# -- Plot: raw paths-to-80%, 10 bars per modality --
+p_cross_raw <- ggplot(summary_cross_raw,
+    aes(x = modality, y = mean_p80, fill = target_set, alpha = valence)) +
+  geom_col(position = position_dodge(width = 0.85), width = 0.78,
+           color = "grey30", linewidth = 0.15) +
+  geom_jitter(data = combined_val_raw,
+              aes(x = modality, y = paths_to_80pct, fill = target_set, alpha = valence),
+              position = position_jitterdodge(jitter.width = 0.08, dodge.width = 0.85),
+              size = 0.5, stroke = 0, shape = 21, color = "grey30", inherit.aes = FALSE) +
+  geom_errorbar(aes(ymin = pmax(mean_p80 - se_p80, 0), ymax = mean_p80 + se_p80),
+                position = position_dodge(width = 0.85), width = 0.12,
+                linewidth = 0.3, color = "grey20") +
+  scale_fill_manual(values = target_set_colors_5, name = "Target set") +
+  scale_alpha_manual(values = c("excitatory" = 1, "inhibitory" = 0.45), name = "Valence") +
+  labs(x = "Sensory modality", y = "Mean paths to 80% strength") +
   theme_bw(base_size = 11) +
-  theme(
-    strip.text       = element_text(size = 8, face = "bold"),
-    legend.position  = "bottom",
-    panel.grid.minor = element_blank()
-  )
+  theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "top", legend.box = "horizontal") +
+  guides(fill = guide_legend(order = 1, nrow = 1),
+         alpha = guide_legend(order = 2, override.aes = list(fill = "grey50")))
+print(p_cross_raw)
+save_fig6_plot(p_cross_raw, "panel_F_cross_target_valence_raw",
+               width = 14, height = 6)
 
-p_cum
-```
-
-```{r save-cumulative}
-save_fig6_plot(p_cum, "panel_F_cumulative_curves_aspf_aspg", width = 12, height = 8)
-```
-
-## 5. Plot 3 -- Summary bar chart (publication figure)
-
-Clean bar chart showing mean paths-to-80% per modality with standard error
-bars. This is the primary panel for the publication figure.
-
-```{r bar-chart, fig.width=7, fig.height=5}
-# ---------------------------------------------------------------------------
-# Summary bar chart: mean +/- SE
-# ---------------------------------------------------------------------------
-p_bar <- ggplot(summary_80, aes(x = modality, y = mean_p80, fill = modality)) +
-  geom_col(width = 0.65, color = "grey30", linewidth = 0.3) +
-  geom_errorbar(
-    aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
-    width    = 0.2,
-    linewidth = 0.4,
-    color    = "grey20"
-  ) +
-  scale_fill_manual(values = modality_colors) +
-  labs(
-    x     = "Sensory modality",
-    y     = "Mean paths to 80% strength",
-    title = "Path diversity by modality"
-  ) +
-  theme_bw(base_size = 13) +
-  theme(
-    legend.position  = "none",
-    panel.grid.minor = element_blank(),
-    panel.grid.major.x = element_blank(),
-    axis.text.x      = element_text(angle = 30, hjust = 1)
-  )
-
-p_bar
-```
-
-```{r save-bar}
-save_fig6_plot(p_bar, "panel_F_bar_paths_to_80pct_aspf_aspg", width = 7, height = 5)
-```
-
-## 6. Valence split -- excitatory vs. inhibitory path diversity
-
-Repeat the analysis splitting paths by valence to test whether excitatory
-and inhibitory routes differ in their concentration.
-
-```{r valence-split}
-# ---------------------------------------------------------------------------
-# Compute paths_to_80pct separately for each valence class
-# ---------------------------------------------------------------------------
-cumulative_valence <- paths.aspf_aspg %>%
-  filter(!is.na(strength), strength > 0, !is.na(valence)) %>%
-  group_by(end, modality, valence) %>%
-  arrange(desc(strength), .by_group = TRUE) %>%
-  mutate(
-    rank           = row_number(),
-    total_strength = sum(strength),
-    cum_strength   = cumsum(strength),
-    cum_frac       = cum_strength / total_strength
-  ) %>%
-  ungroup()
-
-paths_to_80_valence <- cumulative_valence %>%
-  group_by(end, modality, valence) %>%
-  summarise(
-    n_paths        = n(),
-    total_strength = first(total_strength),
-    paths_to_80pct = min(rank[cum_frac >= 0.80], na.rm = TRUE),
-    .groups        = "drop"
-  ) %>%
-  mutate(
-    paths_to_80pct = ifelse(is.infinite(paths_to_80pct), n_paths, paths_to_80pct),
-    modality       = factor(modality, levels = modality_order)
-  )
-
-# Summary by modality x valence
-summary_valence <- paths_to_80_valence %>%
-  group_by(modality, valence) %>%
-  summarise(
-    n_targets  = n(),
-    mean_p80   = mean(paths_to_80pct),
-    median_p80 = median(paths_to_80pct),
-    se_p80     = sd(paths_to_80pct) / sqrt(n()),
-    .groups    = "drop"
-  )
-```
-
-```{r valence-bar, fig.width=9, fig.height=5}
-# ---------------------------------------------------------------------------
-# Grouped bar chart: valence side-by-side within each modality
-# ---------------------------------------------------------------------------
-p_valence <- ggplot(
-  summary_valence,
-  aes(x = modality, y = mean_p80, fill = modality, alpha = valence)
-) +
-  geom_col(
-    position = position_dodge(width = 0.7),
-    width    = 0.6,
-    color    = "grey30",
-    linewidth = 0.3
-  ) +
-  geom_errorbar(
-    aes(ymin = mean_p80 - se_p80, ymax = mean_p80 + se_p80),
-    position  = position_dodge(width = 0.7),
-    width     = 0.2,
-    linewidth = 0.4,
-    color     = "grey20"
-  ) +
-  scale_fill_manual(values = modality_colors) +
-  scale_alpha_manual(
-    values = c("excitatory" = 1.0, "inhibitory" = 0.5),
-    name   = "Valence"
-  ) +
-  labs(
-    x     = "Sensory modality",
-    y     = "Mean paths to 80% strength",
-    title = "Path diversity by modality and valence"
-  ) +
-  guides(fill = "none") +
-  theme_bw(base_size = 13) +
-  theme(
-    panel.grid.minor   = element_blank(),
-    panel.grid.major.x = element_blank(),
-    axis.text.x        = element_text(angle = 30, hjust = 1),
-    legend.position    = "top"
-  )
-
-p_valence
-```
-
-```{r save-valence}
-save_fig6_plot(p_valence, "panel_F_valence_paths_to_80pct_aspf_aspg", width = 9, height = 5)
-```
-
-## 7. Dot plot split by valence
-
-```{r valence-dot, fig.width=10, fig.height=5}
-# ---------------------------------------------------------------------------
-# Faceted dot plot: excitatory vs inhibitory
-# ---------------------------------------------------------------------------
-p_val_dot <- ggplot(
-  paths_to_80_valence,
-  aes(x = modality, y = paths_to_80pct)
-) +
-  geom_jitter(
-    aes(color = modality),
-    width  = 0.2,
-    alpha  = 0.4,
-    size   = 1.2,
-    stroke = 0
-  ) +
-  stat_summary(
-    fun    = median,
-    geom   = "point",
-    aes(color = modality),
-    size   = 3,
-    shape  = 18
-  ) +
-  facet_wrap(~valence) +
-  scale_color_manual(values = modality_colors) +
-  labs(
-    x     = "Sensory modality",
-    y     = "Paths needed for 80% of total strength",
-    title = ""
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    text = element_text(color = "grey20"),
-    axis.title = element_text(size = rel(0.9), color = "grey30"),
-    axis.text = element_text(size = rel(0.85), color = "grey40"),
-    axis.line = element_line(linewidth = 0.3, color = "grey70"),
-    axis.ticks = element_line(linewidth = 0.25, color = "grey70"),
-    panel.grid = element_blank(),
-    legend.position = "none",
-    axis.text.x = element_text(angle = 30, hjust = 1)
-  )
-
-p_val_dot
-```
-
-```{r save-valence-dot}
-save_fig6_plot(p_val_dot, "panel_F_valence_dot_paths_to_80pct_aspf_aspg", width = 8, height = 4.5)
+# -- Plot: scaled by # start types, 10 bars per modality --
+p_cross_scaled <- ggplot(summary_cross_scaled,
+    aes(x = modality, y = mean_p80, fill = target_set, alpha = valence)) +
+  geom_col(position = position_dodge(width = 0.85), width = 0.78,
+           color = "grey30", linewidth = 0.15) +
+  geom_jitter(data = combined_val_scaled,
+              aes(x = modality, y = paths_to_80pct_scaled, fill = target_set, alpha = valence),
+              position = position_jitterdodge(jitter.width = 0.08, dodge.width = 0.85),
+              size = 0.5, stroke = 0, shape = 21, color = "grey30", inherit.aes = FALSE) +
+  geom_errorbar(aes(ymin = pmax(mean_p80 - se_p80, 0), ymax = mean_p80 + se_p80),
+                position = position_dodge(width = 0.85), width = 0.12,
+                linewidth = 0.3, color = "grey20") +
+  scale_fill_manual(values = target_set_colors_5, name = "Target set") +
+  scale_alpha_manual(values = c("excitatory" = 1, "inhibitory" = 0.45), name = "Valence") +
+  labs(x = "Sensory modality", y = "Mean paths to 80% / # start types") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "top", legend.box = "horizontal") +
+  guides(fill = guide_legend(order = 1, nrow = 1),
+         alpha = guide_legend(order = 2, override.aes = list(fill = "grey50")))
+print(p_cross_scaled)
+save_fig6_plot(p_cross_scaled, "panel_F_cross_target_valence_scaled",
+               width = 14, height = 6, subdir = "scaled_by_start_types")
 ```
 
 ## Session info

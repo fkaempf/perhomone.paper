@@ -1,0 +1,90 @@
+P1 scenario-decoder
+====================
+For each of 45 P1 courtship subtypes (and 20 P1-level-1 groups), drive under
+the three pheromone-encounter scenarios was extracted from the signal-flow
+model (p1_all_combos$net_input). For each row the 3-scenario vector was
+z-scored, so the question reduces to 'which scenario stands out, regardless
+of overall drive magnitude'.
+
+Per-scenario count of P1s for which that scenario is the best predictor:
+
+  P1 subtype level:
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    Female (ppk25)      1
+    Female (ppk25)      1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    Female (ppk25)      1
+    cVA + male (cVA+ppk23)  1
+    Female (ppk25)      1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+
+  P1 group level (level-1):
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + female (cVA+ppk25)  1
+    cVA + male (cVA+ppk23)  1
+
+Top-3 best predictors per scenario (subtype level):
+    Female (ppk25)      P1_2c  (z=0.95)
+    Female (ppk25)      P1_5b  (z=0.78)
+    Female (ppk25)      P1_6b  (z=0.77)
+    cVA + male (cVA+ppk23)  P1_13c  (z=1.15)
+    cVA + male (cVA+ppk23)  P1_10b  (z=1.15)
+    cVA + male (cVA+ppk23)  P1_10a  (z=1.15)
+    cVA + female (cVA+ppk25)  P1_2a  (z=1.12)
+    cVA + female (cVA+ppk25)  P1_3c  (z=1.11)
+    cVA + female (cVA+ppk25)  P1_19  (z=1.10)
+

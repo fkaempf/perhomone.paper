@@ -21,6 +21,7 @@ anything that might pull it in.
 ```{r libraries}
 suppressMessages({
   library(neuprintr); library(malecns); library(nat)
+  options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
   library(coconatfly); library(coconat); library(fafbseg); library(bancr)
   library(dplyr); library(tibble); library(igraph)
   library(pheatmap); library(RColorBrewer); library(viridisLite); library(grid)

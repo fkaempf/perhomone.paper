@@ -7,7 +7,7 @@ make_mcns_scene <- function(
   ids,
   title        = "CNS-Quad",
   em_url       = "precomputed://gs://cns-full-clahe",
-  malecns_url  = "dvid://https://emdata6-novran.janelia.org/f3969:master/segmentation?dvid-service=https://ngsupport-bmcp5imp6q-uk.a.run.app",
+  malecns_url  = "dvid://https://emdata6-novran.janelia.org/4b2087c0fbe046bfaf0d60bc970e3e5d/segmentation?dvid-service=https://ngsupport-bmcp5imp6q-uk.a.run.app",
   brain_shell_url =
     "precomputed://gs://flyem-cns-roi-7c971aa681da83f9a074a1f0e8ef60f4/brain-shell-smooth-linear",
   vnc_shell_url   =
@@ -39,7 +39,7 @@ make_mcns_scene <- function(
         subsources              = list(default = TRUE, meshes = TRUE),
         enableDefaultSubsources = FALSE
       ),
-      "precomputed://https://ngsupport-bmcp5imp6q-uk.a.run.app/neuronjson_segment_properties/emdata6-novran.janelia.org/f3969:master/segmentation_annotations/type/group"
+      "precomputed://https://ngsupport-bmcp5imp6q-uk.a.run.app/neuronjson_segment_properties/emdata6-novran.janelia.org/4b2087c0fbe046bfaf0d60bc970e3e5d/segmentation_annotations/type/group"
     ),
     toolBindings = list(Q = "selectSegments"),
     tab          = "segments",

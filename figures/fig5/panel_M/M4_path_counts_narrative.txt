@@ -1,0 +1,44 @@
+PANEL CE4: AN05B035 as sign inverter — per-mAL path-count breakdown
+=====================================================================
+
+WHAT THIS PANEL SHOWS
+---------------------
+For each of the 16 male-specific mAL_m subtypes, ppk23-rooted paths from
+mal_paths are partitioned into paths that pass through the GABAergic
+sign-inverter AN05B035 (inhibitory route) versus paths that do not
+(excitatory route). Four statistics are reported as paired bars:
+  - path count
+  - total summed path strength
+  - mean strength per path
+  - median hop count
+Rows are ordered by the inhibitory:excitatory path-count ratio (Laplace-
+smoothed).
+
+KEY OBSERVATIONS
+----------------
+1. 0 subtypes have zero ppk23 paths routed through AN05B035 and are driven
+   entirely by excitatory bypass routes.
+2. 0 subtypes have zero direct excitatory ppk23 paths and receive ppk23
+   drive only through the AN05B035 inverter.
+3. Top inhibitory-dominant subtypes (highest through/bypass ratio): mAL_m1, mAL_m2b, mAL_m5a.
+4. Top excitatory-dominant subtypes (lowest through/bypass ratio): mAL_m3a, mAL_m3b, mAL_m11.
+5. Paths that traverse AN05B035 carry more hops on average, consistent
+   with an extra disynaptic inhibitory relay.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+AN05B035 acts as a circuit-level sign inverter: ppk23 pheromone signals
+that would otherwise be excitatory are rerouted through AN05B035's
+GABAergic output to become inhibitory at a selective subset of mAL_m
+subtypes. The per-subtype breakdown shows that the split is categorical
+rather than graded — some mAL_m neurons are wired predominantly through
+the inverter, others predominantly around it, producing the opposing
+ppk23 responses quantified in Panel C and decomposed in Panel E.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+This panel is the structural accounting that underpins Panels C and E:
+it counts how much of each mAL's ppk23 drive passes through the
+AN05B035 bottleneck, confirming the inverter's role as the mechanistic
+switch that creates sex-specific mAL response polarities.
+

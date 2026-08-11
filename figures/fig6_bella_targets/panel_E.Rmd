@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 8
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/setup.R")
 
 # Additional libraries for this panel
 library(ggraph)
@@ -66,276 +66,580 @@ High positive correlation between two modalities means that neurons receiving
 strong input from one modality also tend to receive strong input from the other.
 Negative correlation implies mutual exclusivity of targeting.
 
-## 1. Pearson correlation heatmap
-
-```{r pearson-correlation}
-# Ensure modality order in the strength matrix
-mat <- strength.bella[, intersect(modality_order, colnames(strength.bella))]
-
-# Pearson correlation between modality columns
-cor_pearson <- cor(mat, method = "pearson")
-
-# Annotation: modality groups (olfactory / auditory / visual / contact)
-group_annotation <- data.frame(
-  group = modality_group[colnames(cor_pearson)],
-  row.names = colnames(cor_pearson)
-)
-
-# Diverging colour palette
-cor_colors <- colorRampPalette(c("#2166AC", "#F7F7F7", "#B2182B"))(100)
-
-save_and_show_pheatmap(
-  cor_pearson,
-  display_numbers = TRUE,
-  number_format = "%.2f",
-  fontsize_number = 9,
-  color = cor_colors,
-  breaks = seq(-1, 1, length.out = 101),
-  clustering_method = "complete",
-  annotation_col = group_annotation,
-  annotation_row = group_annotation,
-  annotation_colors = list(group = modality_group_colors),
-  border_color = "white",
-  cellwidth = 50,
-  cellheight = 50,
-  main = "Pearson correlation of modality strengths (Bella's targets)",
-  fontsize = 10,
-  png_path = file.path(panel_plot_dir("panel_E_pearson_heatmap_bella", "png"), "panel_E_pearson_heatmap_bella.png"),
-  pdf_path = file.path(panel_plot_dir("panel_E_pearson_heatmap_bella", "pdf"), "panel_E_pearson_heatmap_bella.pdf"),
-  save_width = 9,
-  save_height = 8
-)
-```
-
-## 2. Spearman rank correlation heatmap
-
-```{r spearman-correlation}
-# Spearman: robust to outliers / non-linear monotonic relationships
-cor_spearman <- cor(mat, method = "spearman")
-
-save_and_show_pheatmap(
-  cor_spearman,
-  display_numbers = TRUE,
-  number_format = "%.2f",
-  fontsize_number = 9,
-  color = cor_colors,
-  breaks = seq(-1, 1, length.out = 101),
-  clustering_method = "complete",
-  annotation_col = group_annotation,
-  annotation_row = group_annotation,
-  annotation_colors = list(group = modality_group_colors),
-  border_color = "white",
-  cellwidth = 50,
-  cellheight = 50,
-  main = "Spearman rank correlation of modality strengths (Bella's targets)",
-  fontsize = 10,
-  png_path = file.path(panel_plot_dir("panel_E_spearman_heatmap_bella", "png"), "panel_E_spearman_heatmap_bella.png"),
-  pdf_path = file.path(panel_plot_dir("panel_E_spearman_heatmap_bella", "pdf"), "panel_E_spearman_heatmap_bella.pdf"),
-  save_width = 9,
-  save_height = 8
-)
-```
-
-## 3. Co-targeting analysis
-
-For each pair of modalities, count how many target neurons receive non-trivial
-input from BOTH modalities. "Non-trivial" is defined as >5% of that modality's
-maximum strength across all neurons.
-
-```{r co-targeting-heatmap}
-# Compute per-modality thresholds: 5% of each modality's max
-mod_max <- apply(mat, 2, max, na.rm = TRUE)
-threshold_frac <- 0.05
-thresholds <- mod_max * threshold_frac
-
-# Binary matrix: does neuron i receive non-trivial input from modality j?
-mat_binary <- sweep(mat, 2, thresholds, ">") * 1
-
-# Co-targeting count: for each pair (i,j), count neurons with both == 1
-co_target_mat <- t(mat_binary) %*% mat_binary
-
-# The diagonal = number of neurons with non-trivial input from that modality
-cat("Neurons with non-trivial input per modality:\n")
-print(diag(co_target_mat))
-
-# Heatmap of co-targeting counts
+```{r color-palettes-and-threshold, include=FALSE}
+# ---------------------------------------------------------------------------
+# Colour palettes and co-targeting threshold (defined once, used everywhere)
+# ---------------------------------------------------------------------------
+cor_colors      <- colorRampPalette(c("#2166AC", "#F7F7F7", "#B2182B"))(100)
+spearman_colors <- colorRampPalette(c("#7B3294", "#F7F7F7", "#E66101"))(100)
+cosine_colors   <- colorRampPalette(c("#01665E", "#F5F5F5", "#8C510A"))(100)
 co_target_colors <- colorRampPalette(c("#F7FCF5", "#00441B"))(50)
+jaccard_colors   <- colorRampPalette(c("#F2F0F7", "#54278F"))(50)
 
-save_and_show_pheatmap(
-  co_target_mat,
-  display_numbers = TRUE,
-  number_format = "%d",
-  fontsize_number = 10,
-  color = co_target_colors,
-  clustering_method = "complete",
-  annotation_col = group_annotation,
-  annotation_row = group_annotation,
-  annotation_colors = list(group = modality_group_colors),
-  border_color = "white",
-  cellwidth = 50,
-  cellheight = 50,
-  main = sprintf("Co-targeting counts (threshold: %.0f%% of modality max, Bella's targets)", threshold_frac * 100),
-  fontsize = 10,
-  png_path = file.path(panel_plot_dir("panel_E_cotarget_counts_bella", "png"), "panel_E_cotarget_counts_bella.png"),
-  pdf_path = file.path(panel_plot_dir("panel_E_cotarget_counts_bella", "pdf"), "panel_E_cotarget_counts_bella.pdf"),
-  save_width = 9,
-  save_height = 8
-)
+threshold_frac <- 0.05
 ```
 
-```{r co-targeting-jaccard}
-# Jaccard index: co-target(i,j) / (count_i + count_j - co-target(i,j))
-# More informative than raw counts since it accounts for marginal frequencies
-n_mods <- ncol(mat_binary)
-jaccard_mat <- matrix(0, nrow = n_mods, ncol = n_mods,
-                      dimnames = list(colnames(mat_binary), colnames(mat_binary)))
+```{r compute-net-strength-helper, include=FALSE}
+# ---------------------------------------------------------------------------
+# Compute net strength matrix: excitatory - inhibitory
+# Aligns rows/columns from both matrices; missing entries treated as 0
+# ---------------------------------------------------------------------------
+compute_net_strength <- function(strength_exc, strength_inh) {
+  all_mods <- union(colnames(strength_exc), colnames(strength_inh))
+  all_neurons <- union(rownames(strength_exc), rownames(strength_inh))
 
-for (i in seq_len(n_mods)) {
-  for (j in seq_len(n_mods)) {
-    both <- sum(mat_binary[, i] == 1 & mat_binary[, j] == 1)
-    either <- sum(mat_binary[, i] == 1 | mat_binary[, j] == 1)
-    jaccard_mat[i, j] <- ifelse(either > 0, both / either, 0)
-  }
+  mat_exc <- matrix(0, nrow = length(all_neurons), ncol = length(all_mods),
+                    dimnames = list(all_neurons, all_mods))
+  mat_inh <- matrix(0, nrow = length(all_neurons), ncol = length(all_mods),
+                    dimnames = list(all_neurons, all_mods))
+
+  mat_exc[rownames(strength_exc), colnames(strength_exc)] <- strength_exc
+  mat_inh[rownames(strength_inh), colnames(strength_inh)] <- strength_inh
+
+  mat_exc - mat_inh
 }
-
-save_and_show_pheatmap(
-  jaccard_mat,
-  display_numbers = TRUE,
-  number_format = "%.2f",
-  fontsize_number = 9,
-  color = co_target_colors,
-  clustering_method = "complete",
-  annotation_col = group_annotation,
-  annotation_row = group_annotation,
-  annotation_colors = list(group = modality_group_colors),
-  border_color = "white",
-  cellwidth = 50,
-  cellheight = 50,
-  main = "Co-targeting Jaccard similarity between modalities (Bella's targets)",
-  fontsize = 10,
-  png_path = file.path(panel_plot_dir("panel_E_cotarget_jaccard_bella", "png"), "panel_E_cotarget_jaccard_bella.png"),
-  pdf_path = file.path(panel_plot_dir("panel_E_cotarget_jaccard_bella", "pdf"), "panel_E_cotarget_jaccard_bella.pdf"),
-  save_width = 9,
-  save_height = 8
-)
 ```
 
-## 4. Network graph of modality correlations
+```{r run-correlation-suite-helper, include=FALSE}
+# ---------------------------------------------------------------------------
+# run_correlation_suite(): full Pearson + Spearman + co-targeting + Jaccard +
+#   network analysis for a given strength matrix.
+# ---------------------------------------------------------------------------
+run_correlation_suite <- function(mat, label, subdir,
+                                  title_suffix = "(Bella's targets)",
+                                  threshold_frac = 0.05) {
 
-Nodes represent modalities, edge thickness scales with correlation magnitude,
-and edge color distinguishes positive (red) from negative (blue) correlations.
+  # --- Modality-group annotation ---
+  group_annotation <- data.frame(
+    group = modality_group[colnames(mat)],
+    row.names = colnames(mat)
+  )
 
-```{r correlation-network, fig.width=8, fig.height=8}
-# Build edge list from the upper triangle of the Pearson correlation matrix
-edge_df <- expand.grid(
-  from = rownames(cor_pearson),
-  to = colnames(cor_pearson),
-  stringsAsFactors = FALSE
-) %>%
-  filter(from < to) %>%
-  rowwise() %>%
-  mutate(
-    correlation = cor_pearson[from, to],
-    abs_cor = abs(correlation),
-    sign = ifelse(correlation >= 0, "positive", "negative")
+  # ---- 1. Pearson correlation heatmap ------------------------------------
+  cor_pearson <- cor(mat, method = "pearson")
+
+  save_and_show_pheatmap(
+    cor_pearson,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = cor_colors,
+    breaks = seq(-1, 1, length.out = 101),
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Pearson correlation of modality strengths %s", title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_pearson_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_pearson_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_pearson_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_pearson_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 2. Spearman rank correlation heatmap ------------------------------
+  cor_spearman <- cor(mat, method = "spearman")
+
+  save_and_show_pheatmap(
+    cor_spearman,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = spearman_colors,
+    breaks = seq(-1, 1, length.out = 101),
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Spearman rank correlation of modality strengths %s", title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_spearman_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_spearman_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_spearman_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_spearman_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 2b. Cosine similarity heatmap -------------------------------------
+  # Unlike Pearson, cosine does NOT mean-center: sensitive to baseline level
+  col_norms <- sqrt(colSums(mat^2))
+  col_norms[col_norms == 0] <- 1
+  mat_normed <- sweep(mat, 2, col_norms, "/")
+  cosine_mat <- t(mat_normed) %*% mat_normed
+
+  save_and_show_pheatmap(
+    cosine_mat,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = cosine_colors,
+    breaks = seq(-1, 1, length.out = 101),
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Cosine similarity of modality strengths %s", title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cosine_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cosine_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cosine_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cosine_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 3. Co-targeting counts --------------------------------------------
+  mod_max <- apply(mat, 2, max, na.rm = TRUE)
+  thresholds <- mod_max * threshold_frac
+  thresholds[thresholds == 0] <- .Machine$double.eps
+
+  mat_binary <- sweep(mat, 2, thresholds, ">") * 1
+  co_target_mat <- t(mat_binary) %*% mat_binary
+
+  cat(sprintf("Neurons with non-trivial input per modality %s:\n", title_suffix))
+  print(diag(co_target_mat))
+
+  save_and_show_pheatmap(
+    co_target_mat,
+    display_numbers = TRUE,
+    number_format = "%d",
+    fontsize_number = 10,
+    color = co_target_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Co-targeting counts (threshold: %.0f%% of modality max) %s",
+                   threshold_frac * 100, title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_counts_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cotarget_counts_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_counts_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cotarget_counts_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 3b. Co-targeting counts (threshold: % of total strength) ----
+  mod_sum <- colSums(abs(mat))
+  thresholds_total <- mod_sum * threshold_frac
+  thresholds_total[thresholds_total == 0] <- .Machine$double.eps
+
+  mat_binary_total <- sweep(mat, 2, thresholds_total, ">") * 1
+  co_target_mat_total <- t(mat_binary_total) %*% mat_binary_total
+
+  cat(sprintf("Neurons above threshold (%%total) per modality %s:\n", title_suffix))
+  print(diag(co_target_mat_total))
+
+  save_and_show_pheatmap(
+    co_target_mat_total,
+    display_numbers = TRUE,
+    number_format = "%d",
+    fontsize_number = 10,
+    color = co_target_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Co-targeting counts (threshold: %.0f%% of total) %s",
+                   threshold_frac * 100, title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_counts_total_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cotarget_counts_total_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_counts_total_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cotarget_counts_total_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 3c. Column-normalized version of total-based co-targeting ----
+  diag_counts_total <- diag(co_target_mat_total)
+  diag_counts_total[diag_counts_total == 0] <- 1
+  co_target_colnorm_total <- sweep(co_target_mat_total, 2, diag_counts_total, "/")
+
+  save_and_show_pheatmap(
+    co_target_colnorm_total,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = co_target_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Co-targeting col-norm (threshold: %.0f%% of total) %s",
+                   threshold_frac * 100, title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_colnorm_total_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cotarget_colnorm_total_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_colnorm_total_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cotarget_colnorm_total_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 3d. Jaccard similarity (total-based threshold) ----
+  n_mods_total <- ncol(mat_binary_total)
+  jaccard_mat_total <- matrix(0, nrow = n_mods_total, ncol = n_mods_total,
+                              dimnames = list(colnames(mat_binary_total), colnames(mat_binary_total)))
+
+  for (i in seq_len(n_mods_total)) {
+    for (j in seq_len(n_mods_total)) {
+      both <- sum(mat_binary_total[, i] == 1 & mat_binary_total[, j] == 1)
+      either <- sum(mat_binary_total[, i] == 1 | mat_binary_total[, j] == 1)
+      jaccard_mat_total[i, j] <- ifelse(either > 0, both / either, 0)
+    }
+  }
+
+  save_and_show_pheatmap(
+    jaccard_mat_total,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = jaccard_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Jaccard similarity (threshold: %.0f%% of total) %s",
+                   threshold_frac * 100, title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_jaccard_total_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_jaccard_total_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_jaccard_total_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_jaccard_total_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 3e. Column-normalized co-targeting (fraction of modality j's targets) ----
+  diag_counts <- diag(co_target_mat)
+  diag_counts[diag_counts == 0] <- 1  # avoid division by zero
+  co_target_colnorm <- sweep(co_target_mat, 2, diag_counts, "/")
+
+  save_and_show_pheatmap(
+    co_target_colnorm,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = co_target_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Co-targeting (column-normalized) %s", title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_colnorm_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cotarget_colnorm_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_colnorm_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cotarget_colnorm_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 4. Jaccard similarity ---------------------------------------------
+  n_mods <- ncol(mat_binary)
+  jaccard_mat <- matrix(0, nrow = n_mods, ncol = n_mods,
+                        dimnames = list(colnames(mat_binary), colnames(mat_binary)))
+
+  for (i in seq_len(n_mods)) {
+    for (j in seq_len(n_mods)) {
+      both   <- sum(mat_binary[, i] == 1 & mat_binary[, j] == 1)
+      either <- sum(mat_binary[, i] == 1 | mat_binary[, j] == 1)
+      jaccard_mat[i, j] <- ifelse(either > 0, both / either, 0)
+    }
+  }
+
+  save_and_show_pheatmap(
+    jaccard_mat,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = jaccard_colors,
+    clustering_method = "complete",
+    annotation_col = group_annotation,
+    annotation_row = group_annotation,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Co-targeting Jaccard similarity between modalities %s", title_suffix),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_jaccard_%s", label), "png", subdir = subdir),
+                         sprintf("panel_E_cotarget_jaccard_%s.png", label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cotarget_jaccard_%s", label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cotarget_jaccard_%s.pdf", label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  # ---- 5. Correlation network (unthresholded) ----------------------------
+  node_df <- data.frame(
+    name = colnames(cor_pearson),
+    group = modality_group[colnames(cor_pearson)],
+    stringsAsFactors = FALSE
+  )
+
+  edge_df <- expand.grid(
+    from = rownames(cor_pearson),
+    to = colnames(cor_pearson),
+    stringsAsFactors = FALSE
   ) %>%
-  ungroup()
+    filter(from < to) %>%
+    rowwise() %>%
+    mutate(
+      correlation = cor_pearson[from, to],
+      abs_cor = abs(correlation),
+      sign = ifelse(correlation >= 0, "positive", "negative")
+    ) %>%
+    ungroup()
 
-# Node metadata
-node_df <- data.frame(
-  name = modality_order,
-  group = modality_group[modality_order],
-  stringsAsFactors = FALSE
-)
+  graph <- tbl_graph(nodes = node_df, edges = edge_df, directed = FALSE)
 
-# Create tidygraph object
-graph <- tbl_graph(
-  nodes = node_df,
-  edges = edge_df,
-  directed = FALSE
-)
-
-# Circular layout for clean publication figure
-p_network <- ggraph(graph, layout = "circle") +
-  geom_edge_link(
-    aes(
-      width = abs_cor,
-      color = sign,
-      alpha = abs_cor
+  p_network <- ggraph(graph, layout = "circle") +
+    geom_edge_link(
+      aes(width = abs_cor, color = sign, alpha = abs_cor)
+    ) +
+    scale_edge_width_continuous(range = c(0.3, 4), name = "|Correlation|") +
+    scale_edge_color_manual(
+      values = c("positive" = "#B2182B", "negative" = "#2166AC"),
+      name = "Direction"
+    ) +
+    scale_edge_alpha_continuous(range = c(0.3, 1), guide = "none") +
+    geom_node_point(aes(color = group), size = 12) +
+    geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
+    scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
+    labs(title = sprintf("Modality correlation network (Pearson) %s", title_suffix)) +
+    theme_void(base_size = 11) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14)
     )
-  ) +
-  scale_edge_width_continuous(range = c(0.3, 4), name = "|Correlation|") +
-  scale_edge_color_manual(
-    values = c("positive" = "#B2182B", "negative" = "#2166AC"),
-    name = "Direction"
-  ) +
-  scale_edge_alpha_continuous(range = c(0.3, 1), guide = "none") +
-  geom_node_point(aes(color = group), size = 12) +
-  geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
-  scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
-  labs(title = "Modality correlation network (Pearson, Bella's targets)") +
-  theme_void(base_size = 11) +
-  theme(
-    legend.position = "right",
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 14)
-  )
 
-print(p_network)
-save_fig6_plot(p_network, "panel_E_correlation_network_bella", width = 9, height = 8)
+  print(p_network)
+  save_fig6_plot(p_network,
+                 sprintf("panel_E_correlation_network_%s", label),
+                 width = 9, height = 8, subdir = subdir)
+
+  # ---- 6. Correlation network (thresholded |r| > 0.1) --------------------
+  edge_df_thresh <- edge_df %>% filter(abs_cor > 0.1)
+
+  graph_thresh <- tbl_graph(nodes = node_df, edges = edge_df_thresh, directed = FALSE)
+
+  p_network_thresh <- ggraph(graph_thresh, layout = "circle") +
+    geom_edge_link(
+      aes(width = abs_cor, color = sign),
+      alpha = 0.8
+    ) +
+    geom_edge_link(
+      aes(label = sprintf("%.2f", correlation)),
+      angle_calc = "along",
+      label_size = 2.5,
+      label_dodge = unit(3, "mm"),
+      alpha = 0
+    ) +
+    scale_edge_width_continuous(range = c(0.5, 4), name = "|Correlation|") +
+    scale_edge_color_manual(
+      values = c("positive" = "#B2182B", "negative" = "#2166AC"),
+      name = "Direction"
+    ) +
+    geom_node_point(aes(color = group), size = 14) +
+    geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
+    scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
+    labs(title = sprintf("Modality correlation network (|r| > 0.1, Pearson) %s", title_suffix)) +
+    theme_void(base_size = 11) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14)
+    )
+
+  print(p_network_thresh)
+  save_fig6_plot(p_network_thresh,
+                 sprintf("panel_E_correlation_network_thresholded_%s", label),
+                 width = 9, height = 8, subdir = subdir)
+
+  # ---- 7. Averaged-metrics network (mean of Spearman + Cosine + Jaccard) ----
+  avg_mat <- (cor_spearman + cosine_mat + jaccard_mat) / 3
+
+  edge_df_avg <- expand.grid(
+    from = rownames(avg_mat),
+    to = colnames(avg_mat),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(from < to) %>%
+    rowwise() %>%
+    mutate(
+      correlation = avg_mat[from, to],
+      abs_cor = abs(correlation),
+      sign = ifelse(correlation >= 0, "positive", "negative")
+    ) %>%
+    ungroup()
+
+  graph_avg <- tbl_graph(nodes = node_df, edges = edge_df_avg, directed = FALSE)
+
+  p_network_avg <- ggraph(graph_avg, layout = "circle") +
+    geom_edge_link(
+      aes(width = abs_cor, color = sign, alpha = abs_cor)
+    ) +
+    scale_edge_width_continuous(range = c(0.3, 4), name = "|Similarity|") +
+    scale_edge_color_manual(
+      values = c("positive" = "#B2182B", "negative" = "#2166AC"),
+      name = "Direction"
+    ) +
+    scale_edge_alpha_continuous(range = c(0.3, 1), guide = "none") +
+    geom_node_point(aes(color = group), size = 12) +
+    geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
+    scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
+    labs(title = sprintf("Averaged similarity network %s\n(mean of Spearman + Cosine + Jaccard)", title_suffix)) +
+    theme_void(base_size = 11) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 12)
+    )
+
+  print(p_network_avg)
+  save_fig6_plot(p_network_avg,
+                 sprintf("panel_E_avg_network_%s", label),
+                 width = 9, height = 8, subdir = subdir)
+
+  # Thresholded averaged network (score > 0.1)
+  edge_df_avg_thresh <- edge_df_avg %>% filter(abs_cor > 0.1)
+
+  graph_avg_thresh <- tbl_graph(nodes = node_df, edges = edge_df_avg_thresh, directed = FALSE)
+
+  p_network_avg_thresh <- ggraph(graph_avg_thresh, layout = "circle") +
+    geom_edge_link(
+      aes(width = abs_cor, color = sign),
+      alpha = 0.8
+    ) +
+    geom_edge_link(
+      aes(label = sprintf("%.2f", correlation)),
+      angle_calc = "along",
+      label_size = 2.5,
+      label_dodge = unit(3, "mm"),
+      alpha = 0
+    ) +
+    scale_edge_width_continuous(range = c(0.5, 4), name = "|Similarity|") +
+    scale_edge_color_manual(
+      values = c("positive" = "#B2182B", "negative" = "#2166AC"),
+      name = "Direction"
+    ) +
+    geom_node_point(aes(color = group), size = 14) +
+    geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
+    scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
+    labs(title = sprintf("Averaged similarity network %s (score > 0.1)", title_suffix)) +
+    theme_void(base_size = 11) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 12)
+    )
+
+  print(p_network_avg_thresh)
+  save_fig6_plot(p_network_avg_thresh,
+                 sprintf("panel_E_avg_network_%s_thresholded", label),
+                 width = 9, height = 8, subdir = subdir)
+
+  # ---- Return computed matrices ------------------------------------------
+  invisible(list(
+    cor_pearson   = cor_pearson,
+    cor_spearman  = cor_spearman,
+    co_target_mat = co_target_mat,
+    jaccard_mat   = jaccard_mat
+  ))
+}
 ```
 
-```{r correlation-network-thresholded, fig.width=8, fig.height=8}
-# Thresholded version: only show edges with |correlation| > 0.1
-edge_df_thresh <- edge_df %>% filter(abs_cor > 0.1)
+```{r cosine-helper, include=FALSE}
+# Cosine similarity heatmap for a given strength matrix and label
+plot_cosine <- function(strength_mat, valence_label, subdir = NULL) {
+  mods_present <- intersect(modality_order, colnames(strength_mat))
+  mat_v <- strength_mat[, mods_present]
 
-graph_thresh <- tbl_graph(
-  nodes = node_df,
-  edges = edge_df_thresh,
-  directed = FALSE
-)
+  if (ncol(mat_v) < 2 || nrow(mat_v) < 3) {
+    message(sprintf("Skipping cosine %s: insufficient data", valence_label))
+    return(invisible(NULL))
+  }
 
-p_network_thresh <- ggraph(graph_thresh, layout = "circle") +
-  geom_edge_link(
-    aes(
-      width = abs_cor,
-      color = sign
-    ),
-    alpha = 0.8
-  ) +
-  geom_edge_link(
-    aes(label = sprintf("%.2f", correlation)),
-    angle_calc = "along",
-    label_size = 2.5,
-    label_dodge = unit(3, "mm"),
-    alpha = 0
-  ) +
-  scale_edge_width_continuous(range = c(0.5, 4), name = "|Correlation|") +
-  scale_edge_color_manual(
-    values = c("positive" = "#B2182B", "negative" = "#2166AC"),
-    name = "Direction"
-  ) +
-  geom_node_point(aes(color = group), size = 14) +
-  geom_node_text(aes(label = name), size = 3.5, fontface = "bold", color = "white") +
-  scale_color_manual(values = modality_group_colors, name = "Sensory\nGroup") +
-  labs(title = "Modality correlation network (|r| > 0.1, Pearson, Bella's targets)") +
-  theme_void(base_size = 11) +
-  theme(
-    legend.position = "right",
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 14)
+  col_var <- apply(mat_v, 2, var, na.rm = TRUE)
+  mat_v <- mat_v[, col_var > 0, drop = FALSE]
+
+  if (ncol(mat_v) < 2) {
+    message(sprintf("Skipping cosine %s: fewer than 2 variable modalities", valence_label))
+    return(invisible(NULL))
+  }
+
+  col_norms <- sqrt(colSums(mat_v^2))
+  col_norms[col_norms == 0] <- 1
+  mat_normed <- sweep(mat_v, 2, col_norms, "/")
+  cosine_mat <- t(mat_normed) %*% mat_normed
+
+  ga <- data.frame(
+    group = modality_group[colnames(cosine_mat)],
+    row.names = colnames(cosine_mat)
   )
 
-print(p_network_thresh)
-save_fig6_plot(p_network_thresh, "panel_E_correlation_network_thresholded_bella", width = 9, height = 8)
+  save_and_show_pheatmap(
+    cosine_mat,
+    display_numbers = TRUE,
+    number_format = "%.2f",
+    fontsize_number = 9,
+    color = cosine_colors,
+    breaks = seq(-1, 1, length.out = 101),
+    clustering_method = "complete",
+    annotation_col = ga,
+    annotation_row = ga,
+    annotation_colors = list(group = modality_group_colors),
+    border_color = "white",
+    cellwidth = 50,
+    cellheight = 50,
+    main = sprintf("Cosine similarity (%s, Bella's targets)", valence_label),
+    fontsize = 10,
+    png_path = file.path(panel_plot_dir(sprintf("panel_E_cosine_%s_bella", valence_label), "png", subdir = subdir),
+                         sprintf("panel_E_cosine_%s_bella.png", valence_label)),
+    pdf_path = file.path(panel_plot_dir(sprintf("panel_E_cosine_%s_bella", valence_label), "pdf", subdir = subdir),
+                         sprintf("panel_E_cosine_%s_bella.pdf", valence_label)),
+    save_width = 9,
+    save_height = 8
+  )
+
+  invisible(cosine_mat)
+}
 ```
 
-## 5. Valence-split correlation analysis
+```{r valence-helpers, include=FALSE}
+# ---------------------------------------------------------------------------
+# Valence-split helpers (accept subdir parameter)
+# ---------------------------------------------------------------------------
 
-Repeat the correlation heatmaps for excitatory-only and inhibitory-only paths
-to determine whether co-occurrence patterns differ by valence.
-
-```{r valence-split-correlations}
 # Helper to compute and plot correlation for a given strength matrix and label
-plot_valence_correlation <- function(strength_mat, valence_label) {
+plot_valence_correlation <- function(strength_mat, valence_label, subdir = NULL) {
   # Ensure modality order
   mods_present <- intersect(modality_order, colnames(strength_mat))
   mat_v <- strength_mat[, mods_present]
@@ -390,14 +694,14 @@ plot_valence_correlation <- function(strength_mat, valence_label) {
     silent = TRUE
   )
 
-  png(file.path(panel_plot_dir(sprintf("panel_E_pearson_%s_bella", valence_label), "png"), sprintf("panel_E_pearson_%s_bella.png", valence_label)),
+  png(file.path(panel_plot_dir(sprintf("panel_E_pearson_%s_bella", valence_label), "png", subdir = subdir), sprintf("panel_E_pearson_%s_bella.png", valence_label)),
       width = 9, height = 8, units = "in", res = 300)
   on.exit(try(dev.off(), silent = TRUE), add = TRUE)
   grid::grid.draw(p$gtable)
   dev.off()
   on.exit(NULL)
 
-  pdf(file.path(panel_plot_dir(sprintf("panel_E_pearson_%s_bella", valence_label), "pdf"), sprintf("panel_E_pearson_%s_bella.pdf", valence_label)),
+  pdf(file.path(panel_plot_dir(sprintf("panel_E_pearson_%s_bella", valence_label), "pdf", subdir = subdir), sprintf("panel_E_pearson_%s_bella.pdf", valence_label)),
       width = 9, height = 8)
   on.exit(try(dev.off(), silent = TRUE), add = TRUE)
   grid::grid.draw(p$gtable)
@@ -409,19 +713,9 @@ plot_valence_correlation <- function(strength_mat, valence_label) {
 
   invisible(cor_mat)
 }
-```
 
-```{r valence-excitatory-heatmap, fig.width=9, fig.height=8}
-cor_exc <- plot_valence_correlation(strength.bella.exc, "excitatory")
-```
-
-```{r valence-inhibitory-heatmap, fig.width=9, fig.height=8}
-cor_inh <- plot_valence_correlation(strength.bella.inh, "inhibitory")
-```
-
-```{r valence-cotarget-comparison}
 # Co-targeting heatmaps per valence
-compute_cotarget <- function(strength_mat, valence_label) {
+compute_cotarget <- function(strength_mat, valence_label, subdir = NULL) {
   mods_present <- intersect(modality_order, colnames(strength_mat))
   mat_v <- strength_mat[, mods_present]
 
@@ -459,14 +753,14 @@ compute_cotarget <- function(strength_mat, valence_label) {
     silent = TRUE
   )
 
-  png(file.path(panel_plot_dir(sprintf("panel_E_cotarget_%s_bella", valence_label), "png"), sprintf("panel_E_cotarget_%s_bella.png", valence_label)),
+  png(file.path(panel_plot_dir(sprintf("panel_E_cotarget_%s_bella", valence_label), "png", subdir = subdir), sprintf("panel_E_cotarget_%s_bella.png", valence_label)),
       width = 9, height = 8, units = "in", res = 300)
   on.exit(try(dev.off(), silent = TRUE), add = TRUE)
   grid::grid.draw(p$gtable)
   dev.off()
   on.exit(NULL)
 
-  pdf(file.path(panel_plot_dir(sprintf("panel_E_cotarget_%s_bella", valence_label), "pdf"), sprintf("panel_E_cotarget_%s_bella.pdf", valence_label)),
+  pdf(file.path(panel_plot_dir(sprintf("panel_E_cotarget_%s_bella", valence_label), "pdf", subdir = subdir), sprintf("panel_E_cotarget_%s_bella.pdf", valence_label)),
       width = 9, height = 8)
   on.exit(try(dev.off(), silent = TRUE), add = TRUE)
   grid::grid.draw(p$gtable)
@@ -480,18 +774,66 @@ compute_cotarget <- function(strength_mat, valence_label) {
 }
 ```
 
-```{r cotarget-excitatory, fig.width=9, fig.height=8}
-co_exc <- compute_cotarget(strength.bella.exc, "excitatory")
+## 1-4. Combined analysis
+
+```{r combined, fig.width=10, fig.height=8, results='asis'}
+mat <- strength.bella[, intersect(modality_order, colnames(strength.bella))]
+
+results <- run_correlation_suite(
+  mat, label = "bella", subdir = "combined",
+  title_suffix = "(Bella's targets)"
+)
 ```
 
-```{r cotarget-inhibitory, fig.width=9, fig.height=8}
-co_inh <- compute_cotarget(strength.bella.inh, "inhibitory")
+## Net strength analysis (excitatory - inhibitory)
+
+```{r combined-net-strength, fig.width=10, fig.height=8, results='asis'}
+strength.bella.net <- compute_net_strength(strength.bella.exc, strength.bella.inh)
+mat_net <- strength.bella.net[, intersect(modality_order, colnames(strength.bella.net))]
+
+results_net <- run_correlation_suite(
+  mat_net, label = "bella", subdir = "combined/net_strength",
+  title_suffix = "(Bella's targets, net strength)"
+)
+```
+
+## 5. Valence-split correlation analysis
+
+Repeat the correlation heatmaps for excitatory-only and inhibitory-only paths
+to determine whether co-occurrence patterns differ by valence.
+
+```{r valence-exc-pearson, fig.width=9, fig.height=8}
+plot_valence_correlation(strength.bella.exc, "excitatory", subdir = "valence")
+```
+
+```{r valence-inh-pearson, fig.width=9, fig.height=8}
+plot_valence_correlation(strength.bella.inh, "inhibitory", subdir = "valence")
+```
+
+```{r valence-exc-cotarget, fig.width=9, fig.height=8}
+compute_cotarget(strength.bella.exc, "excitatory", subdir = "valence")
+```
+
+```{r valence-inh-cotarget, fig.width=9, fig.height=8}
+compute_cotarget(strength.bella.inh, "inhibitory", subdir = "valence")
+```
+
+```{r valence-exc-cosine, fig.width=9, fig.height=8}
+plot_cosine(strength.bella.exc, "excitatory", subdir = "valence")
+```
+
+```{r valence-inh-cosine, fig.width=9, fig.height=8}
+plot_cosine(strength.bella.inh, "inhibitory", subdir = "valence")
 ```
 
 ## 6. Summary statistics
 
 ```{r correlation-summary}
 cat("=== Pearson Correlation Summary (combined, Bella's targets) ===\n")
+cor_pearson  <- results$cor_pearson
+cor_spearman <- results$cor_spearman
+co_target_mat <- results$co_target_mat
+
 # Extract upper triangle values (excluding diagonal)
 upper_idx <- upper.tri(cor_pearson)
 cor_vals <- cor_pearson[upper_idx]
@@ -535,6 +877,57 @@ co_summary <- data.frame(
 
 cat("\nTop co-targeting pairs:\n")
 knitr::kable(co_summary)
+```
+
+```{r net-strength-summary}
+cat("=== Pearson Correlation Summary (net strength, Bella's targets) ===\n")
+cor_pearson_net  <- results_net$cor_pearson
+cor_spearman_net <- results_net$cor_spearman
+co_target_mat_net <- results_net$co_target_mat
+
+# Extract upper triangle values (excluding diagonal)
+upper_idx_net <- upper.tri(cor_pearson_net)
+cor_vals_net <- cor_pearson_net[upper_idx_net]
+pair_labels_net <- outer(rownames(cor_pearson_net), colnames(cor_pearson_net), paste, sep = " - ")[upper_idx_net]
+
+cor_summary_net <- data.frame(
+  pair = pair_labels_net,
+  pearson = cor_vals_net,
+  spearman = cor_spearman_net[upper_idx_net]
+) %>%
+  arrange(desc(abs(pearson)))
+
+cat(sprintf("Number of modality pairs: %d\n", length(cor_vals_net)))
+cat(sprintf("Mean |Pearson r|: %.3f\n", mean(abs(cor_vals_net))))
+cat(sprintf("Max positive: %.3f\n", max(cor_vals_net)))
+cat(sprintf("Max negative: %.3f\n", min(cor_vals_net)))
+cat(sprintf("Pairs with |r| > 0.3: %d\n", sum(abs(cor_vals_net) > 0.3)))
+
+cat("\nAll pairwise correlations (sorted by |Pearson|):\n")
+knitr::kable(cor_summary_net, digits = 3)
+```
+
+```{r net-strength-co-targeting-summary}
+cat("\n=== Co-targeting Summary (net strength, Bella's targets) ===\n")
+cat(sprintf("Threshold: %.0f%% of modality max net strength\n", threshold_frac * 100))
+cat(sprintf("Total target neurons: %d\n", nrow(mat_net)))
+
+# Diagonal = neurons per modality above threshold
+cat("\nNeurons above threshold per modality:\n")
+print(diag(co_target_mat_net))
+
+# Off-diagonal co-targeting
+co_upper_net <- co_target_mat_net[upper.tri(co_target_mat_net)]
+co_labels_net <- outer(rownames(co_target_mat_net), colnames(co_target_mat_net), paste, sep = " & ")[upper.tri(co_target_mat_net)]
+
+co_summary_net <- data.frame(
+  pair = co_labels_net,
+  shared_neurons = co_upper_net
+) %>%
+  arrange(desc(shared_neurons))
+
+cat("\nTop co-targeting pairs:\n")
+knitr::kable(co_summary_net)
 ```
 
 ```{r session-info}

@@ -1,6 +1,7 @@
 ```{r}
 #Imports
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(coconatfly)
 library(fafbseg)
 library(neuprintr)
@@ -21,8 +22,8 @@ library(Matrix)
 library(ggplot2)
 library(ggpubr)
 
-#conna = neuprint_login(dataset='male-cns:v0.9',server='https://neuprint-cns.janelia.org/')
-#mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.9')
+#conna = neuprint_login(dataset='male-cns:v1.0',server='https://neuprint-cns.janelia.org/')
+#mcns.rois = neuprint_ROIs(dataset = 'male-cns:v1.0')
 #neuprint_get_synapses(13693,roi='VNC')
 ```
 

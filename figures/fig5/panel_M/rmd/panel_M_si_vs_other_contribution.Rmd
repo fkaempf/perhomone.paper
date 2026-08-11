@@ -1,0 +1,257 @@
+---
+title: "Panel M: path-strength contribution of SI-traversing paths vs all other paths"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+```
+
+## Goal
+
+Per male-specific mAL_m subtype, split the total ppk23/ppk25 path
+strength into (a) paths whose interior passes through any GABA SI pool
+member and (b) all other paths. Stacked bars faceted by channel show
+what fraction of each subtype's drive actually flows through the SI
+pool.
+
+## Aggregate
+
+```{r aggregate}
+df <- mal_paths %>%
+  filter(modality %in% c("ppk23", "ppk25"), end %in% mal_subtypes) %>%
+  mutate(via_si = vapply(path, path_via_gaba_si, logical(1))) %>%
+  group_by(mal = end, modality, via_si) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  mutate(bucket = factor(ifelse(via_si, "via SI pool", "other paths"),
+                         levels = c("via SI pool", "other paths")))
+
+totals <- df %>%
+  group_by(mal, modality) %>%
+  summarise(total = sum(strength), .groups = "drop")
+
+# Order mAL_m by total strength (summed over both channels), descending.
+mal_order <- totals %>%
+  group_by(mal) %>%
+  summarise(total = sum(total)) %>%
+  arrange(desc(total)) %>%
+  pull(mal)
+
+df <- df %>% mutate(mal = factor(mal, levels = mal_order))
+
+# Overall SI fraction per channel
+channel_summary <- df %>%
+  group_by(modality, via_si) %>%
+  summarise(strength = sum(strength), .groups = "drop") %>%
+  group_by(modality) %>%
+  mutate(frac = strength / sum(strength)) %>%
+  ungroup() %>%
+  filter(via_si) %>%
+  select(modality, si_frac = frac, si_strength = strength)
+print(channel_summary)
+```
+
+## Plot
+
+```{r plot, fig.width=12, fig.height=7}
+pal <- c("via SI pool" = unname(panel_M_palette[["gaba_si"]]),
+         "other paths" = "grey75")
+
+subtitle_txt <- paste(
+  sprintf("SI fraction of total drive: ppk23 = %.1f%%, ppk25 = %.1f%%",
+          100 * channel_summary$si_frac[channel_summary$modality == "ppk23"],
+          100 * channel_summary$si_frac[channel_summary$modality == "ppk25"]),
+  "(SOURCE: mal_paths; top-50 strongest paths per (channel, mAL_m).)",
+  sep = "\n"
+)
+
+per_bar <- df %>%
+  group_by(mal, modality) %>%
+  summarise(total = sum(strength),
+            si    = sum(strength[via_si]),
+            .groups = "drop") %>%
+  mutate(si_pct = ifelse(total > 0, si / total, 0))
+
+p <- ggplot(df, aes(x = mal, y = strength, fill = bucket)) +
+  geom_col(position = "stack", color = "white", linewidth = 0.15) +
+  geom_text(
+    data = per_bar,
+    mapping = aes(x = mal, y = total,
+                  label = sprintf("%.0f%%", 100 * si_pct)),
+    vjust = -0.4, size = 2.8, color = "grey15",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values = pal, name = NULL) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  facet_wrap(~ modality, ncol = 1,
+             labeller = panel_M_channel_labeller,
+             scales = "free_y") +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Total path strength to mAL_m  (% = SI share of that bar)"
+  ) +
+  theme_pub(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        strip.text = element_text(size = rel(1.0), face = "bold"))
+
+annot_df <- tibble(
+  modality = c("ppk23", "ppk25"),
+  label    = sprintf("SI fraction = %.1f%%",
+                     100 * channel_summary$si_frac[match(c("ppk23","ppk25"),
+                                                         channel_summary$modality)])
+)
+
+p <- p + geom_text(
+  data = annot_df,
+  mapping = aes(x = Inf, y = Inf, label = label),
+  hjust = 1.05, vjust = 1.4, size = 3.2,
+  color = "grey20", inherit.aes = FALSE
+)
+
+print(p)
+```
+
+## Fractional variant
+
+Same aggregation, but each bar normalized to 1 — read off the per-mAL_m
+SI fraction directly.
+
+```{r plot_frac, fig.width=12, fig.height=7}
+# Re-order mAL_m for the fraction plot by SI fraction summed across channels
+frac_order <- df %>%
+  group_by(mal) %>%
+  summarise(frac = sum(strength[via_si]) / sum(strength), .groups = "drop") %>%
+  arrange(desc(frac)) %>%
+  pull(mal)
+df_frac <- df %>% mutate(mal = factor(mal, levels = frac_order))
+
+annot_df_frac <- tibble(
+  modality = c("ppk23", "ppk25"),
+  label    = sprintf("SI fraction = %.1f%%",
+                     100 * channel_summary$si_frac[match(c("ppk23","ppk25"),
+                                                         channel_summary$modality)])
+)
+
+p_frac <- ggplot(df_frac, aes(x = mal, y = strength, fill = bucket)) +
+  geom_col(position = "fill", color = "white", linewidth = 0.15) +
+  scale_fill_manual(values = pal, name = NULL) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.03))) +
+  facet_wrap(~ modality, ncol = 1,
+             labeller = panel_M_channel_labeller) +
+  geom_hline(yintercept = 0.5, linetype = "dashed",
+             color = "grey40", linewidth = 0.3) +
+  geom_text(
+    data = annot_df_frac,
+    mapping = aes(x = Inf, y = Inf, label = label),
+    hjust = 1.05, vjust = 1.4, size = 3.2,
+    color = "grey20", inherit.aes = FALSE
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Fraction of total path strength to mAL_m"
+  ) +
+  theme_pub(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        strip.text = element_text(size = rel(1.0), face = "bold"))
+
+print(p_frac)
+```
+
+## Save
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+data_dir <- panel_plot_dir("panel_M", "data")
+
+pdf_device <- if (capabilities("cairo")) cairo_pdf else grDevices::pdf
+
+pdf_path <- file.path(pdf_dir, "panel_M_si_vs_other_contribution.pdf")
+png_path <- file.path(png_dir, "panel_M_si_vs_other_contribution.png")
+csv_path <- file.path(data_dir, "panel_M_si_vs_other_contribution_data.csv")
+ggsave(pdf_path, plot = p, width = 12, height = 7, device = pdf_device)
+ggsave(png_path, plot = p, width = 12, height = 7, dpi = 300)
+write.csv(df, csv_path, row.names = FALSE)
+
+pdf_path_f <- file.path(pdf_dir, "panel_M_si_vs_other_fraction.pdf")
+png_path_f <- file.path(png_dir, "panel_M_si_vs_other_fraction.png")
+ggsave(pdf_path_f, plot = p_frac, width = 12, height = 7, device = pdf_device)
+ggsave(png_path_f, plot = p_frac, width = 12, height = 7, dpi = 300)
+
+cat(sprintf("Saved PDF: %s  (%.1f KB)\n", pdf_path,
+            file.info(pdf_path)$size / 1024))
+cat(sprintf("Saved PDF: %s  (%.1f KB)\n", pdf_path_f,
+            file.info(pdf_path_f)$size / 1024))
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+per_mal <- df %>%
+  group_by(mal, modality) %>%
+  summarise(
+    total = sum(strength),
+    si    = sum(strength[via_si]),
+    .groups = "drop"
+  ) %>%
+  mutate(si_frac = ifelse(total > 0, si / total, 0))
+
+top_si <- per_mal %>% arrange(desc(si_frac)) %>% head(5)
+bot_si <- per_mal %>% arrange(si_frac)        %>% head(5)
+
+narr <- paste0(
+"PANEL M: SI-traversing path contribution vs other paths
+========================================================
+
+DESIGN
+------
+For each (channel, mAL_m) pair, paths in mal_paths (top-50 strongest
+from ORN -> mAL_m per pair) are partitioned by whether any interior
+node is a GABA sign-inverter pool member. Stacked bars show the
+partitioned total strength; the SI fraction is (SI-traversing
+strength) / (total strength).
+
+", panel_M_pool_caption, "
+
+CHANNEL-LEVEL SI FRACTION
+-------------------------
+ppk23: ", sprintf("%.1f%% of total drive routes via the SI pool (raw strength %.3f)",
+                  100 * channel_summary$si_frac[channel_summary$modality == "ppk23"],
+                  channel_summary$si_strength[channel_summary$modality == "ppk23"]), "
+ppk25: ", sprintf("%.1f%% of total drive routes via the SI pool (raw strength %.3f)",
+                  100 * channel_summary$si_frac[channel_summary$modality == "ppk25"],
+                  channel_summary$si_strength[channel_summary$modality == "ppk25"]), "
+
+TOP 5 mAL_m SUBTYPES BY SI FRACTION
+-----------------------------------
+", paste(sprintf("  %-12s  %-6s  SI=%.3f / total=%.3f  (%.1f%%)",
+                 top_si$mal, top_si$modality,
+                 top_si$si, top_si$total, 100 * top_si$si_frac),
+         collapse = "\n"), "
+
+BOTTOM 5 mAL_m SUBTYPES BY SI FRACTION
+--------------------------------------
+", paste(sprintf("  %-12s  %-6s  SI=%.3f / total=%.3f  (%.1f%%)",
+                 bot_si$mal, bot_si$modality,
+                 bot_si$si, bot_si$total, 100 * bot_si$si_frac),
+         collapse = "\n"), "
+
+INTERPRETATION
+--------------
+A stacked bar heavily blue means the mAL_m subtype gets most of its
+channel drive through the SI pool; a mostly-grey bar means SI pool
+routing is a minor slice. This complements
+panel_M_inhibitory_sources (which restricts to inhibitory paths and
+decomposes SI vs mAL-lateral vs other) by instead partitioning
+TOTAL drive (excitatory + inhibitory) into SI-traversing vs not.
+")
+
+writeLines(narr, file.path(data_dir, "panel_M_si_vs_other_contribution_narrative.txt"))
+cat(narr)
+```

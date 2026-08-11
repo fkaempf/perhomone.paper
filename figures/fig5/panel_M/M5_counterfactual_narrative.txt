@@ -1,0 +1,36 @@
+PANEL CE5 (counterfactual): removing AN05B035 reveals its sign-inverter role
+=============================================================================
+
+DESIGN
+------
+For each mAL subtype, compute the ppk23 E/I balance ((exc - inh)/(exc + inh))
+in two scenarios:
+  (1) REAL: all cached strongest ppk23 -> mAL paths.
+  (2) COUNTERFACTUAL: drop every path whose trajectory traverses AN05B035
+      (identified by substring match in mal_paths$path), then recompute the
+      same metric on the remaining paths.
+
+The arrow plot shows each subtype as two stacked points (real dark / CF orange)
+connected by an arrow pointing real -> counterfactual. The marginal histogram
+shows the distribution of per-subtype shifts (CF - real).
+
+KEY NUMBERS
+-----------
+  ppk23 paths total:                       8000
+  ppk23 paths through AN05B035:            949 (11.9%)
+  mean delta (E/I balance, CF - real):     +0.1097
+  median delta:                            +0.1046
+  subtypes pushed toward excitation:       15
+  subtypes pushed toward inhibition:       1
+  subtypes unaffected (no AN05B035 paths): 0
+  largest single shift:                    mAL_m11  (delta = -0.0142)
+
+INTERPRETATION
+--------------
+A positive mean delta (CF - real > 0) indicates that AN05B035 on average
+*suppresses* ppk23-driven excitation in mAL neurons, consistent with its role
+as the GABAergic sign-inverting relay. Subtypes with the largest positive
+shifts are precisely those for which AN05B035 dominates the inhibitory branch
+of the ppk23 pathway; subtypes with near-zero shift do not route ppk23 through
+AN05B035 and therefore are insensitive to its removal.
+

@@ -1,0 +1,52 @@
+P1 metadata enumeration -- agent01 findings
+Date: 2026-04-13
+Source: mba (male-cns v0.9); filter type ~ ^P1_
+P1 distinct types: 45 | P1 cells: 148
+
+Columns examined and per-column distinct non-NA values across P1 pool:
+         column n_distinct_nonNA n_cells_nonNA
+        fru_dsx                5           142
+     superclass                1           148
+       subclass                0             0
+   flywire_type                0             0
+ hemibrain_type                0             0
+       synonyms                3           142
+     dimorphism                2           148
+      soma_side                2           148
+       instance               89           148
+      supertype               10           148
+      itolee_hl                1           148
+      truman_hl                0             0
+          group               57           147
+       location                0             0
+
+Classification counts (per P1 type):
+  courtship  = 19
+  aggression = 0
+  ambiguous  = 0
+  unknown    = 26
+
+Courtship-suggesting P1 types:
+   P1_10a, P1_10b, P1_10c, P1_10d, P1_11a, P1_11b, P1_12b, P1_13b, P1_13c, P1_18a, P1_18b, P1_19, P1_4a, P1_4b, P1_6a, P1_6b, P1_8a, P1_8b, P1_8c
+
+Aggression-suggesting P1 types:
+  (none)
+
+Ambiguous (both courtship + aggression keywords) P1 types:
+  (none)
+
+Dual-annotation cells (bodyid-level):
+  (none)
+
+Keyword patterns used:
+  courtship:  (?i)(fru|dsx|p1a|courtship|court)
+  aggression: (?i)(asp|aSP-g|aSP-h|\bTk\b|tachykinin|aggression|\bagg\b|fight)
+
+Confidence note:
+  Classification is keyword-based on text metadata only. fru_dsx and synonyms
+  are typically the most load-bearing; superclass/subclass rarely discriminate
+  between courtship and aggression P1 sub-populations. Absence of keyword hits
+  does NOT imply the neuron is non-courtship/non-aggression -- many P1 types
+  in the male connectome have sparse literature annotations. Downstream
+  behavioral assignment should be cross-checked with published P1a/pC1/aSP-g
+  references (Koganezawa/Kimura; Watanabe et al; Asahina et al).

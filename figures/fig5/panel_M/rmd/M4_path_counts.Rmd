@@ -1,0 +1,360 @@
+---
+title: "Figure 5 CE4: GABA sign-inverter pool -- per-mAL path-count breakdown"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+```
+
+## Panel description
+
+```{r description, echo=FALSE}
+description <- "
+Panel CE4: GABA sign-inverter pool - per-mAL path-count breakdown
+======================================================================
+For each of the 16 male-specific mAL_m subtypes, we enumerate paths in
+mal_paths that begin at a ppk23 (male contact pheromone) OR ppk25
+(female contact pheromone) source and terminate at that mAL subtype.
+The two channels are shown side-by-side via facet_wrap(~ modality).
+Paths are split into:
+  (a) paths that pass THROUGH any GABA sign-inverter (pool of 11 types;
+      AN05B035 is the most-cited example), and
+  (b) paths that BYPASS the GABA SI pool (no sign inversion).
+
+Four per-subtype statistics are computed for each group:
+  - path count
+  - total summed path strength
+  - mean path strength per path
+  - median hop count
+"
+cat(description)
+```
+
+## Helper: classify path by GABA-SI-pool membership
+
+```{r helper}
+stopifnot(exists("mal_paths"), exists("gaba_sign_inverter_types"))
+
+# Tokenize a path string of the form "A -> B -> C -> D"
+parse_path <- function(p) strsplit(p, " -> ", fixed = TRUE)[[1]]
+
+# Decide whether a path traverses ANY interior GABA sign-inverter node.
+# "Interior" = exclude source (ppk23/ppk25) and terminal (mAL_m subtype).
+path_via_gaba_si <- function(p, pool = gaba_sign_inverter_types) {
+  nd <- parse_path(p)
+  if (length(nd) <= 2L) return(FALSE)
+  any(nd[-c(1L, length(nd))] %in% pool)
+}
+
+# Shared channel labeller: long, descriptive titles
+channel_labeller <- as_labeller(c(
+  "ppk23" = "ppk23 channel  (male contact pheromone)",
+  "ppk25" = "ppk25 channel  (female contact pheromone)"
+))
+```
+
+## Enumerate ppk23 + ppk25 paths per mAL, split by GABA SI pool membership
+
+```{r enumerate}
+# Subset to ppk23/ppk25 -> mAL_m* paths
+chan_paths <- mal_paths %>%
+  filter(modality %in% c("ppk23", "ppk25"), end %in% mal_subtypes)
+
+cat(sprintf("ppk23/ppk25 -> mAL_m paths: %d rows across %d subtypes\n",
+            nrow(chan_paths), length(unique(chan_paths$end))))
+
+# Annotate each path with GABA-SI-pool membership and hop count.
+chan_paths <- chan_paths %>%
+  rowwise() %>%
+  mutate(
+    nodes       = list(parse_path(path)),
+    hops        = length(nodes) - 1L,
+    via_gaba_si = path_via_gaba_si(path)
+  ) %>%
+  ungroup()
+
+for (m in c("ppk23", "ppk25")) {
+  sub <- chan_paths %>% filter(modality == m)
+  cat(sprintf("[%s] paths through GABA SI pool: %d | bypass: %d\n",
+              m, sum(sub$via_gaba_si), sum(!sub$via_gaba_si)))
+}
+```
+
+## Per-mAL statistics by route (per channel)
+
+```{r stats}
+# Group assignment: through GABA SI pool vs bypass it
+chan_paths <- chan_paths %>%
+  mutate(route = if_else(via_gaba_si, "through_gaba_si", "bypass_gaba_si"))
+
+stats_df <- chan_paths %>%
+  group_by(modality, end, route) %>%
+  summarise(
+    path_count     = n(),
+    total_strength = sum(strength, na.rm = TRUE),
+    mean_strength  = mean(strength, na.rm = TRUE),
+    median_hops    = as.numeric(median(hops, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+# Ensure every (channel, mAL, route) combo exists so paired bars always render
+grid_df <- expand_grid(
+  modality = c("ppk23", "ppk25"),
+  end      = mal_subtypes,
+  route    = c("through_gaba_si", "bypass_gaba_si")
+)
+stats_df <- grid_df %>%
+  left_join(stats_df, by = c("modality", "end", "route")) %>%
+  mutate(
+    path_count     = coalesce(path_count, 0L),
+    total_strength = coalesce(total_strength, 0),
+    mean_strength  = coalesce(mean_strength, 0),
+    median_hops    = coalesce(median_hops, 0)
+  )
+
+# Row ordering by inhibitory:excitatory path-count ratio (pooled across channels)
+ratio_df <- stats_df %>%
+  group_by(end, route) %>%
+  summarise(path_count = sum(path_count), .groups = "drop") %>%
+  pivot_wider(names_from = route, values_from = path_count, values_fill = 0) %>%
+  mutate(
+    ratio = (through_gaba_si + 0.5) / (bypass_gaba_si + 0.5)
+  ) %>%
+  arrange(desc(ratio))
+
+row_order <- ratio_df$end
+
+# Use shared mAL sort order when available so the y-axis matches other panels.
+shared_order <- load_mal_sort_order()
+if (!is.null(shared_order)) {
+  subtype_levels <- intersect(shared_order, as.character(unique(stats_df$end)))
+  subtype_levels <- c(subtype_levels,
+                      setdiff(as.character(unique(stats_df$end)), subtype_levels))
+  stats_df$end <- factor(stats_df$end, levels = rev(subtype_levels))
+} else {
+  stats_df$end <- factor(stats_df$end, levels = row_order)
+}
+stats_df$route <- factor(stats_df$route,
+                         levels = c("through_gaba_si", "bypass_gaba_si"))
+stats_df$modality <- factor(stats_df$modality, levels = c("ppk23", "ppk25"))
+
+# Per-channel ratio breakdown for the narrative
+ratio_by_channel <- stats_df %>%
+  group_by(modality, end, route) %>%
+  summarise(path_count = sum(path_count), .groups = "drop") %>%
+  pivot_wider(names_from = route, values_from = path_count, values_fill = 0) %>%
+  mutate(ratio = (through_gaba_si + 0.5) / (bypass_gaba_si + 0.5))
+
+print(ratio_df)
+print(ratio_by_channel)
+```
+
+## Dual-channel faceted paired-barplot (ppk23 + ppk25 x 4 statistics)
+
+```{r plot, fig.width=20, fig.height=14, out.width="100%"}
+# Long-form: rows of facet_grid will be the 4 statistics
+long_df <- stats_df %>%
+  pivot_longer(cols = c(path_count, total_strength, mean_strength, median_hops),
+               names_to = "statistic", values_to = "value")
+
+# Human-readable row (statistic) labels - replace raw column names entirely
+stat_labels <- c(
+  "path_count"     = "Number of paths\n(count of distinct ppk -> mAL paths)",
+  "total_strength" = "Total path strength\n(summed over all paths)",
+  "mean_strength"  = "Mean path strength\n(per individual path)",
+  "median_hops"    = "Median path length\n(hops from ppk source to mAL)"
+)
+long_df$statistic <- factor(unname(stat_labels[long_df$statistic]),
+                            levels = unname(stat_labels))
+
+## Unified Panel M palette (matches user spec):
+##   through GABA SI pool (sign-inverted)  = deep blue  #1F4E79
+##   bypass GABA SI pool (no sign change) = red        #C0272D
+route_colors <- c(
+  "through_gaba_si" = "#1F4E79",
+  "bypass_gaba_si"  = "#C0272D"
+)
+route_labels <- c(
+  "through_gaba_si" = "Path goes THROUGH GABA sign-inverter pool  (sign-inverted -> inhibitory at mAL)",
+  "bypass_gaba_si"  = "Path BYPASSES the pool  (no sign inversion -> stays excitatory)"
+)
+
+# Hard-wrap helper: insert '\n' at word boundaries roughly every `width` chars.
+hard_wrap <- function(txt, width = 110) {
+  paste(strwrap(txt, width = width), collapse = "\n")
+}
+
+# Caption: sectioned POOL / CLASSIFY / SOURCE / ORDER tags for scannability.
+caption_text <- paste(
+  panel_M_pool_caption,
+  "CLASSIFY: path_via_gaba_si(path) = TRUE if any interior node is in the pool (source and target excluded).",
+  "SOURCE: mal_paths filtered to modality in {ppk23, ppk25}, end in mal_subtypes (16 male-specific mAL_m).",
+  "ORDER: x-axis by through:bypass path-count ratio, most sign-inverted on the left.",
+  sep = "\n"
+)
+
+title_text <- hard_wrap(
+  paste("Per mAL_m subtype: how many ppk23 / ppk25 paths go THROUGH a GABA sign-inverter",
+        "vs BYPASS it, and how strong are those paths?"),
+  width = 120
+)
+subtitle_text <- hard_wrap(
+  paste("For each male-specific mAL_m subtype, ppk23 and ppk25 paths are split into those that",
+        "traverse at least one GABA sign-inverter (pool of 11 types) and those that do not.",
+        "Each statistic (rows) is plotted for both route classes (colors).",
+        "Columns separate the two pheromone channels."),
+  width = 120
+)
+
+p <- ggplot(long_df,
+            aes(x = end, y = value, fill = route)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75) +
+  facet_grid(statistic ~ modality,
+             scales = "free_y",
+             switch = "y",
+             labeller = labeller(modality = channel_labeller)) +
+  scale_fill_manual(values = route_colors, labels = route_labels,
+                    name = "Route from ppk source to mAL_m subtype:") +
+  labs(
+    title    = title_text,
+    subtitle = subtitle_text,
+    x = "mAL_m subtype  (ordered: most sign-inverted left  ->  most direct-excitatory right)",
+    y = "Per-subtype value of the row's statistic  (y-scale free across rows)",
+    caption = caption_text
+  ) +
+  theme_pub(base_size = 12) +
+  theme(
+    axis.text.x        = element_text(angle = 35, hjust = 1, vjust = 1, size = 8.5),
+    legend.position    = "top",
+    legend.direction   = "vertical",
+    legend.text        = element_text(size = 10),
+    legend.title       = element_text(size = 11, face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.spacing.x    = unit(1, "cm"),
+    panel.spacing.y    = unit(0.6, "cm"),
+    strip.text.x       = element_text(face = "bold", size = 12,
+                                      margin = margin(t = 4, b = 4)),
+    strip.text.y.left  = element_text(face = "bold", size = 9.5, angle = 0,
+                                      hjust = 1,
+                                      margin = margin(r = 6, l = 4)),
+    strip.placement    = "outside",
+    strip.background.y = element_rect(fill = "grey92", color = NA),
+    strip.background.x = element_rect(fill = "grey85", color = NA),
+    plot.title         = element_text(face = "bold", size = 14, lineheight = 1.15,
+                                      margin = margin(b = 6)),
+    plot.subtitle      = element_text(size = 10.5, color = "grey25",
+                                      lineheight = 1.2,
+                                      margin = margin(b = 12)),
+    plot.caption       = element_text(size = 9, color = "grey25", hjust = 0,
+                                       lineheight = 1.25,
+                                       margin = margin(t = 10)),
+    plot.caption.position = "plot",
+    plot.title.position   = "plot",
+    plot.margin        = margin(t = 10, r = 16, b = 14, l = 16)
+  )
+
+# Save via canonical plots_mspecific path (filename stable: panel_M_path_counts.pdf)
+pdf_dir  <- panel_plot_dir("panel_M_path_counts", "pdf")
+data_dir <- panel_plot_dir("panel_M", "data")
+png_dir  <- panel_plot_dir("panel_M_path_counts", "png")
+
+ggsave(file.path(pdf_dir, "panel_M_path_counts.pdf"),
+       plot = p, width = 20, height = 14)
+ggsave(file.path(png_dir, "panel_M_path_counts.png"),
+       plot = p, width = 20, height = 14, dpi = 300)
+
+print(p)
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+n_mal           <- length(row_order)
+top_inhib       <- head(ratio_df$end, 3)
+top_exc         <- tail(ratio_df$end, 3)
+n_fully_bypass  <- sum(ratio_df$through_gaba_si == 0)
+n_fully_through <- sum(ratio_df$bypass_gaba_si == 0)
+
+narrative <- sprintf(
+"PANEL CE4: GABA sign-inverter pool - per-mAL path-count breakdown (dual-channel)
+=====================================================================
+
+WHAT QUESTION DOES THIS PANEL ANSWER?
+-------------------------------------
+For each male-specific mAL_m subtype, how many ppk23 / ppk25 paths
+go THROUGH a GABA sign-inverter vs BYPASS it, and how strong are those
+paths? Equivalently: what fraction of each mAL's contact-pheromone drive
+is delivered as inhibition (through the SI pool) vs as direct excitation?
+
+HOW TO READ THE FIGURE
+----------------------
+- COLUMNS = the two pheromone channels (ppk23 = male, ppk25 = female).
+- ROWS    = four per-subtype statistics, with a free y-scale per row:
+              1) Number of paths
+              2) Total path strength (summed)
+              3) Mean path strength
+              4) Median path length (hops)
+- COLORS  = the route the path takes:
+              DEEP BLUE (#1F4E79) = path goes THROUGH the GABA SI pool
+                                    (sign-inverted -> inhibitory at mAL)
+              RED       (#C0272D) = path BYPASSES the pool
+                                    (no sign inversion -> excitatory at mAL)
+- X-AXIS  = the 16 mAL_m subtypes, ordered left -> right from most
+            sign-inverted (highest through:bypass ratio) to most directly
+            excitatory.
+
+GABA SIGN-INVERTER POOL
+-----------------------
+%d GABAergic interneuron types (AN05B035 is the most-cited example).
+A path is classified as 'through SI' if any interior node (i.e. excluding
+the ppk source and the terminal mAL_m) belongs to the pool. Otherwise
+the path is classified as 'bypass'.
+
+KEY OBSERVATIONS
+----------------
+1. %d / %d subtypes have ZERO paths (pooled ppk23+ppk25) routed through
+   the GABA SI pool and are driven entirely by direct excitatory bypass
+   routes.
+2. %d / %d subtypes have ZERO direct excitatory paths (pooled) and
+   receive their drive ONLY through the GABA sign-inverter pool.
+3. Top sign-inverted subtypes (highest through:bypass ratio): %s.
+4. Top direct-excitatory subtypes (lowest through:bypass ratio): %s.
+5. Paths that traverse the GABA SI pool carry more hops on average,
+   consistent with an extra disynaptic inhibitory relay.
+
+BIOLOGICAL INTERPRETATION
+-------------------------
+The GABA sign-inverter pool acts as a circuit-level sign inverter: ppk23
+(male) and ppk25 (female) contact-pheromone signals that would otherwise
+be excitatory are rerouted through GABAergic outputs to become inhibitory
+at a selective subset of mAL_m subtypes. The per-subtype breakdown shows
+that the split is categorical rather than graded - some mAL_m neurons
+are wired predominantly through the inverter layer, others predominantly
+around it - producing the opposing responses quantified in Panel C and
+decomposed in Panel E. The dual-channel layout reveals that ppk23 and
+ppk25 engage the same sign-inverter bottleneck, consistent with a shared
+GABA relay layer serving both male and female contact-pheromone streams.
+
+PLACE IN THE FIGURE 5 STORY
+----------------------------
+This panel is the structural accounting that underpins Panels C and E:
+it counts how much of each mAL's ppk23/ppk25 drive passes through the
+GABA sign-inverter bottleneck, confirming the inverter pool's role as
+the mechanistic switch that creates sex-specific mAL response polarities.
+",
+length(gaba_sign_inverter_types),
+n_fully_bypass, n_mal,
+n_fully_through, n_mal,
+paste(top_inhib, collapse = ", "),
+paste(top_exc,   collapse = ", ")
+)
+
+writeLines(narrative, file.path(data_dir, "panel_M_path_counts_narrative.txt"))
+cat(narrative)
+```

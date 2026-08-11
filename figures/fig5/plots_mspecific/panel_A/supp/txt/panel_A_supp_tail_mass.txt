@@ -1,0 +1,10 @@
+# A tibble: 7 × 3
+  modality top50_frac mean_n_paths
+  <fct>         <dbl>        <dbl>
+1 DA1           1               50
+2 VA1d          1               50
+3 VA1v          1               50
+4 auditory      1               50
+5 ppk23         0.756          500
+6 ppk25         0.755          500
+7 visual        0.756          350

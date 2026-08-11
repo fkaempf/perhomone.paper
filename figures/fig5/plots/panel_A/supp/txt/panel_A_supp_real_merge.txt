@@ -1,0 +1,28 @@
+Panel A -- REAL upstream source merge (Option 1)
+==================================================
+
+Graph modification:
+  Multi-source modalities (visual, ppk23, ppk25) have their sensilla pooled into a single
+  virtual node 'visual_merged', with outgoing edges = sum of the sensilla's
+  outgoing edge weights to each shared downstream neighbor. Single-source
+  modalities (DA1, VA1v, VA1d, auditory) are untouched.
+
+Path cache:
+  Re-run of Yen K-strongest paths (K=50) from merged sources to all
+  mAL subtypes. Results cached at feather/strongest.paths.merged/.
+
+Each modality now contributes 50 paths per (modality, target) pair.
+
+Mean |cell| per channel (normalized to each method's max):
+  DA1        raw=0.16  merge=0.16
+  VA1v       raw=0.11  merge=0.11
+  VA1d       raw=0.03  merge=0.03
+  auditory   raw=0.01  merge=0.01
+  visual     raw=0.13  merge=0.12
+  ppk23      raw=0.99  merge=0.98
+  ppk25      raw=1.00  merge=1.00
+
+Interpretation:
+  Any remaining dominance of ppk channels is NOT driven by having
+  more sensilla; it reflects the genuine graph structure after pooling.
+

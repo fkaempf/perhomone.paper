@@ -1,0 +1,7 @@
+Panel A: Circuit Schematic — Programmatic diagram showing 7 sensory modalities converging through 2nd-order relay neurons (vAB3, PPN1) onto 3rd-order courtship command neurons (aSP-f, aSP-g). Arrows indicate connectivity flow across three circuit layers.
+
+______________________________
+
+Figure legend:
+
+(A) Schematic of the multimodal sensory-to-motor circuit. Seven sensory modalities (cVA, mAL, IR, Z4, auditory, visual, mechanosensory) converge through second-order relay neurons (vAB3, PPN1) onto third-order courtship command neurons (aSP-f, aSP-g). Arrow width represents aggregate path strength.

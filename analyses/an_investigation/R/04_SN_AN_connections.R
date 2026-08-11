@@ -5,6 +5,7 @@ suppressMessages({
   library(coconatfly);
   library(coconat); 
   library(malecns);
+  options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
   library(fafbseg)
   library(bancr);
   library(dplyr);

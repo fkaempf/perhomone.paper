@@ -1,4 +1,4 @@
-PANEL C: ppk23 Sign Reversal -- Opposing Pheromone Responses
+PANEL C: Dual-Channel Sign Reversal at mAL via the GABA sign-inverter pool
 ==============================================================
 
 WHAT THIS PANEL SHOWS
@@ -11,6 +11,27 @@ positive. The zero line separates subtypes where ppk23 paths are net-inhibitory
 Right: Scatter plot of ppk23 vs ppk25 net path strength, colored by
 neurotransmitter. The quadrants separate subtypes by their response polarity
 to each pheromone channel.
+
+UPDATED FINDING (DUAL-CHANNEL GABA SIGN-INVERTER POOL INPUT)
+------------------------------------------------------------
+Contact-pheromone sign reversal is NOT carried by a single neuron: it is
+distributed across an 11-cell GABA sign-inverter POOL (AN05B021, AN05B023a-d,
+AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a, IN05B011b). AN05B035 is
+the highest-throughput member, but its siblings collectively carry a
+comparable share of the inhibitory ppk23/ppk25 routing. Pool members receive
+direct input from BOTH ppk23 and ppk25 contact sensilla; because the pool is
+GABAergic, paths from EITHER channel that pass through any pool member are
+sign-inverted before reaching their mAL_m targets.
+
+The supplementary figure alongside this panel (panel_M/pdf/panel_M_C_dual_channel.pdf)
+makes this explicit: row (a) ppk23 path drive, row (b) ppk25 path drive, row
+(c) the GABA sign-inverter pool's signed contribution to ppk23 drive, row (d)
+the same pool's signed contribution to ppk25 drive -- all sharing the same
+mAL_m x-axis (sorted by ppk23 path drive). Rows (c) and (d) carry the same
+negative-going signature, demonstrating that the pool's inhibitory imprint is
+present on BOTH contact channels. Accordingly, sign reversal should be framed
+as a property of the distributed GABA sign-inverter bottleneck, not as an
+AN05B035-specific or ppk23-specific phenomenon.
 
 KEY OBSERVATIONS
 ----------------
@@ -34,10 +55,11 @@ BIOLOGICAL INTERPRETATION
 -------------------------
 The ppk23 sign reversal is a circuit-level computation, not a receptor-level
 property. ppk23 sensory neurons (WG4, LgLG1a, etc.) make excitatory synapses,
-but the GABAergic ascending neuron AN05B035 intercepts these signals and
-re-routes them through an inhibitory relay to specific AN09B017 variants.
-Subtypes wired through this inhibitory relay receive ppk23 as a net-negative
-signal.
+but a distributed pool of GABAergic ascending/interneurons (the GABA
+sign-inverter pool: AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a,
+IN05B002, IN05B011a, IN05B011b) intercepts these signals and re-routes them
+through an inhibitory relay to specific AN09B017 variants. Subtypes wired
+through this inhibitory relay receive ppk23 as a net-negative signal.
 
 This creates two functionally opposite mAL subpopulations:
   - ppk23-inhibited: excited by female (ppk25) but INHIBITED by male (ppk23)
@@ -50,7 +72,7 @@ PLACE IN THE FIGURE 5 STORY
 Panel C reveals the most surprising finding of the path analysis: the same
 pheromone receptor (ppk23) produces opposite effects at different mAL subtypes.
 This builds directly on Panel B's AN09B017 relay architecture (which showed
-the AN05B035 inhibitory branch) and provides the mechanistic basis for the
-subtype diversity shown in Panel A. The sign reversal is further decomposed
-into its excitatory and inhibitory components in Panel E.
+the GABA sign-inverter inhibitory branch) and provides the mechanistic basis
+for the subtype diversity shown in Panel A. The sign reversal is further
+decomposed into its excitatory and inhibitory components in Panel E.
 

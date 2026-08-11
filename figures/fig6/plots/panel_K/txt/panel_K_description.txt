@@ -1,0 +1,7 @@
+Panel K: Outlook — Modality Integration Across Circuit Layers — Examines how sensory modality information converges at increasing circuit depth. Each node in a path is assigned a circuit order (position 1 = sensory, position 2 = 2nd-order, etc.). Analyses include modality-by-layer heatmaps, convergence curves, co-occurrence matrices, per-neuron integration heatmaps at 3rd/4th order, modality dendrograms, and flow diagrams. All analyses run for three target sets: aSP-f/aSP-g, vAB3/PPN1, and all targets.
+
+______________________________
+
+Figure legend:
+
+(K) Modality integration across circuit layers. Each node in a path is assigned a circuit order by position (1 = sensory, 2 = second-order, etc.). Heatmaps show modality composition at each layer; line plots track the fraction of multimodal neurons with increasing depth. Co-occurrence matrices, per-neuron heatmaps, modality dendrograms, and flow diagrams are computed separately for aSP-f/aSP-g, vAB3/PPN1, and all target sets.

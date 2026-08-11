@@ -1,0 +1,7 @@
+Panel D: Multimodality / Lifetime Sparseness — Quantifies how multimodal each target neuron is using lifetime sparseness (Rolls & Tovee 1995) over the 7-modality strength distribution. A sparseness of 1 means the neuron responds to only one modality; near 0 means balanced input from all. Scatter plots show total strength vs. sparseness and dominance vs. sparseness, with separate views for aSP-f/aSP-g, vAB3/PPN1, and all targets combined. Includes valence-split analysis.
+
+______________________________
+
+Figure legend:
+
+(D) Multimodality quantified by lifetime sparseness over the 7-modality strength distribution for each target neuron. High sparseness indicates unimodal dominance; low sparseness indicates balanced multimodal input. Scatter plots show strength vs. sparseness and dominance vs. sparseness for aSP-f/aSP-g, vAB3/PPN1, and all targets. Boxplots compare sparseness distributions across target sets and valence classes.

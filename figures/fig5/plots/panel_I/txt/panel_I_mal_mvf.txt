@@ -1,0 +1,26 @@
+mAL male-contact vs female-contact (no cVA)
+============================================
+For each of 37 mAL subtypes, drive under male (ppk23) and female
+(ppk23+ppk25) encounter scenarios from the signal-flow model
+(mal_all_combos$net_input). Spread = |drive(female) - drive(male)|
+isolates ppk25 sensitivity without cVA.
+
+Top 10 most ppk25-sensitive:
+  mAL_m3a      |delta|=0.0815  higher=Female (ppk25)  delta(F-M)=+0.0815
+  mAL_m3c      |delta|=0.0784  higher=Female (ppk25)  delta(F-M)=+0.0784
+  mAL_m5a      |delta|=0.0704  higher=Female (ppk25)  delta(F-M)=+0.0704
+  mAL_m1       |delta|=0.0659  higher=Female (ppk25)  delta(F-M)=+0.0659
+  mAL_m3b      |delta|=0.0459  higher=Female (ppk25)  delta(F-M)=+0.0459
+  mAL_m2a      |delta|=0.0428  higher=Female (ppk25)  delta(F-M)=+0.0428
+  mAL_m4       |delta|=0.0401  higher=Female (ppk25)  delta(F-M)=+0.0401
+  mAL_m2b      |delta|=0.0373  higher=Female (ppk25)  delta(F-M)=+0.0373
+  mAL_m9       |delta|=0.0335  higher=Female (ppk25)  delta(F-M)=+0.0335
+  mAL_m5c      |delta|=0.0239  higher=Female (ppk25)  delta(F-M)=+0.0239
+
+Argmax counts:
+# A tibble: 2 × 2
+  argmax             n
+  <fct>          <int>
+1 Male (ppk23)       8
+2 Female (ppk25)    29
+

@@ -1,0 +1,7 @@
+Panel B: Modality Composition Heatmap — Clustered heatmap of column-normalized modality input strength to 3rd-order courtship neurons. Rows are target neuron types (aSP-f, aSP-g); columns are the 7 sensory modalities. Row annotations mark target set membership; column annotations mark modality group (olfactory, auditory, visual, contact).
+
+______________________________
+
+Figure legend:
+
+(B) Column-normalized heatmap of modality input strength to third-order target neurons. Each column (modality) is scaled to its maximum, enabling comparison of relative target distributions across modalities. Rows are clustered by Ward's method; annotations indicate target set (aSP-f vs. aSP-g) and modality group.

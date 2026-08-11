@@ -9,6 +9,7 @@ library(neuprintr)
 library(igraph)
 library(Matrix)
 library(stringr)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 
 #' Load or fetch male body annotations with ppk region annotations
 #'

@@ -6,7 +6,7 @@
 # third-order target neurons (downstream of M cells, F cells, IR cells).
 #
 # Usage:
-#   source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/compute_paths.R")
+#   source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/compute_paths.R")
 #
 # This will take ~10-30 minutes depending on your machine.
 # Results are cached to feather files -- re-running skips already-computed paths.
@@ -20,6 +20,7 @@ paths_dir    <- file.path(feather_dir, "strongest.paths")
 library(arrow)
 library(dplyr)
 library(malecns)
+options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
 library(neuprintr)
 library(igraph)
 
@@ -60,7 +61,7 @@ bella_targets_raw <- list(
   ),
   F_downstream = c(
     "mAL_m1", "mAL_m2b", "AVLP743m", "AVLP597",
-    "P1_3c",
+    "pC1_3c",
     "IN05B002",
     "IN23B006", "IN23B007", "IN23B009", "IN23B056",  # IN23B006,7,9,56
     "IN11A020"

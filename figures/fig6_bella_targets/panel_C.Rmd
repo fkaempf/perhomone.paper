@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 12
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -163,6 +163,23 @@ col_normalize_diverging <- function(mat) {
 
 mat_exc_norm <- col_normalize(mat_exc_full)
 mat_inh_norm <- col_normalize(mat_inh_full)
+
+# Joint column-normalize: E and I share the total (E+I) column maxes
+# Preserves E/I ratio -- E + I panels visually decompose Panel B
+mat_total <- mat_exc_full + mat_inh_full
+col_maxes_total <- apply(mat_total, 2, max, na.rm = TRUE)
+col_maxes_total[col_maxes_total == 0] <- 1
+mat_exc_joint_norm <- sweep(mat_exc_full, 2, col_maxes_total, "/")
+mat_inh_joint_norm <- sweep(mat_inh_full, 2, col_maxes_total, "/")
+
+# Row-normalize E/I jointly (preserves E/I balance per neuron)
+row_maxes_ei <- pmax(
+  apply(mat_exc_full, 1, max, na.rm = TRUE),
+  apply(mat_inh_full, 1, max, na.rm = TRUE)
+)
+row_maxes_ei[row_maxes_ei == 0] <- 1
+mat_exc_rownorm <- sweep(mat_exc_full, 1, row_maxes_ei, "/")
+mat_inh_rownorm <- sweep(mat_inh_full, 1, row_maxes_ei, "/")
 ```
 
 ## 5. Optionally apply Panel B row ordering
@@ -180,6 +197,10 @@ if (use_panel_b_order) {
   mat_inh_norm <- mat_inh_norm[ordered_rows, ]
   mat_exc_full <- mat_exc_full[ordered_rows, ]
   mat_inh_full <- mat_inh_full[ordered_rows, ]
+  mat_exc_joint_norm <- mat_exc_joint_norm[ordered_rows, ]
+  mat_inh_joint_norm <- mat_inh_joint_norm[ordered_rows, ]
+  mat_exc_rownorm    <- mat_exc_rownorm[ordered_rows, ]
+  mat_inh_rownorm    <- mat_inh_rownorm[ordered_rows, ]
 }
 ```
 
@@ -260,6 +281,7 @@ save_heatmap_both_orientations(
   name       = "panel_C_excitatory_bella",
   width      = 8,
   height     = 10,
+  subdir     = "separate_colnorm",
   cluster_rows             = cluster_rows_flag,
   cluster_cols             = FALSE,
   clustering_distance_rows = "euclidean",
@@ -283,6 +305,7 @@ save_heatmap_both_orientations(
   name       = "panel_C_inhibitory_bella",
   width      = 8,
   height     = 10,
+  subdir     = "separate_colnorm",
   cluster_rows             = cluster_rows_flag,
   cluster_cols             = FALSE,
   clustering_distance_rows = "euclidean",
@@ -293,6 +316,108 @@ save_heatmap_both_orientations(
   fontsize_col             = 10,
   main                     = "Inhibitory path strength (Bella's targets)",
   angle_col                = 45
+)
+```
+
+## 8b. Joint column-normalized E/I heatmaps
+
+E and I normalized by the same column maxes (from total strength), preserving
+the E/I ratio per modality.
+
+```{r save-joint-colnorm}
+save_heatmap_both_orientations(
+  mat = mat_exc_joint_norm, row_annot = make_row_annot(mat_exc_joint_norm),
+  col_annot = make_col_annot(mat_exc_joint_norm), ann_colors = ann_colors,
+  name = "panel_C_excitatory_bella", width = 8, height = 10,
+  subdir = "joint_colnorm",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Excitatory path strength (joint col-normalized, Bella's targets)", angle_col = 45
+)
+
+save_heatmap_both_orientations(
+  mat = mat_inh_joint_norm, row_annot = make_row_annot(mat_inh_joint_norm),
+  col_annot = make_col_annot(mat_inh_joint_norm), ann_colors = ann_colors,
+  name = "panel_C_inhibitory_bella", width = 8, height = 10,
+  subdir = "joint_colnorm",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#DEEBF7", "#9ECAE1", "#3182BD"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Inhibitory path strength (joint col-normalized, Bella's targets)", angle_col = 45
+)
+
+# Joint col-normalized diverging: net valence / total column maxes
+mat_net_joint_norm <- sweep(mat_net, 2, col_maxes_total, "/")
+
+save_heatmap_both_orientations(
+  mat = mat_net_joint_norm, row_annot = make_row_annot(mat_net_joint_norm),
+  col_annot = make_col_annot(mat_net_joint_norm), ann_colors = ann_colors,
+  name = "panel_C_diverging_valence_bella", width = 8, height = 10,
+  subdir = "joint_colnorm",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = diverging_palette, breaks = seq(-1, 1, length.out = 101),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Net valence (joint col-normalized, Bella's targets)", angle_col = 45
+)
+```
+
+## 8c. Row-normalized E/I heatmaps
+
+```{r save-rownorm-ei}
+save_heatmap_both_orientations(
+  mat = mat_exc_rownorm, row_annot = make_row_annot(mat_exc_rownorm),
+  col_annot = make_col_annot(mat_exc_rownorm), ann_colors = ann_colors,
+  name = "panel_C_excitatory_bella", width = 8, height = 10,
+  subdir = "rownorm",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Excitatory path strength (row-normalized, Bella's targets)", angle_col = 45
+)
+
+save_heatmap_both_orientations(
+  mat = mat_inh_rownorm, row_annot = make_row_annot(mat_inh_rownorm),
+  col_annot = make_col_annot(mat_inh_rownorm), ann_colors = ann_colors,
+  name = "panel_C_inhibitory_bella", width = 8, height = 10,
+  subdir = "rownorm",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#DEEBF7", "#9ECAE1", "#3182BD"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Inhibitory path strength (row-normalized, Bella's targets)", angle_col = 45
+)
+```
+
+## 8d. Raw (unnormalized) E/I heatmaps
+
+```{r save-raw-ei}
+save_heatmap_both_orientations(
+  mat = mat_exc_full, row_annot = make_row_annot(mat_exc_full),
+  col_annot = make_col_annot(mat_exc_full), ann_colors = ann_colors,
+  name = "panel_C_excitatory_bella", width = 8, height = 10,
+  subdir = "raw",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#FEE0D2", "#FC9272", "#DE2D26"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Excitatory path strength (unnormalized, Bella's targets)", angle_col = 45
+)
+
+save_heatmap_both_orientations(
+  mat = mat_inh_full, row_annot = make_row_annot(mat_inh_full),
+  col_annot = make_col_annot(mat_inh_full), ann_colors = ann_colors,
+  name = "panel_C_inhibitory_bella", width = 8, height = 10,
+  subdir = "raw",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = colorRampPalette(c("white", "#DEEBF7", "#9ECAE1", "#3182BD"))(100),
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Inhibitory path strength (unnormalized, Bella's targets)", angle_col = 45
 )
 ```
 
@@ -380,6 +505,7 @@ save_heatmap_both_orientations(
   name       = "panel_C_diverging_valence_bella",
   width      = 8,
   height     = 10,
+  subdir     = "rownorm",
   cluster_rows             = cluster_rows_flag,
   cluster_cols             = FALSE,
   clustering_distance_rows = "euclidean",
@@ -441,6 +567,7 @@ save_heatmap_both_orientations(
   name       = "panel_C_diverging_valence_colnorm_bella",
   width      = 8,
   height     = 10,
+  subdir     = "separate_colnorm",
   cluster_rows             = cluster_rows_flag,
   cluster_cols             = FALSE,
   clustering_distance_rows = "euclidean",
@@ -452,6 +579,25 @@ save_heatmap_both_orientations(
   fontsize_col             = 10,
   main                     = "Net valence, column-normalized (Bella's targets)",
   angle_col                = 45
+)
+```
+
+## 12c. Raw (unnormalized) diverging heatmap
+
+```{r save-diverging-raw}
+# Raw diverging breaks span the actual data range
+breaks_raw_div <- seq(min(mat_net), max(mat_net), length.out = 101)
+
+save_heatmap_both_orientations(
+  mat = mat_net, row_annot = make_row_annot(mat_net),
+  col_annot = make_col_annot(mat_net), ann_colors = ann_colors,
+  name = "panel_C_diverging_valence_bella", width = 8, height = 10,
+  subdir = "raw",
+  cluster_rows = cluster_rows_flag, cluster_cols = FALSE,
+  clustering_distance_rows = "euclidean", clustering_method = "ward.D2",
+  color = diverging_palette, breaks = breaks_raw_div,
+  border_color = NA, fontsize_row = 7, fontsize_col = 10,
+  main = "Net valence (unnormalized, Bella's targets)", angle_col = 45
 )
 ```
 

@@ -1,12 +1,12 @@
 # Render all Figure 6 panels
 # Run from RStudio or R console:
-#   source("/Users/fkampf/Documents/pheromone.paper/fig6/render_all.R")
+#   source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/render_all.R")
 
-fig6_dir <- "/Users/fkampf/Documents/pheromone.paper/fig6"
+fig6_dir <- "/Users/fkampf/Documents/pheromone.paper/figures/fig6"
 
 panels <- c(paste0("panel_", LETTERS[1:9], ".Rmd"),
-            "panel_B_vab3_ppn1.Rmd",
-            "panel_J.Rmd", "panel_K.Rmd")
+            "panel_J.Rmd", "panel_K.Rmd",
+            "panel_brain_maps.Rmd")
 
 for (p in panels) {
   message("\n========== Rendering ", p, " ==========\n")
@@ -25,3 +25,4 @@ for (p in panels) {
 message("\nDone! Plots in fig6/plots/panel_X/{png,pdf}/")
 message("HTML reports in fig6/html/")
 
+  

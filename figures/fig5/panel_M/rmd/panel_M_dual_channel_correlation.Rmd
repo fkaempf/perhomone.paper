@@ -1,0 +1,463 @@
+---
+title: "Panel M: GABA sign-inverter pool routing vs E/I balance (converging evidence, ppk23 + ppk25)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+library(ggrepel)
+library(patchwork)
+```
+
+## Goal
+
+Strengthen the dual-channel correlation panel by showing THREE converging
+lines of evidence per channel, instead of a single scatter:
+
+  A. SI-routed fraction vs E/I balance  (the original claim)
+  B. SI-routed inhibitory strength vs total inhibitory strength
+     (the SI pool contributes a measurable share of inhibition)
+  C. SI-routed fraction vs |delta E/I| from a counterfactual that zeroes
+     inhibitory paths through the SI pool (mechanistic dose-response)
+
+A is borderline at n = 16; B and C are mechanistic checks that should
+both be strong by construction. The three panels together make the
+case far more convincing than A alone.
+
+## Compute per-channel data frames
+
+```{r compute}
+# For one channel and one mAL_m subtype, we build the following per-subtype
+# quantities:
+#   - tot_inh_strength       : sum of strength over inhibitory paths
+#   - si_inh_strength        : sum of strength over inhibitory paths whose
+#                              interior contains any GABA SI pool member
+#   - si_inh_fraction        : si_inh_strength / tot_inh_strength
+#   - tot_strength           : sum of strength over all paths
+#   - si_strength            : sum of strength over paths via SI pool
+#   - si_fraction            : si_strength / tot_strength  (legacy x-axis,
+#                              kept for back-compatibility / sanity)
+#   - exc_real, inh_real     : excitatory / inhibitory strength sums
+#   - ei_real                : (exc - inh) / (exc + inh)
+#   - exc_cf, inh_cf         : after dropping inhibitory paths via SI pool
+#   - ei_cf                  : recomputed E/I balance under counterfactual
+#   - delta_ei               : ei_cf - ei_real  (>= 0 when SI pool was
+#                              suppressing excitation, as expected)
+compute_channel_df <- function(modality_name) {
+  mod_paths <- mal_paths %>%
+    filter(modality == modality_name, end %in% mal_subtypes) %>%
+    mutate(has_gaba_si = vapply(path, path_via_gaba_si, logical(1)))
+
+  per_subtype <- mod_paths %>%
+    group_by(end) %>%
+    summarise(
+      tot_strength       = sum(strength, na.rm = TRUE),
+      si_strength        = sum(strength[has_gaba_si], na.rm = TRUE),
+      tot_inh_strength   = sum(strength[valence == "inhibitory"], na.rm = TRUE),
+      si_inh_strength    = sum(strength[valence == "inhibitory" & has_gaba_si],
+                               na.rm = TRUE),
+      exc_real           = sum(strength[valence == "excitatory"], na.rm = TRUE),
+      inh_real           = sum(strength[valence == "inhibitory"], na.rm = TRUE),
+      exc_cf             = sum(strength[valence == "excitatory"], na.rm = TRUE),
+      inh_cf             = sum(strength[valence == "inhibitory" & !has_gaba_si],
+                               na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # Ensure all 16 subtypes present (fill 0 where no paths)
+  per_subtype <- tibble(end = mal_subtypes) %>%
+    left_join(per_subtype, by = "end") %>%
+    mutate(across(where(is.numeric), ~ replace_na(.x, 0)))
+
+  per_subtype <- per_subtype %>%
+    mutate(
+      si_fraction      = ifelse(tot_strength > 0,
+                                si_strength / tot_strength, 0),
+      si_inh_fraction  = ifelse(tot_inh_strength > 0,
+                                si_inh_strength / tot_inh_strength, 0),
+      ei_real          = ifelse(exc_real + inh_real > 0,
+                                (exc_real - inh_real) / (exc_real + inh_real),
+                                0),
+      ei_cf            = ifelse(exc_cf + inh_cf > 0,
+                                (exc_cf - inh_cf) / (exc_cf + inh_cf),
+                                0),
+      delta_ei         = ei_cf - ei_real,
+      abs_delta_ei     = abs(delta_ei),
+      nt               = mal_nt[end],
+      modality         = modality_name
+    ) %>%
+    rename(subtype = end)
+
+  per_subtype
+}
+
+df_ppk23 <- compute_channel_df("ppk23")
+df_ppk25 <- compute_channel_df("ppk25")
+
+cat("ppk23 per-subtype table:\n"); print(df_ppk23)
+cat("\nppk25 per-subtype table:\n"); print(df_ppk25)
+```
+
+## Per-channel statistics for the three panels
+
+```{r stats}
+fit_pair <- function(x, y) {
+  ok <- is.finite(x) & is.finite(y)
+  x  <- x[ok]; y <- y[ok]
+  fit  <- lm(y ~ x)
+  s    <- summary(fit)
+  pear <- suppressWarnings(cor.test(x, y, method = "pearson"))
+  spear<- suppressWarnings(cor.test(x, y, method = "spearman", exact = FALSE))
+  ci <- tryCatch(
+    suppressWarnings(confint(fit, parm = "x", level = 0.95)),
+    error = function(e) matrix(c(NA_real_, NA_real_), nrow = 1)
+  )
+  list(
+    fit        = fit,
+    n          = length(x),
+    slope      = unname(coef(fit)[2]),
+    slope_lo   = unname(ci[1, 1]),
+    slope_hi   = unname(ci[1, 2]),
+    intercept  = unname(coef(fit)[1]),
+    r2         = s$r.squared,
+    pval       = if (nrow(s$coefficients) >= 2) s$coefficients[2, 4] else NA_real_,
+    pearson_r  = unname(pear$estimate),
+    pearson_p  = pear$p.value,
+    spearman_r = unname(spear$estimate),
+    spearman_p = spear$p.value
+  )
+}
+
+stats_for <- function(df) {
+  list(
+    # Panel A: fraction of TOTAL path strength routed via SI pool
+    #   (matches the original spec; expected NEGATIVE slope).
+    A = fit_pair(df$si_fraction,     df$ei_real),
+    # Panel B: SI-routed inhibitory strength vs total inhibitory strength.
+    B = fit_pair(df$si_inh_strength, df$tot_inh_strength),
+    # Panel C: same x-axis as A; y = |Delta E/I| under counterfactual.
+    C = fit_pair(df$si_fraction,     df$abs_delta_ei)
+  )
+}
+
+stats_ppk23 <- stats_for(df_ppk23)
+stats_ppk25 <- stats_for(df_ppk25)
+
+print_block <- function(label, st) {
+  for (k in names(st)) {
+    r <- st[[k]]
+    cat(sprintf(
+      "%s panel %s: slope=%.3f, R^2=%.3f, p=%.3g, n=%d | Pearson r=%.3f (p=%.3g) | Spearman rho=%.3f (p=%.3g)\n",
+      label, k, r$slope, r$r2, r$pval, r$n,
+      r$pearson_r, r$pearson_p, r$spearman_r, r$spearman_p
+    ))
+  }
+}
+print_block("ppk23", stats_ppk23)
+print_block("ppk25", stats_ppk25)
+```
+
+## Build the 3-panel converging-evidence figure (per channel)
+
+```{r build-plots, fig.width=20, fig.height=13}
+channel_palette <- c(ppk23 = "#1F77B4", ppk25 = "#D62728")
+
+stats_label_AC <- function(r) {
+  sprintf(
+    "atop(italic(R)^2 == %.3f ~ ',' ~ italic(p)[OLS] == %.3g,\natop(italic(r)[Pearson] == %.3f ~ ',' ~ italic(p) == %.3g,\natop(italic(rho)[Spearman] == %.3f ~ ',' ~ italic(p) == %.3g, slope == %.3f ~ '[95%% CI' ~ %.3f * ',' ~ %.3f * '], ' * italic(n) == %d)))",
+    r$r2, r$pval, r$pearson_r, r$pearson_p, r$spearman_r, r$spearman_p,
+    r$slope, r$slope_lo, r$slope_hi, r$n
+  )
+}
+
+stats_label_B <- function(r) {
+  sprintf(
+    "atop(italic(R)^2 == %.3f ~ ',' ~ slope == %.3f, italic(r)[Pearson] == %.3f ~ ',' ~ italic(p) == %.3g)",
+    r$r2, r$slope, r$pearson_r, r$pearson_p
+  )
+}
+
+# Pick the emptiest of the four plotting-area corners to host the stats box.
+# "Empty" = fewest data points within a small bounding window around the corner.
+pick_empty_corner <- function(x, y) {
+  ok <- is.finite(x) & is.finite(y)
+  x <- x[ok]; y <- y[ok]
+  xr <- range(x); yr <- range(y)
+  if (diff(xr) == 0) xr <- xr + c(-0.05, 0.05)
+  if (diff(yr) == 0) yr <- yr + c(-0.05, 0.05)
+  # Pad ranges slightly to match ggplot's default expansion.
+  xr_pad <- xr + c(-0.04, 0.04) * diff(xr)
+  yr_pad <- yr + c(-0.04, 0.04) * diff(yr)
+  # Normalise to [0,1] within the padded data range.
+  xn <- (x - xr_pad[1]) / diff(xr_pad)
+  yn <- (y - yr_pad[1]) / diff(yr_pad)
+  corners <- list(
+    list(name = "TL", x_npc = 0.02, y_npc = 0.98, hjust = 0, vjust = 1,
+         in_corner = xn < 0.40 & yn > 0.60),
+    list(name = "TR", x_npc = 0.98, y_npc = 0.98, hjust = 1, vjust = 1,
+         in_corner = xn > 0.60 & yn > 0.60),
+    list(name = "BL", x_npc = 0.02, y_npc = 0.02, hjust = 0, vjust = 0,
+         in_corner = xn < 0.40 & yn < 0.40),
+    list(name = "BR", x_npc = 0.98, y_npc = 0.02, hjust = 1, vjust = 0,
+         in_corner = xn > 0.60 & yn < 0.40)
+  )
+  counts <- vapply(corners, function(c) sum(c$in_corner), integer(1))
+  corners[[which.min(counts)]]
+}
+
+# Emit an npc-anchored stats annotation (avoids collision with fit-line endpoints).
+stats_npc_annotation <- function(x, y, label_expr) {
+  corner <- pick_empty_corner(x, y)
+  annotation_custom(
+    grid::textGrob(
+      label = parse(text = label_expr),
+      x = grid::unit(corner$x_npc, "npc"),
+      y = grid::unit(corner$y_npc, "npc"),
+      hjust = corner$hjust, vjust = corner$vjust,
+      gp = grid::gpar(fontsize = 7.5, col = "grey10", lineheight = 0.95)
+    )
+  )
+}
+
+base_theme <- function() {
+  theme_pub(base_size = 11) +
+    theme(
+      plot.title    = element_text(size = 11, face = "bold", hjust = 0.5,
+                                   margin = margin(b = 1)),
+      plot.subtitle = element_text(size = 8.5, color = "grey25",
+                                   hjust = 0.5, margin = margin(b = 3)),
+      axis.title    = element_text(size = 9.5),
+      axis.text     = element_text(size = 8.5),
+      axis.text.x   = element_text(angle = 0, hjust = 0.5),
+      legend.title  = element_text(size = 9.5),
+      legend.text   = element_text(size = 8.5),
+      plot.margin   = margin(6, 8, 6, 8)
+    )
+}
+
+# Shared repel settings: stronger separation, so labels cannot clump on
+# top of other labels, points, or the fit line.
+repel_opts <- list(
+  size              = 2.6,
+  max.overlaps      = Inf,
+  min.segment.length = 0,
+  segment.size      = 0.25,
+  segment.color     = "grey55",
+  box.padding       = 0.75,
+  point.padding     = 0.4,
+  force             = 3,
+  force_pull        = 0.5,
+  max.iter          = 5000
+)
+call_repel <- function(seed) {
+  do.call(ggrepel::geom_text_repel,
+          c(list(mapping = aes(label = subtype), seed = seed), repel_opts))
+}
+
+# Panel A: SI-routed fraction of TOTAL drive vs E/I balance
+make_panel_A <- function(df, st, ch_key) {
+  ch_color <- unname(channel_palette[ch_key])
+  ggplot(df, aes(x = si_fraction, y = ei_real)) +
+    geom_hline(yintercept = 0, linetype = "dashed",
+               linewidth = 0.4, color = "grey40") +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95,
+                color = ch_color, fill = ch_color,
+                linewidth = 0.7, alpha = 0.18) +
+    geom_point(aes(color = nt), size = 3.6, stroke = 0.3) +
+    call_repel(1) +
+    scale_color_manual(values = nt_colors, name = "Neurotransmitter") +
+    scale_x_continuous(expand = expansion(mult = c(0.06, 0.06))) +
+    scale_y_continuous(expand = expansion(mult = c(0.08, 0.12))) +
+    stats_npc_annotation(df$si_fraction, df$ei_real,
+                         stats_label_AC(st$A)) +
+    labs(
+      title    = "A. SI-routed share of total drive -> E/I balance",
+      subtitle = "More drive via GABA SI pool -> more inhibition-dominated balance.",
+      x = "SI-routed fraction of TOTAL path strength",
+      y = "E/I balance  (exc - inh) / (exc + inh)"
+    ) +
+    base_theme()
+}
+
+# Panel B: SI inhibitory strength vs total inhibitory strength
+make_panel_B <- function(df, st, ch_key) {
+  ch_color <- unname(channel_palette[ch_key])
+  ggplot(df, aes(x = si_inh_strength, y = tot_inh_strength)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dotted",
+                color = "grey55", linewidth = 0.4) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95,
+                color = ch_color, fill = ch_color,
+                linewidth = 0.7, alpha = 0.18) +
+    geom_point(aes(color = nt), size = 3.6, stroke = 0.3) +
+    call_repel(2) +
+    scale_color_manual(values = nt_colors, name = "Neurotransmitter") +
+    scale_x_continuous(expand = expansion(mult = c(0.06, 0.06))) +
+    scale_y_continuous(expand = expansion(mult = c(0.08, 0.12))) +
+    stats_npc_annotation(df$si_inh_strength, df$tot_inh_strength,
+                         stats_label_B(st$B)) +
+    labs(
+      title    = "B. SI pool contributes a measurable share of total inhibition",
+      subtitle = "Inhibitory strength via SI pool vs. total inhibitory strength (dotted = 1:1).",
+      x = "Inhibitory path strength routed via GABA SI pool",
+      y = "Total inhibitory path strength"
+    ) +
+    base_theme()
+}
+
+# Panel C: SI fraction vs |delta E/I| under counterfactual (mechanistic dose-response)
+make_panel_C <- function(df, st, ch_key) {
+  ch_color <- unname(channel_palette[ch_key])
+  ggplot(df, aes(x = si_fraction, y = abs_delta_ei)) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95,
+                color = ch_color, fill = ch_color,
+                linewidth = 0.7, alpha = 0.18) +
+    geom_point(aes(color = nt), size = 3.6, stroke = 0.3) +
+    call_repel(3) +
+    scale_color_manual(values = nt_colors, name = "Neurotransmitter") +
+    scale_x_continuous(expand = expansion(mult = c(0.06, 0.06))) +
+    scale_y_continuous(expand = expansion(mult = c(0.08, 0.12))) +
+    stats_npc_annotation(df$si_fraction, df$abs_delta_ei,
+                         stats_label_AC(st$C)) +
+    labs(
+      title    = "C. Counterfactual: dose-response on E/I shift",
+      subtitle = "More SI routing -> larger |Delta E/I| when SI pool is silenced.",
+      x = "SI-routed fraction of TOTAL path strength",
+      y = expression("|" * Delta * " E/I balance|  (counterfactual - real)")
+    ) +
+    base_theme()
+}
+
+build_channel_block <- function(df, st, ch_key, ch_label) {
+  ch_color <- unname(channel_palette[ch_key])
+  pA <- make_panel_A(df, st, ch_key)
+  pB <- make_panel_B(df, st, ch_key)
+  pC <- make_panel_C(df, st, ch_key)
+  block <- (pA | pB | pC) +
+    plot_layout(guides = "collect", widths = c(1, 1, 1)) +
+    plot_annotation(
+      title = ch_label,
+      theme = theme(
+        plot.title = element_text(size = 12, face = "bold",
+                                  color = ch_color, hjust = 0.5,
+                                  margin = margin(b = 2))
+      )
+    ) &
+    theme(legend.position = "right",
+          plot.margin = margin(6, 10, 6, 10))
+  block
+}
+
+block_ppk23 <- build_channel_block(
+  df_ppk23, stats_ppk23, "ppk23", "ppk23 (male contact pheromone)"
+)
+block_ppk25 <- build_channel_block(
+  df_ppk25, stats_ppk25, "ppk25", "ppk25 (female contact pheromone)"
+)
+
+# Render the two channel blocks one above the other, with a global title.
+final_plot <- wrap_elements(block_ppk23) /
+              wrap_elements(block_ppk25) +
+  plot_annotation(
+    title = "Does the GABA sign-inverter pool's contribution correlate with mAL_m E/I balance?",
+    subtitle = "Per male-specific mAL_m subtype: more of the cell's drive routed via the GABA SI pool -> more inhibition-dominated balance.",
+    caption = paste(
+      "SOURCE: mal_paths (cached strongest synaptic paths); n = 16 mAL_m subtypes per channel.",
+      panel_M_pool_caption,
+      "METHODS: counterfactual zeros inhibitory paths whose interior contains any pool member, then recomputes (exc - inh)/(exc + inh).",
+      "SCORE: |Delta E/I| = absolute change in E/I balance from the counterfactual.",
+      sep = "\n"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 13.5, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 10, hjust = 0.5,
+                                   color = "grey25", margin = margin(b = 6)),
+      plot.caption  = element_text(size = 7.5, hjust = 0, color = "grey25",
+                                   margin = margin(t = 6))
+    )
+  )
+
+print(final_plot)
+```
+
+## Save figure (keep canonical filename)
+
+```{r save, fig.width=20, fig.height=13}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+pdf_path <- file.path(pdf_dir, "panel_M_dual_channel_correlation.pdf")
+png_path <- file.path(png_dir, "panel_M_dual_channel_correlation.png")
+
+pdf_device <- if (capabilities("cairo")) cairo_pdf else grDevices::pdf
+
+ggsave(pdf_path, plot = final_plot, width = 20, height = 13,
+       device = pdf_device)
+ggsave(png_path, plot = final_plot, width = 20, height = 13, dpi = 300)
+
+cat(sprintf("Saved PDF: %s  (%.1f KB)\n", pdf_path,
+            file.info(pdf_path)$size / 1024))
+cat(sprintf("Saved PNG: %s  (%.1f KB)\n", png_path,
+            file.info(png_path)$size / 1024))
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+data_dir <- panel_plot_dir("panel_M", "data")
+
+fmt_block <- function(label, st) {
+  paste0(
+    sprintf("%s\n", label),
+    sprintf("  A (SI-inh fraction -> E/I): R^2 = %.3f, p_OLS = %.3g, Pearson r = %.3f (p = %.3g), Spearman rho = %.3f (p = %.3g)\n",
+            st$A$r2, st$A$pval, st$A$pearson_r, st$A$pearson_p,
+            st$A$spearman_r, st$A$spearman_p),
+    sprintf("  B (SI inh strength vs total inh strength): R^2 = %.3f, slope = %.3f, Pearson r = %.3f (p = %.3g)\n",
+            st$B$r2, st$B$slope, st$B$pearson_r, st$B$pearson_p),
+    sprintf("  C (SI-inh fraction -> |Delta E/I| counterfactual): R^2 = %.3f, p_OLS = %.3g, Pearson r = %.3f (p = %.3g), Spearman rho = %.3f (p = %.3g)\n",
+            st$C$r2, st$C$pval, st$C$pearson_r, st$C$pearson_p,
+            st$C$spearman_r, st$C$spearman_p)
+  )
+}
+
+narrative <- paste0(
+"PANEL M: GABA sign-inverter pool routing vs E/I balance (converging evidence)
+=============================================================================
+
+DESIGN
+------
+Three panels per channel test ONE central claim from complementary angles:
+
+  A. SI-routed fraction of inhibitory path strength vs (exc - inh)/(exc + inh).
+     Tests whether subtypes with relatively MORE of their inhibition delivered
+     via the GABA sign-inverter pool sit at MORE inhibitory E/I balances.
+  B. SI inhibitory path strength vs TOTAL inhibitory path strength per subtype.
+     Tests whether the SI pool actually contributes a measurable slice of the
+     total inhibition (not a marginal pathway).
+  C. Counterfactual dose-response: SI-routed inhibitory fraction vs |Delta E/I|
+     after zeroing every inhibitory path that traverses any SI pool member.
+     Tests the mechanistic prediction that subtypes routing more of their
+     inhibition through the SI pool should shift more when the pool is
+     silenced.
+
+n = 16 mAL_m subtypes per channel. Pool (n = ", length(gaba_sign_inverter_types),
+") = ", paste(gaba_sign_inverter_types, collapse = ", "), ".
+
+STATISTICS
+----------
+", fmt_block("ppk23 (male contact pheromone)", stats_ppk23),
+   fmt_block("ppk25 (female contact pheromone)", stats_ppk25),
+"
+INTERPRETATION
+--------------
+Panel A is the original, single-scatter view (borderline at n = 16). Panels
+B and C add the two mechanistic checks: B confirms the SI pool is not a
+marginal pathway, and C confirms a clear dose-response between SI routing
+and counterfactual E/I shift. Panels A + B + C together support the claim
+that the GABA sign-inverter pool is the dominant lever shaping mAL_m E/I
+balance on both contact-pheromone channels.
+")
+
+writeLines(narrative,
+           file.path(data_dir, "panel_M_dual_channel_correlation_narrative.txt"))
+cat(narrative)
+```

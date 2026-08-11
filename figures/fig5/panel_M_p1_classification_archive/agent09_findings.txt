@@ -1,0 +1,25 @@
+Agent 09: P1 groups and scenario-drive profiles.
+
+Input: 45 P1 subtypes collapsed to 19 P1 groups by numeric root (P1_3a/b/c -> P1_3). Per-group drive = sum of p1_all_combos$net_input across subtypes for each of three scenarios: Female encounter (ppk23,ppk25), cVA+male (DA1,ppk23), cVA+female (DA1,ppk23,ppk25).
+
+Per-group argmax counts:
+  cVA + female       n=14
+  cVA + male         n=3
+  Female encounter   n=2
+
+K-means k=2 (labels = centroid argmax, sizes):
+  cVA + female (n=10)
+  cVA + female (n=9)
+K-means k=3:
+  cVA + female (n=9)
+  cVA + female (n=2)
+  cVA + female (n=8)
+
+Wilcoxon (aggression-like argmax=cVA+male vs courtship-like argmax=Female or cVA+female) per scenario:
+  Female encounter   n_agg=3 n_court=16  W=14.0  p=0.2882
+  cVA + male         n_agg=3 n_court=16  W=19.0  p=0.6149
+  cVA + female       n_agg=3 n_court=16  W=18.0  p=0.5386
+
+Interpretation. The three scenario drives are highly correlated across P1 groups: groups with strong contact paths score highest under Female and cVA+female, because the model's DA1 (cVA) channel adds little net input on top of ppk23/ppk25. K-means k=2 therefore separates groups by overall contact-drive magnitude, not by scenario identity - both centroids still argmax on cVA+female. K=3 carves off a small low-drive pocket whose magnitudes sit near the noise floor rather than a clean aggression-biased cluster. Only 4 of 20 groups have argmax cVA+male, and Wilcoxon tests against the courtship-like majority are non-significant at alpha=0.05 for all three scenarios (p >= 0.12).
+
+Bottom line: the data support a single scenario-discrimination axis (contact-pheromone amplitude), not a clean courtship-pool vs aggression-pool dichotomy at the P1-group level. Candidate aggression-biased groups (argmax cVA+male: P1_9, P1_1, P1_17) are hypothesis-generating only. Without behavioral ground truth (e.g. optogenetic phenotypes) they should be validated, not labeled. Small group counts and high scenario correlation further limit statistical power.

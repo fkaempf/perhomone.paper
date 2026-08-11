@@ -1,0 +1,24 @@
+Panel A supplement -- intermediate-node variants collapsed
+===========================================================
+
+Collapse rule: for each cached path, strip trailing single lowercase letter
+from every *intermediate* node (not the sensory source, not the mAL target).
+Example: AN09B017a/b/c/d/e/f/g all collapse to AN09B017.
+
+Paths that become identical after collapsing are deduplicated; their
+strengths are summed (biologically: the effective aggregate AN09B017 neuron
+contributes the pooled synaptic drive of its variants along the shared
+downstream route).
+
+Distinct node labels along paths:
+  raw         : 2442
+  collapsed   : 2345
+  reduction   : 97
+
+Heatmaps:
+  - panel_A_supp_interm_collapse_raw       (from mal_paths, intermediates collapsed)
+  - panel_A_supp_interm_collapse_merged    (from merged-source cache, intermediates also collapsed)
+
+Note: mAL targets are kept at their finest granularity (mAL_m3a, mAL_m3b, ...)
+so the heatmap is directly comparable to the main panel A.
+

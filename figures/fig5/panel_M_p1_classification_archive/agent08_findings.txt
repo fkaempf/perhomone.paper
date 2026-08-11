@@ -1,0 +1,35 @@
+Agent 08 -- P1 scenario-discriminability findings
+Date: 2026-04-13
+
+Design. For every P1 subtype with signal-flow net_input values for all three
+behavioural scenarios (Female = ppk23+ppk25; cVA+male = DA1+ppk23; cVA+female
+= DA1+ppk23+ppk25), we extracted the drive from p1_all_combos and computed
+five discriminability metrics: total |drive| summed across the three
+scenarios, spread (max-min), coefficient of variation (sd / mean(|drive|)),
+the argmax scenario, and a chi-squared-like deviation from a flat profile
+(sum((x-mu)^2/|mu|)). A one-sided permutation null was built per P1 by
+resampling three combinations without replacement from that P1's full
+combinatorial screen (127 combinations) and recomputing the spread; the
+p-value is the fraction of null spreads >= observed (+1/+1 correction), with
+1000 permutations. P-values were BH-adjusted across all P1s.
+
+Sample. 45 P1 subtypes had complete data for the three scenarios.
+
+Significance. 0 P1 types pass FDR<0.05 for scenario discriminability and
+0 pass FDR<0.01; 0 have raw p<0.05. The spread metric ranges from
+0.001 to 0.050 (median 0.012, IQR 0.011), so the dynamic range spans roughly
+73.4x between the flattest and most-selective subtype.
+
+Top discriminators. P1_3c (spread=0.050, p=0.8372, best=cVA_female); P1_6b (spread=0.040, p=0.7363, best=female); P1_1b (spread=0.037, p=0.8951, best=cVA_male).
+
+Argmax distribution: cVA_female=28, cVA_male=9, female=8.
+
+Robustness. Results rest on the single-population signal-flow model and the
+per-P1 null pool of 127 combinations. The permutation null is conservative
+because the three target scenarios contain three of the strongest channels,
+so any P1 with a genuine ppk/cVA preference will show up as significant;
+conversely, P1 types whose drive is dominated by visual/auditory channels
+look undiscriminating here even if they are selective elsewhere. FDR was
+computed globally; permutation p-values are floor-bounded at 1/(B+1) =
+9.99e-4, so the smallest attainable FDR depends on the number of P1s tested.
+

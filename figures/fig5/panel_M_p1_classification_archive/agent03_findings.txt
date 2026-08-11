@@ -1,0 +1,43 @@
+AGENT 03 FINDINGS: Male aggression circuit candidates in MCNS
+=============================================================
+
+Search: all 42 columns of `mba` (n=211239 rows) were scanned
+case-insensitively for tokens: aggress, fight, Tk, tachykinin, aDT8,
+aIPg, pC1, MAR1, OvAB, MARO, periesophageal; plus `fru_dsx == dsx`.
+Token hit counts (unique per-row-per-column): pC1=2180, aIPg=130, Tk\b=5, aDT8=2. No hits for aggress,
+fight, MAR1, OvAB, MARO, or periesophageal. Total unique candidate
+neurons = 716 (see aggression_neurons_candidates.csv).
+
+Aggression-related cell types identified in MCNS:
+* pC1 family (dsx+, P1-sister): pC1a, pC1b, pC1c, pC1x_a/b/c/d, plus
+  LPC1 and LLPC1 (pC1-like descending). These are the canonical
+  Schretter/Deutsch aggression-promoting cluster (pC1d in females).
+* aIPg: aIPg1-10 plus male-specific aIPg_m1/m2/m3/m4 (Anderson-lab
+  aggression-IPg cluster; 130 hits across type/instance/hemibrain_type).
+* aDT8: only 1 type hit - DNg34 (synonym 'Yu 2010: aDT8; Busch 2009:
+  OA-VPM1'), an octopaminergic DN linked to aggression/OA-VPM1.
+* Tachykinin-FruM: AVLP727m (synonyms include 'Asahina 2014: TK-FruM',
+  'aSP-g'/'aSP6') - the Tk-GAL4 male aggression cluster.
+* P1 itself (P1_1a...P1_19) is entirely dsx+; all P1 synonyms cite
+  'Lee 2002/Nojima 2021: pC1' so they overlap the pC1 super-family.
+
+P1 -> aggression connectivity (adj.matrix, type x type; P1 types in
+matrix = 45, aggression post-types = 15, non-zero edges = 211). Top
+P1 -> {aIPg|pC1|aDT8|Tk} edges by summed weight:
+  P1_18b -> pC1x_b (w=0.087)
+  P1_18a -> pC1x_d (w=0.085)
+  P1_9a -> aIPg_m1 (w=0.074)
+  P1_18b -> pC1x_d (w=0.071)
+  P1_4a -> aIPg5 (w=0.066)
+  P1_9a -> aIPg_m2 (w=0.065)
+  P1_14a -> pC1x_c (w=0.053)
+  P1_1a -> aIPg2 (w=0.040)
+  P1_12b -> aIPg5 (w=0.040)
+  P1_7a -> aIPg10 (w=0.038)
+
+Full type-level edges in p1_to_aggression_type_edges.csv. Conclusion:
+aggression neurons (pC1x, aIPg including male-specific m1-m4, the Tk-
+FruM cluster, DNg34/aDT8) are all present in MCNS, and several P1
+subtypes project directly onto aIPg and pC1x targets, providing a
+concrete substrate for courtship-aggression cross-talk.
+

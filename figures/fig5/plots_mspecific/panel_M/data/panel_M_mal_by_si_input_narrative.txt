@@ -1,0 +1,38 @@
+PANEL M: mAL_m subtypes ordered by GABA sign-inverter input
+(strength recalculated from SI)
+=============================================================
+
+DESIGN
+------
+x-axis = 16 male-specific mAL_m subtypes, ordered descending by total
+SI-driven path strength. Each bar is stacked by SI pool member. Segment
+heights come from a top-50 strongest-path computation with the SI as
+path source and the mAL_m as path target — so the ORN -> SI prefix is
+dropped by construction and the bar height reflects the SI's
+*downstream reach* onto the mAL_m.
+
+POOL (n=11): AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a, IN05B002, IN05B011a/b.
+
+TOP 3 mAL_m BY SI DRIVE
+-----------------------
+  mAL_m1      total SI strength = 0.1767
+  mAL_m5a     total SI strength = 0.1728
+  mAL_m2a     total SI strength = 0.1221
+
+INTERPRETATION
+--------------
+Bar heights rank mAL_m subtypes by how strongly the SI pool projects
+onto them. The stacked fills show which SI carries the drive — a bar
+dominated by a single color is driven primarily by one SI, whereas a
+multicolored bar receives converging input from several pool members.
+This decomposition is channel-agnostic by construction (the ppk23/ppk25
+ORN prefix has been dropped) and complements the
+panel_M_si_channel_scatter plot, which attributes channel bias per SI.
+
+METHOD NOTES
+------------
+- Cache: strongest.50.paths.gaba_si_pool.2.mAL_m.feather.
+- Strength: multiplicative synapse-weight product from SI to mAL_m.
+- AN05B035 keyed to the Panel M SI-pool dark blue; other SIs on a
+  turbo palette ordered by mean contribution across mAL_m subtypes.
+

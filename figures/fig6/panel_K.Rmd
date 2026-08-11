@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 8
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -82,7 +82,7 @@ sensory_regex <- paste(sensory_patterns, collapse = "|")
 # Neuron type classification
 # ---------------------------------------------------------------------------
 neuron_patterns <- c(
-  "aSP-f" = "^aSP-f", "aSP-g" = "^aSP-g", "P1" = "^P1_",
+  "aSP-f" = "^aSP-f", "aSP-g" = "^aSP-g", "P1" = "^pC1_",
   "pC1" = "^pC1", "pC2" = "^pC2", "mAL" = "^mAL",
   "vAB3" = "^vAB3", "PPN1" = "^PPN1",
   "LH" = "^LH", "PN" = "PN", "MBON" = "^MBON", "KC" = "^KC",
@@ -235,8 +235,8 @@ for (set_name in names(parsed)) {
     annotation_colors = list(group = modality_group_colors),
     cellwidth = 55, cellheight = 35, fontsize = 10, fontsize_number = 8,
     main = "",
-    png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_%s", set_name), "png"), sprintf("panel_K_modality_by_layer_%s.png", set_name)),
-    pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_%s", set_name), "pdf"), sprintf("panel_K_modality_by_layer_%s.pdf", set_name)),
+    png_path = file.path(panel_plot_dir("panel_K_modality_by_layer", "png", subdir = set_name), "panel_K_modality_by_layer.png"),
+    pdf_path = file.path(panel_plot_dir("panel_K_modality_by_layer", "pdf", subdir = set_name), "panel_K_modality_by_layer.pdf"),
     save_width = 7, save_height = 4.5)
 
   # Unnormalized
@@ -248,8 +248,8 @@ for (set_name in names(parsed)) {
     annotation_colors = list(group = modality_group_colors),
     cellwidth = 55, cellheight = 35, fontsize = 10, fontsize_number = 8,
     main = "",
-    png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_raw_%s", set_name), "png"), sprintf("panel_K_modality_by_layer_raw_%s.png", set_name)),
-    pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_by_layer_raw_%s", set_name), "pdf"), sprintf("panel_K_modality_by_layer_raw_%s.pdf", set_name)),
+    png_path = file.path(panel_plot_dir("panel_K_modality_by_layer_raw", "png", subdir = set_name), "panel_K_modality_by_layer_raw.png"),
+    pdf_path = file.path(panel_plot_dir("panel_K_modality_by_layer_raw", "pdf", subdir = set_name), "panel_K_modality_by_layer_raw.pdf"),
     save_width = 7, save_height = 4.5)
 
   # Bar chart
@@ -263,8 +263,8 @@ for (set_name in names(parsed)) {
     theme_fig6()
 
   print(p_bar)
-  save_fig6_plot(p_bar, sprintf("panel_K_neuron_count_by_layer_%s", set_name),
-                 width = 7, height = 4)
+  save_fig6_plot(p_bar, "panel_K_neuron_count_by_layer",
+                 width = 7, height = 4, subdir = set_name)
 }
 ```
 
@@ -293,8 +293,8 @@ for (set_name in names(parsed)) {
     theme_fig6()
 
   print(p_conv)
-  save_fig6_plot(p_conv, sprintf("panel_K_convergence_by_layer_%s", set_name),
-                 width = 6, height = 4)
+  save_fig6_plot(p_conv, "panel_K_convergence_by_layer",
+                 width = 6, height = 4, subdir = set_name)
 }
 ```
 
@@ -324,8 +324,8 @@ for (set_name in names(parsed)) {
       display_numbers = TRUE, number_format = "%d", number_color = "grey25",
       cellwidth = 42, cellheight = 42, fontsize = 10, fontsize_number = 9,
       main = sprintf("Order %d", ord),
-      png_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d_%s", ord, set_name), "png"), sprintf("panel_K_cooccurrence_order%d_%s.png", ord, set_name)),
-      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d_%s", ord, set_name), "pdf"), sprintf("panel_K_cooccurrence_order%d_%s.pdf", ord, set_name)),
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d", ord), "png", subdir = set_name), sprintf("panel_K_cooccurrence_order%d.png", ord)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_cooccurrence_order%d", ord), "pdf", subdir = set_name), sprintf("panel_K_cooccurrence_order%d.pdf", ord)),
       save_width = 6, save_height = 5.5)
   }
 }
@@ -377,8 +377,8 @@ for (set_name in names(parsed)) {
       color = hm_pal, border_color = NA,
       annotation_row = ra, annotation_col = col_annot, annotation_colors = ac,
       fontsize_row = 6.5, fontsize_col = 9, main = "",
-      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_raw_%s.png", ol, set_name)),
-      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_raw_%s.pdf", ol, set_name)),
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw", ol), "png", subdir = set_name), sprintf("panel_K_heatmap_%s_order_raw.png", ol)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_raw", ol), "pdf", subdir = set_name), sprintf("panel_K_heatmap_%s_order_raw.pdf", ol)),
       save_width = 8, save_height = 9)
 
     # Normalized
@@ -388,8 +388,8 @@ for (set_name in names(parsed)) {
       color = hm_pal, border_color = NA,
       annotation_row = ra, annotation_col = col_annot, annotation_colors = ac,
       fontsize_row = 6.5, fontsize_col = 9, main = "",
-      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_%s.png", ol, set_name)),
-      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_%s.pdf", ol, set_name)),
+      png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order", ol), "png", subdir = set_name), sprintf("panel_K_heatmap_%s_order.png", ol)),
+      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order", ol), "pdf", subdir = set_name), sprintf("panel_K_heatmap_%s_order.pdf", ol)),
       save_width = 8, save_height = 9)
 
     # Excitatory
@@ -406,8 +406,8 @@ for (set_name in names(parsed)) {
         annotation_row = re, annotation_col = col_annot,
         annotation_colors = c(annot_colors_base, list(type = ne_c)),
         fontsize_row = 6.5, fontsize_col = 9, main = "",
-        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_exc_%s.png", ol, set_name)),
-        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_exc_%s.pdf", ol, set_name)),
+        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc", ol), "png", subdir = set_name), sprintf("panel_K_heatmap_%s_order_exc.png", ol)),
+        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_exc", ol), "pdf", subdir = set_name), sprintf("panel_K_heatmap_%s_order_exc.pdf", ol)),
         save_width = 8, save_height = 9)
     }
 
@@ -425,8 +425,8 @@ for (set_name in names(parsed)) {
         annotation_row = ri, annotation_col = col_annot,
         annotation_colors = c(annot_colors_base, list(type = ni_c)),
         fontsize_row = 6.5, fontsize_col = 9, main = "",
-        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh_%s", ol, set_name), "png"), sprintf("panel_K_heatmap_%s_order_inh_%s.png", ol, set_name)),
-        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh_%s", ol, set_name), "pdf"), sprintf("panel_K_heatmap_%s_order_inh_%s.pdf", ol, set_name)),
+        png_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh", ol), "png", subdir = set_name), sprintf("panel_K_heatmap_%s_order_inh.png", ol)),
+        pdf_path = file.path(panel_plot_dir(sprintf("panel_K_heatmap_%s_order_inh", ol), "pdf", subdir = set_name), sprintf("panel_K_heatmap_%s_order_inh.pdf", ol)),
         save_width = 8, save_height = 9)
     }
   }
@@ -468,8 +468,8 @@ for (set_name in names(parsed)) {
             axis.line.x = element_blank())
 
     print(p_d)
-    save_fig6_plot(p_d, sprintf("panel_K_modality_dendrogram_%s", set_name),
-                   width = 6, height = 4)
+    save_fig6_plot(p_d, "panel_K_modality_dendrogram",
+                   width = 6, height = 4, subdir = set_name)
 
     # Correlation heatmap
     save_and_show_pheatmap(
@@ -480,8 +480,8 @@ for (set_name in names(parsed)) {
       display_numbers = TRUE, number_format = "%.2f", number_color = "grey25",
       cellwidth = 42, cellheight = 42, fontsize = 10, fontsize_number = 8,
       main = "",
-      png_path = file.path(panel_plot_dir(sprintf("panel_K_modality_correlation_%s", set_name), "png"), sprintf("panel_K_modality_correlation_%s.png", set_name)),
-      pdf_path = file.path(panel_plot_dir(sprintf("panel_K_modality_correlation_%s", set_name), "pdf"), sprintf("panel_K_modality_correlation_%s.pdf", set_name)),
+      png_path = file.path(panel_plot_dir("panel_K_modality_correlation", "png", subdir = set_name), "panel_K_modality_correlation.png"),
+      pdf_path = file.path(panel_plot_dir("panel_K_modality_correlation", "pdf", subdir = set_name), "panel_K_modality_correlation.pdf"),
       save_width = 6, save_height = 5.5)
   }
 
@@ -516,8 +516,8 @@ for (set_name in names(parsed)) {
   if (length(dps) >= 2) {
     pc <- wrap_plots(dps, nrow = 1)
     print(pc)
-    save_fig6_plot(pc, sprintf("panel_K_modality_dendrogram_per_layer_%s", set_name),
-                   width = 3.5 * length(dps), height = 4)
+    save_fig6_plot(pc, "panel_K_modality_dendrogram_per_layer",
+                   width = 3.5 * length(dps), height = 4, subdir = set_name)
   }
 }
 ```
@@ -543,8 +543,8 @@ for (set_name in names(parsed)) {
     theme_fig6()
 
   print(p_prop)
-  save_fig6_plot(p_prop, sprintf("panel_K_modality_flow_%s", set_name),
-                 width = 6, height = 4)
+  save_fig6_plot(p_prop, "panel_K_modality_flow",
+                 width = 6, height = 4, subdir = set_name)
 
   p_abs <- ggplot(flow, aes(factor(circuit_order), s, fill = modality)) +
     geom_col(position = "stack", width = 0.7) +
@@ -554,8 +554,8 @@ for (set_name in names(parsed)) {
     theme_fig6()
 
   print(p_abs)
-  save_fig6_plot(p_abs, sprintf("panel_K_modality_flow_raw_%s", set_name),
-                 width = 6, height = 4)
+  save_fig6_plot(p_abs, "panel_K_modality_flow_raw",
+                 width = 6, height = 4, subdir = set_name)
 }
 ```
 

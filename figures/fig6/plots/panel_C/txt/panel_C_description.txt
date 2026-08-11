@@ -1,0 +1,7 @@
+Panel C: Excitatory/Inhibitory Valence Heatmap — Visualises the excitatory vs. inhibitory balance of modality input. Side-by-side heatmaps show excitatory and inhibitory path strengths separately; a diverging heatmap shows net valence (excitatory minus inhibitory) on a red–white–blue scale.
+
+______________________________
+
+Figure legend:
+
+(C) Excitatory and inhibitory input balance. Left: separate heatmaps for excitatory and inhibitory path strengths. Right: diverging heatmap of net valence (excitatory minus inhibitory), with red indicating excitatory dominance and blue indicating inhibitory dominance.

@@ -1,0 +1,795 @@
+---
+title: "Figure 5 Panel M (v2): GABA sign-inverter pool morphology -- AN types: T1 input (dorsal) + SEZ input + SEZ output; IN types: VNC input + VNC output (dorsal)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+
+suppressMessages({
+  library(nat)
+  library(nat.ggplot)
+  library(neuprintr)
+  library(malecns)
+  options(malecns.dataset = "male-cns:v1.0")   # malecns helpers ignore MCNS_DATASET
+  library(Rvcg)
+  library(dplyr)
+  library(tibble)
+  library(ggplot2)
+  library(patchwork)
+  library(Matrix)
+})
+
+options(rgl.useNULL = TRUE)
+```
+
+## Panel goal
+
+Anatomical "proof of role" panel for the 11-type GABA sign-inverter (SI) pool.
+
+AN types (ascending, prefix "AN05"): three-panel row -- (1) where
+ppk23/ppk25 contact input arrives on SI dendrites in the T1 leg neuromere
+(DORSAL view, looking down on VNC), (2) where the AN neuron additionally
+receives input in the SEZ (GNG + PRW, frontal view), (3) where the signal
+is projected onto mAL_m in the SEZ (frontal view).
+
+IN types (VNC-intrinsic interneurons, prefix "IN05"): two-panel row --
+(1) inputs in VNC (DORSAL view), (2) outputs in VNC (DORSAL view). IN
+neurons do not ascend to the SEZ, so the two SEZ panels are omitted.
+
+Only pheromone-channel categories are plotted -- "other" is dropped. Neuron
+morphology is rendered as smooth 3D surface meshes (fetched via
+`malecns::read_mcns_meshes` from DVID and lightly decimated via
+`Rvcg::vcgQEdecim` to 35% of faces, after `Rvcg::vcgClean` topology fix and
+`Rvcg::vcgIsolated` orphan-component removal so thin neuron branches render
+continuously).
+
+## Pool bodyids
+
+```{r ids}
+si_meta <- mba %>%
+  dplyr::filter(type %in% gaba_sign_inverter_types, !is.na(bodyid)) %>%
+  dplyr::select(bodyid, type) %>%
+  dplyr::distinct()
+si_ids    <- si_meta$bodyid
+n_neurons <- nrow(si_meta)
+n_types   <- length(unique(si_meta$type))
+cat(sprintf("SI pool: %d neurons across %d types\n", n_neurons, n_types))
+print(si_meta %>% dplyr::count(type))
+```
+
+## Partner-type category lookups
+
+```{r categorise-types}
+ppk23_types <- channel_neurons[["ppk23"]]
+ppk25_types <- channel_neurons[["ppk25"]]
+
+an09_types <- c("AN09B017a","AN09B017b","AN09B017c","AN09B017d",
+                "AN09B017e","AN09B017f","AN09B017g")
+
+an09_bias <- sapply(an09_types, function(t) {
+  p23 <- conn %>% filter(post_type == t, pre_type %in% ppk23_types) %>%
+    summarise(w = sum(weight, na.rm = TRUE)) %>% pull(w)
+  p25 <- conn %>% filter(post_type == t, pre_type %in% ppk25_types) %>%
+    summarise(w = sum(weight, na.rm = TRUE)) %>% pull(w)
+  if (length(p23) == 0) p23 <- 0
+  if (length(p25) == 0) p25 <- 0
+  log2((p23 + 1) / (p25 + 1))
+})
+relay_ppk23    <- names(an09_bias)[an09_bias >  1]
+relay_ppk25    <- names(an09_bias)[an09_bias < -1]
+relay_balanced <- names(an09_bias)[abs(an09_bias) <= 1]
+
+categorise_input <- function(partner_type) {
+  dplyr::case_when(
+    partner_type %in% ppk23_types    ~ "ppk23 sensillum",
+    partner_type %in% ppk25_types    ~ "ppk25 sensillum",
+    partner_type %in% relay_ppk23    ~ "ppk23-biased relay",
+    partner_type %in% relay_ppk25    ~ "ppk25-biased relay",
+    partner_type %in% relay_balanced ~ "ppk-unbiased relay",
+    TRUE ~ NA_character_
+  )
+}
+
+# Unified output categorisation for BOTH AN and IN SI types. An output
+# synapse onto `partner_type` is kept iff partner is the IMMEDIATE NEXT
+# HOP after `si_type` on some ppk23/ppk25 -> mAL_m path in mal_paths AND
+# either (a) partner is itself a male-specific mAL_m terminus or
+# (b) partner has a direct 1-hop synapse onto a mAL_m subtype. mAL_m
+# termini get colour-split by ppk23 vs ppk25 bias; non-terminal next hops
+# are all "next hop that reaches mAL_m".
+# (next_hop_sets / reaches_mAL are defined below and used inside this fn.)
+next_hop_sets <- local({
+  paths <- mal_paths %>%
+    dplyr::filter(modality %in% c("ppk23","ppk25"),
+                  end %in% mal_subtypes) %>%
+    dplyr::pull(path)
+  acc <- list()
+  for (p in paths) {
+    toks <- strsplit(p, " -> ", fixed = TRUE)[[1]]
+    if (length(toks) < 2) next
+    for (i in seq_len(length(toks) - 1)) {
+      u <- toks[i]
+      v <- toks[i + 1]
+      if (u %in% gaba_sign_inverter_types) {
+        acc[[u]] <- unique(c(acc[[u]], v))
+      }
+    }
+  }
+  acc
+})
+
+# Partners that directly synapse onto at least one mAL_m subtype.
+# (1-hop adjacency from adj.matrix.raw.)
+reaches_mAL <- local({
+  types_row <- intersect(rownames(adj.matrix.raw), unique(unlist(next_hop_sets)))
+  if (length(types_row) == 0) return(character(0))
+  m <- adj.matrix.raw[types_row, intersect(mal_subtypes, colnames(adj.matrix.raw)),
+                      drop = FALSE]
+  types_row[Matrix::rowSums(m) > 0]
+})
+
+categorise_output_SI <- function(partner_type, si_type) {
+  if (is.na(partner_type) || is.na(si_type)) return(NA_character_)
+  hits <- next_hop_sets[[si_type]]
+  if (is.null(hits) || !(partner_type %in% hits)) return(NA_character_)
+  # Keep: partner is a male-specific mAL_m terminus, OR partner reaches mAL_m
+  # directly at 1 hop.
+  is_mAL_m_terminus <- partner_type %in% mal_subtypes
+  if (!is_mAL_m_terminus && !(partner_type %in% reaches_mAL)) return(NA_character_)
+
+  if (is_mAL_m_terminus) {
+    p23 <- mal_activation_matrix[partner_type, "ppk23"]
+    p25 <- mal_activation_matrix[partner_type, "ppk25"]
+    if (is.na(p23)) p23 <- 0
+    if (is.na(p25)) p25 <- 0
+    if (p23 == 0 && p25 == 0) return("next hop that reaches mAL_m")
+    if (p23 >= p25) return("mAL_m (ppk23-biased)")
+    return("mAL_m (ppk25-biased)")
+  }
+  "next hop that reaches mAL_m"
+}
+```
+
+## Shells (brain + VNC)
+
+```{r fetch-shell}
+scale_shell <- function(s) {
+  s$Vertices$X <- s$Vertices$X / 8
+  s$Vertices$Y <- s$Vertices$Y / 8
+  s$Vertices$Z <- s$Vertices$Z / 8
+  s
+}
+shell_brain <- scale_shell(malecns::malecns_shell.surf)
+shell_vnc   <- scale_shell(malecns::malecnsvnc_shell.surf)
+```
+
+## ROI bounding boxes for cropping (no hull drawn)
+
+```{r fetch-rois}
+t1_rois  <- c("LegNp(T1)(L)", "LegNp(T1)(R)",
+              "NTct(UTct-T1)(L)", "NTct(UTct-T1)(R)")
+sez_rois <- c("GNG", "PRW")
+
+fetch_roi_verts <- function(roi) {
+  m <- tryCatch(neuprint_ROI_mesh(roi), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  v <- as.data.frame(t(m$vb[1:3, , drop = FALSE]))
+  colnames(v) <- c("x","y","z")
+  v
+}
+
+# Frontal projection: axes (x, y). Used for brain-SEZ panels.
+verts_to_bbox_xy <- function(verts, pad_frac = 0.08) {
+  if (is.null(verts) || nrow(verts) == 0) return(NULL)
+  xr <- range(verts$x, na.rm = TRUE)
+  yr <- range(verts$y, na.rm = TRUE)
+  px <- pad_frac * diff(xr); py <- pad_frac * diff(yr)
+  list(x = c(xr[1] - px, xr[2] + px),
+       y = c(yr[1] - py, yr[2] + py))
+}
+
+# Dorsal projection: axes (x, z). The 2D plot still uses variable names
+# x / y but we populate "y" from the raw z component. Used for VNC panels.
+verts_to_bbox_xz <- function(verts, pad_frac = 0.08) {
+  if (is.null(verts) || nrow(verts) == 0) return(NULL)
+  xr <- range(verts$x, na.rm = TRUE)
+  zr <- range(verts$z, na.rm = TRUE)
+  px <- pad_frac * diff(xr); pz <- pad_frac * diff(zr)
+  list(x = c(xr[1] - px, xr[2] + px),
+       y = c(zr[1] - pz, zr[2] + pz))
+}
+
+# SEZ: brain ROIs (GNG, PRW) come back from neuprint in 8-nm voxel coords,
+# matching the synapse coordinate system. Use them directly.
+sez_verts        <- dplyr::bind_rows(lapply(sez_rois, fetch_roi_verts))
+bbox_sez_frontal <- verts_to_bbox_xy(sez_verts)
+
+# T1: VNC ROI meshes from neuprint come back in non-voxel units in this
+# dataset; instead, derive the VNC bounding box from the rescaled VNC shell
+# (already in 8-nm voxel coords).
+vnc_v <- data.frame(
+  x = malecns::malecnsvnc_shell.surf$Vertices$X / 8,
+  y = malecns::malecnsvnc_shell.surf$Vertices$Y / 8,
+  z = malecns::malecnsvnc_shell.surf$Vertices$Z / 8
+)
+bbox_vnc_frontal <- verts_to_bbox_xy(vnc_v, pad_frac = 0.05)
+bbox_vnc_dorsal  <- verts_to_bbox_xz(vnc_v, pad_frac = 0.05)
+
+cat("VNC frontal bbox  x:", bbox_vnc_frontal$x, " y(=y):", bbox_vnc_frontal$y, "\n")
+cat("VNC dorsal  bbox  x:", bbox_vnc_dorsal$x,  " y(=z):", bbox_vnc_dorsal$y,  "\n")
+cat("SEZ frontal bbox  x:", bbox_sez_frontal$x, " y(=y):", bbox_sez_frontal$y, "\n")
+```
+
+## Meshes + synapses
+
+```{r fetch}
+# Fetch full 3D surface meshes per SI bodyid from DVID via malecns, in the
+# same raw voxel coordinate system as synapses and the rescaled shells.
+# Mesh is lightly decimated (keep 15% of faces) via Rvcg::vcgQEdecim so it
+# stays smooth -- much less aggressive than the previous 0.3% attempt.
+# Cached per bodyid.
+mesh_cache_dir <- file.path(fig5_dir, "panel_M", "cache", "meshes")
+dir.create(mesh_cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+DECIM_PERCENT  <- 0.35   # keep 35% of faces -- gentler, preserves thin branches
+MIN_FACES_SKIP <- 20000  # skip decimation for small+medium meshes
+
+decimate_mesh <- function(m, pct = DECIM_PERCENT, min_faces = MIN_FACES_SKIP) {
+  if (is.null(m)) return(NULL)
+  # 1. Clean topology: remove duplicate verts (0), non-manifold edges (1),
+  #    small connected components (6), unreferenced verts (7). Fixes the
+  #    gap artefacts where geom_polygon renders degenerate triangles as
+  #    lines / outline-only fragments.
+  m <- tryCatch(
+    Rvcg::vcgClean(m, sel = c(0, 1, 6, 7), silent = TRUE),
+    error = function(e) m
+  )
+  # 2. Drop orphan islands: keep only components with >= 50 faces so tiny
+  #    disconnected fragments do not render as speckle/outlines.
+  m <- tryCatch(
+    Rvcg::vcgIsolated(m, facenum = 50, silent = TRUE),
+    error = function(e) m
+  )
+  # 3. Decimate only if the mesh is big enough to warrant it.
+  nfaces <- tryCatch(ncol(m$it), error = function(e) NA_integer_)
+  if (is.na(nfaces) || nfaces < min_faces || pct >= 1) return(m)
+  tryCatch(
+    Rvcg::vcgQEdecim(m, percent = pct, topo = TRUE, silent = TRUE),
+    error = function(e) { message("decimate failed: ", conditionMessage(e)); m }
+  )
+}
+
+fetch_one_mesh <- function(id) {
+  f <- file.path(mesh_cache_dir, paste0(id, ".rds"))
+  if (file.exists(f)) {
+    m <- tryCatch(readRDS(f), error = function(e) NULL)
+    if (inherits(m, "mesh3d")) return(m)
+    file.remove(f)
+  }
+  m <- tryCatch(
+    malecns::read_mcns_meshes(id, units = "raw", type = "dvid"),
+    error = function(e) { message("mesh fetch failed for ", id, ": ", conditionMessage(e)); NULL }
+  )
+  if (is.null(m)) return(NULL)
+  # read_mcns_meshes returns either a single mesh3d or a neuronlist-like
+  # collection. Normalise to a single mesh3d for this one bodyid.
+  if (inherits(m, "mesh3d")) {
+    mesh <- m
+  } else if (is.list(m) && length(m) > 0) {
+    cand <- m[[1]]
+    mesh <- if (inherits(cand, "mesh3d")) cand else NULL
+  } else mesh <- NULL
+  if (is.null(mesh)) return(NULL)
+  mesh <- decimate_mesh(mesh)
+  saveRDS(mesh, f)
+  mesh
+}
+
+mesh_list <- list()
+for (id in si_ids) {
+  m <- fetch_one_mesh(id)
+  if (!is.null(m)) mesh_list[[as.character(id)]] <- m
+}
+
+have_meshes <- length(mesh_list) > 0
+cat("mesh fetch:", have_meshes, "  (", if (have_meshes) length(mesh_list) else 0, " neurons)\n")
+if (have_meshes) {
+  face_counts <- sapply(mesh_list, function(m) tryCatch(ncol(m$it), error = function(e) NA_integer_))
+  cat("face counts (post-decimation): min=", min(face_counts, na.rm = TRUE),
+      " median=", stats::median(face_counts, na.rm = TRUE),
+      " max=", max(face_counts, na.rm = TRUE), "\n", sep = "")
+}
+
+syn_tbl <- tryCatch(
+  neuprint_get_synapses(si_ids),
+  error = function(e) { message("synapse fetch failed: ", conditionMessage(e)); NULL }
+)
+
+have_data <- have_meshes && !is.null(syn_tbl) && nrow(syn_tbl) > 0
+cat("meshes OK:", have_meshes,
+    "  synapses OK:", !is.null(syn_tbl) && nrow(syn_tbl) > 0, "\n")
+```
+
+## Categorise synapses (drop "other" entirely)
+
+```{r categorise-synapses}
+bodyid_to_type <- setNames(mba$type, as.character(mba$bodyid))
+
+if (have_data) {
+  syn_df <- syn_tbl %>% as_tibble() %>%
+    mutate(
+      partner_type = bodyid_to_type[as.character(partner)],
+      io           = ifelse(prepost == 1, "input", "output"),
+      # SI-side cell type (which SI neuron this synapse is on)
+      si_type      = bodyid_to_type[as.character(bodyid)]
+    )
+
+  syn_df$category <- NA_character_
+  in_idx  <- which(syn_df$io == "input")
+  out_idx <- which(syn_df$io == "output")
+
+  # Input categorisation unchanged for both AN and IN cells.
+  syn_df$category[in_idx]  <- categorise_input(syn_df$partner_type[in_idx])
+
+  # Output categorisation: same rule for AN and IN -- keep only partners that
+  # are a male-specific mAL_m terminus OR directly reach mAL_m at 1 hop,
+  # AND are the immediate next hop after this SI type on some
+  # ppk23/ppk25 -> mAL_m path.
+  syn_df$category[out_idx] <- mapply(
+    categorise_output_SI,
+    syn_df$partner_type[out_idx],
+    syn_df$si_type[out_idx]
+  )
+
+  # Drop "other": keep only synapses with a pheromone-channel category.
+  syn_df <- syn_df %>% filter(!is.na(category))
+
+  syn_df$category <- factor(
+    syn_df$category,
+    levels = c(
+      "ppk23 sensillum", "ppk25 sensillum",
+      "ppk23-biased relay", "ppk25-biased relay", "ppk-unbiased relay",
+      "mAL_m (ppk23-biased)", "mAL_m (ppk25-biased)",
+      "next hop that reaches mAL_m"
+    )
+  )
+
+  cat("\n== INPUT breakdown (all) ==\n");  print(syn_df %>% filter(io == "input")  %>% count(category))
+  cat("\n== OUTPUT breakdown (all) ==\n"); print(syn_df %>% filter(io == "output") %>% count(category))
+
+  # Per-SI-type OUTPUT breakdown across the three output categories.
+  cat("\n== Per-SI-type OUTPUT breakdown (counts) ==\n")
+  .out_cats <- c("mAL_m (ppk23-biased)",
+                 "mAL_m (ppk25-biased)",
+                 "next hop that reaches mAL_m")
+  .per_type_out <- syn_df %>%
+    filter(io == "output", category %in% .out_cats) %>%
+    count(si_type, category) %>%
+    tidyr::pivot_wider(names_from = category, values_from = n, values_fill = 0)
+  # Ensure every SI type shows up, even with zero outputs.
+  .all_types <- sort(unique(si_meta$type))
+  .per_type_out <- tibble::tibble(si_type = .all_types) %>%
+    dplyr::left_join(.per_type_out, by = "si_type")
+  for (.c in .out_cats) {
+    if (!(.c %in% colnames(.per_type_out))) .per_type_out[[.c]] <- 0L
+    .per_type_out[[.c]][is.na(.per_type_out[[.c]])] <- 0L
+  }
+  .per_type_out <- .per_type_out[, c("si_type", .out_cats)]
+  print(as.data.frame(.per_type_out), row.names = FALSE)
+
+  # Diagnostic: per-IN-type next-hop sets + output-synapse counts.
+  cat("\n== IN next-hop sets (ppk23/ppk25 -> mAL_m, from mal_paths) ==\n")
+  cat(sprintf("  reaches_mAL pool size: %d types\n", length(reaches_mAL)))
+  for (.tp in sort(unique(si_meta$type[grepl("^IN", si_meta$type)]))) {
+    .hits     <- next_hop_sets[[.tp]]
+    .filtered <- if (is.null(.hits)) character(0)
+                 else intersect(.hits, reaches_mAL)
+    .n_syn <- syn_df %>%
+      filter(io == "output", si_type == .tp,
+             category == "next hop that reaches mAL_m") %>%
+      nrow()
+    cat(sprintf("  %-12s  n_next_hop_types = %d  n_reaches_mAL = %d  n_output_syn = %d\n",
+                .tp,
+                if (is.null(.hits)) 0L else length(.hits),
+                length(.filtered),
+                .n_syn))
+    if (!is.null(.hits) && length(.hits) > 0) {
+      cat(sprintf("     next-hop types: %s\n", paste(.hits, collapse = ", ")))
+    }
+    if (length(.filtered) > 0) {
+      cat(sprintf("     filtered (reach mAL_m): %s\n",
+                  paste(.filtered, collapse = ", ")))
+    } else {
+      cat("     filtered (reach mAL_m): <EMPTY> -- panel will have no next-hop synapses\n")
+    }
+
+    # Partner-type breakdown of passing output synapses (sample top 5).
+    .passing_partners <- syn_df %>%
+      filter(io == "output", si_type == .tp,
+             category == "next hop that reaches mAL_m") %>%
+      count(partner_type, sort = TRUE)
+    if (nrow(.passing_partners) > 0) {
+      .top <- head(.passing_partners, 5)
+      cat(sprintf("     top partners by synapse count: %s\n",
+                  paste(sprintf("%s (%d)", .top$partner_type, .top$n),
+                        collapse = ", ")))
+    }
+  }
+}
+```
+
+## Palette
+
+```{r palette}
+# Inputs: ppk23/ppk25 sensilla (red/orange from panel_M_palette); relays blue/green.
+# Outputs (mAL_m targets): DISTINCT warm+cool duo so the SI -> mAL_m projection
+# does not visually collide with the ppk23/ppk25 sensillum inputs.
+cat_colors <- c(
+  "ppk23 sensillum"              = unname(panel_M_palette["ppk23"]),
+  "ppk25 sensillum"              = unname(panel_M_palette["ppk25"]),
+  "ppk23-biased relay"           = "#377EB8",
+  "ppk25-biased relay"           = "#4DAF4A",
+  "ppk-unbiased relay"           = "#888888",
+  "mAL_m (ppk23-biased)"         = "#8B2C7F",
+  "mAL_m (ppk25-biased)"         = "#16A085",
+  "next hop that reaches mAL_m"  = unname(panel_M_palette["gaba_si"])
+)
+```
+
+## Per-panel synapse subsets (cropped to panel bbox)
+
+```{r crop-to-bbox}
+# Frontal projection: filter on (x, y) where bbox$y is the raw Y range.
+in_bbox_frontal <- function(df, bbox) {
+  df %>% filter(x >= bbox$x[1], x <= bbox$x[2],
+                y >= bbox$y[1], y <= bbox$y[2])
+}
+# Dorsal projection: filter on (x, z) where bbox$y is actually the raw Z range.
+in_bbox_dorsal <- function(df, bbox) {
+  df %>% filter(x >= bbox$x[1], x <= bbox$x[2],
+                z >= bbox$y[1], z <= bbox$y[2])
+}
+```
+
+## Rotation matrices (frontal vs dorsal view)
+
+```{r rotation-matrices}
+# Frontal view: identity 4x4, plot (x, y).
+R_frontal <- diag(4)
+
+# Dorsal view: rotate -90 deg about X so y -> z and z -> -y. In the resulting
+# 3D frame, what was raw z ends up in the plot's y slot. For the 2D projection
+# we therefore plot a = x, b = raw z (and treat nat.ggplot::geom_neuron's
+# rotation_matrix as doing the same transform to the mesh vertices).
+R_dorsal <- matrix(c(1,  0, 0, 0,
+                     0,  0, 1, 0,
+                     0, -1, 0, 0,
+                     0,  0, 0, 1), nrow = 4, byrow = TRUE)
+```
+
+## Render function: single panel for one SI cell type
+
+```{r render-fn}
+# Render one cell-type-specific panel. Uses 3D surface meshes fetched via
+# read_mcns_meshes + decimated with Rvcg::vcgQEdecim, drawn by
+# nat.ggplot::geom_neuron.mesh3d. Pheromone-channel synapses are layered on
+# top as coloured points. The R argument selects frontal (XY) vs dorsal (XZ)
+# projection; meshes and shells are rotated by R via
+# nat.ggplot::geom_neuron(rotation_matrix = R), and raw 3D synapse coords
+# are projected by picking y or z for the vertical plot axis accordingly.
+render_panel <- function(meshes_this_type, syn_subset, title, bbox,
+                         R = R_frontal,
+                         scale_bar_um = 20, voxel_nm = 8,
+                         syn_size = 1.2, syn_alpha = 0.5,
+                         show_scalebar = TRUE,
+                         show_title = TRUE,
+                         show_legend = FALSE) {
+  # Project raw 3D synapse coords onto the 2D plot plane. For the dorsal view
+  # we feed the raw z into the plot's y slot so synapse positions stay
+  # registered with the rotated meshes.
+  is_dorsal <- identical(R, R_dorsal)
+  syn_xy <- if (is_dorsal) {
+    syn_subset %>% transmute(x = x, y = z, category = category)
+  } else {
+    syn_subset %>% transmute(x = x, y = y, category = category)
+  }
+
+  scale_units <- scale_bar_um * 1000 / voxel_nm
+  pad_x <- 0.03 * diff(bbox$x)
+  pad_y <- 0.03 * diff(bbox$y)
+  sb_x0 <- bbox$x[2] - scale_units - pad_x
+  sb_x1 <- bbox$x[2] - pad_x
+  sb_y  <- bbox$y[2] - pad_y
+  sb_lab <- sprintf("%d um", scale_bar_um)
+
+  # Neuron bodies as decimated 3D meshes rendered through
+  # nat.ggplot::geom_neuron.mesh3d. One layer per mesh so each neuron of
+  # the type contributes its own filled shape.
+  # Wrap nat.ggplot::geom_neuron so the scale_fill_gradient it returns has
+  # `guide = guide_none()` -- that's the fix for the leftover "Z" colorbars
+  # in the combined legend. show.legend can't suppress a scale-level guide,
+  # but modifying $guide on the returned Scale object does.
+  geom_neuron_nobar <- function(...) {
+    layers <- nat.ggplot::geom_neuron(...)
+    for (i in seq_along(layers)) {
+      if (inherits(layers[[i]], "Scale")) {
+        layers[[i]]$guide <- ggplot2::guide_none()
+      }
+    }
+    layers
+  }
+
+  neuron_layers <- list()
+  if (length(meshes_this_type) > 0) {
+    for (nm in names(meshes_this_type)) {
+      m <- meshes_this_type[[nm]]
+      if (is.null(m)) next
+      neuron_layers[[length(neuron_layers) + 1]] <-
+        geom_neuron_nobar(
+          x = m, rotation_matrix = R,
+          cols = c("grey60","grey40"),
+          alpha = 0.35,
+          show.legend = FALSE
+        )
+    }
+  }
+
+  p <- ggplot() +
+    # Faint shells for anatomical reference.
+    geom_neuron_nobar(x = shell_brain, rotation_matrix = R,
+                      cols = c("grey88","grey80"), size = 0.03, alpha = 0.08,
+                      show.legend = FALSE) +
+    geom_neuron_nobar(x = shell_vnc,   rotation_matrix = R,
+                      cols = c("grey88","grey80"), size = 0.03, alpha = 0.08,
+                      show.legend = FALSE) +
+    neuron_layers +
+    # Synapses on top.
+    geom_point(data = syn_xy,
+               aes(x = x, y = y, color = category),
+               size = syn_size, alpha = syn_alpha, shape = 16, stroke = 0,
+               show.legend = show_legend) +
+    scale_color_manual(values = cat_colors, drop = FALSE, name = NULL) +
+    coord_fixed(xlim = bbox$x, ylim = bbox$y) +
+    scale_y_reverse() +
+    theme_void(base_size = 9) +
+    theme(
+      plot.title      = if (show_title)
+        element_text(size = 9.5, face = "plain",
+                     margin = margin(b = 2), hjust = 0.5) else element_blank(),
+      legend.position = "bottom",
+      legend.text     = element_text(size = 8),
+      legend.key.size = unit(0.35, "cm"),
+      axis.text       = element_blank(),
+      axis.ticks      = element_blank(),
+      axis.title      = element_blank()
+    ) +
+    guides(fill = "none", size = "none", alpha = "none")
+
+  if (show_title) p <- p + labs(title = title)
+  if (show_scalebar) {
+    p <- p +
+      annotate("segment", x = sb_x0, xend = sb_x1, y = sb_y, yend = sb_y,
+               linewidth = 0.8, color = "black") +
+      annotate("text", x = (sb_x0 + sb_x1)/2, y = sb_y,
+               label = sb_lab, vjust = -0.6, size = 2.4)
+  }
+  p
+}
+
+# Row-label "plot": a tiny ggplot showing just the cell-type name in bold.
+row_label_plot <- function(type_name, n_cells) {
+  ggplot() +
+    annotate("text", x = 0.5, y = 0.55,
+             label = type_name,
+             fontface = "bold", size = 3.4, hjust = 0.5) +
+    annotate("text", x = 0.5, y = 0.35,
+             label = sprintf("(n = %d)", n_cells),
+             size = 2.6, color = "grey40", hjust = 0.5) +
+    xlim(0, 1) + ylim(0, 1) +
+    theme_void()
+}
+```
+
+## Build + save: one PDF per SI cell type
+
+```{r build-and-save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+
+# Remove any stale combined output from the previous one-big-PDF version.
+old_pdf <- file.path(pdf_dir, "panel_M_morphology_v2.pdf")
+old_png <- file.path(png_dir, "panel_M_morphology_v2.png")
+if (file.exists(old_pdf)) file.remove(old_pdf)
+if (file.exists(old_png)) file.remove(old_png)
+
+pdf_dev <- if (capabilities("cairo")) cairo_pdf else pdf
+
+pool_list_str <- paste(sort(gaba_sign_inverter_types), collapse = ", ")
+
+per_type_caption <- function(tp, n_cells) {
+  paste(
+    sprintf("POOL: GABA sign-inverter pool (%d types) -- %s.",
+            length(gaba_sign_inverter_types), pool_list_str),
+    sprintf("THIS TYPE: %s (n = %d neurons).", tp, n_cells),
+    panel_M_anatomy_legend,
+    "METHODS: meshes via read_mcns_meshes (DVID), cleaned via Rvcg::vcgClean (sel=0,1,6,7) + Rvcg::vcgIsolated (facenum=50) to remove duplicate verts / non-manifold edges / orphan islands, then decimated to 35% (topo=TRUE, min 20000 faces) via Rvcg::vcgQEdecim, rendered through nat.ggplot::geom_neuron.mesh3d (cols=grey60/grey40, alpha=0.35). Meshes cached per bodyid in figures/fig5/panel_M/cache/meshes/.",
+    "SHELLS: malecns::malecns_shell.surf + malecnsvnc_shell.surf (faint background), rescaled /8 to voxel coords.",
+    "SYNAPSES: neuprint_get_synapses, classified by partner type; 'other' dropped. INPUTS: partner bias from channel_neurons + AN09B017 relay (from conn). OUTPUTS: partner bias from mal_activation_matrix (ppk23 vs ppk25).",
+    "COLORS: ppk23 sensillum red, ppk25 sensillum orange, ppk23-biased relay blue #377EB8, ppk25-biased relay green #4DAF4A, mAL_m (ppk23-biased) magenta #8B2C7F, mAL_m (ppk25-biased) teal #16A085.",
+    "PER-PANEL SYNAPSE STYLE: T1-in size=1.2 alpha=0.4 (dorsal, rotation_matrix = -90deg about X, plot x vs raw z); SEZ-in size=1.5 alpha=0.7 (frontal); SEZ-out size=1.3 alpha=0.6 (frontal). IN types: two dorsal VNC panels side-by-side, inputs (size=1.3 alpha=0.5) and outputs (size=1.3 alpha=0.6); no SEZ. SCALE: 20 um per panel.",
+    sep = "\n")
+}
+
+written_pdfs <- character(0)
+written_pngs <- character(0)
+
+if (have_data) {
+  types_sorted <- sort(unique(si_meta$type))
+
+  for (tp in types_sorted) {
+    ids_this_int <- si_meta %>% filter(type == tp) %>% pull(bodyid)
+    ids_this     <- as.character(ids_this_int)
+    n_cells      <- length(ids_this)
+
+    # Meshes for this type only -- filtered by bodyid.
+    meshes_this_type <- mesh_list[ids_this[ids_this %in% names(mesh_list)]]
+
+    syn_this <- syn_df %>% filter(si_type == tp)
+
+    is_IN <- grepl("^IN", tp)
+
+    if (is_IN) {
+      # ---------------------------------------------------------------
+      # IN types: VNC-intrinsic -- no SEZ panels. Two side-by-side
+      # dorsal VNC panels: inputs and outputs.
+      # ---------------------------------------------------------------
+      syn_in_vnc  <- syn_this %>% filter(io == "input")  %>%
+        in_bbox_dorsal(bbox_vnc_dorsal)
+      syn_out_vnc <- syn_this %>% filter(io == "output") %>%
+        in_bbox_dorsal(bbox_vnc_dorsal)
+
+      p_in_vnc  <- render_panel(meshes_this_type, syn_in_vnc,
+                                "Inputs in VNC (dorsal view)",
+                                bbox   = bbox_vnc_dorsal,
+                                R      = R_dorsal,
+                                syn_size = 1.3, syn_alpha = 0.5,
+                                show_scalebar = TRUE,
+                                show_title    = TRUE,
+                                show_legend   = TRUE)
+      p_out_vnc <- render_panel(meshes_this_type, syn_out_vnc,
+                                "Outputs in VNC (dorsal view)",
+                                bbox   = bbox_vnc_dorsal,
+                                R      = R_dorsal,
+                                syn_size = 1.3, syn_alpha = 0.6,
+                                show_scalebar = TRUE,
+                                show_title    = TRUE,
+                                show_legend   = FALSE)
+
+      combined <- wrap_plots(list(p_in_vnc, p_out_vnc), nrow = 1, guides = "collect") +
+        plot_annotation(
+          title    = sprintf("%s morphology  (n = %d)  --  VNC-intrinsic interneuron",
+                             tp, n_cells),
+          subtitle = "GABA sign-inverter pool member -- inputs and outputs in VNC",
+          caption  = per_type_caption(tp, n_cells),
+          theme    = theme(
+            plot.title    = element_text(face = "bold", size = 12, hjust = 0,
+                                         margin = margin(b = 2)),
+            plot.subtitle = element_text(size = 9, color = "grey25", hjust = 0,
+                                         margin = margin(b = 4)),
+            plot.caption  = element_text(size = 7, color = "grey35",
+                                         hjust = 0, lineheight = 1.2,
+                                         margin = margin(t = 6))
+          )
+        ) &
+        theme(legend.position = "bottom",
+              legend.text     = element_text(size = 8),
+              legend.key.size = unit(0.35, "cm")) &
+        guides(
+          color = guide_legend(
+            override.aes = list(size = 3, alpha = 1, shape = 16),
+            nrow = 1, byrow = TRUE),
+          fill  = "none", alpha = "none", size = "none"
+        )
+
+      fig_w <- 12
+      fig_h <- 12
+    } else {
+      # ---------------------------------------------------------------
+      # AN types: ascending -- three-panel row.
+      #   p1: input in T1 (dorsal view)
+      #   p2: input in SEZ (frontal view)
+      #   p3: output in SEZ -- mAL_m (frontal view)
+      # Only panel 1 contributes the legend; panels 2/3 suppress it so
+      # patchwork's guides = "collect" yields ONE shared legend at the
+      # bottom.
+      # ---------------------------------------------------------------
+      syn_in_t1   <- syn_this %>% filter(io == "input")  %>%
+        in_bbox_dorsal(bbox_vnc_dorsal)
+      syn_in_sez  <- syn_this %>% filter(io == "input")  %>%
+        in_bbox_frontal(bbox_sez_frontal)
+      syn_out_sez <- syn_this %>% filter(io == "output") %>%
+        in_bbox_frontal(bbox_sez_frontal)
+
+      p1 <- render_panel(meshes_this_type, syn_in_t1,
+                         "Inputs in T1 (leg neuromere, dorsal view)",
+                         bbox   = bbox_vnc_dorsal,
+                         R      = R_dorsal,
+                         syn_size = 1.2, syn_alpha = 0.4,
+                         show_scalebar = TRUE,
+                         show_title = TRUE, show_legend = TRUE)
+      p2 <- render_panel(meshes_this_type, syn_in_sez,
+                         "Inputs in SEZ (GNG + PRW)",
+                         bbox   = bbox_sez_frontal,
+                         R      = R_frontal,
+                         syn_size = 1.5, syn_alpha = 0.7,
+                         show_scalebar = TRUE,
+                         show_title = TRUE, show_legend = FALSE)
+      p3 <- render_panel(meshes_this_type, syn_out_sez,
+                         expression("Outputs in SEZ" %->% "mAL_m"),
+                         bbox   = bbox_sez_frontal,
+                         R      = R_frontal,
+                         syn_size = 1.3, syn_alpha = 0.6,
+                         show_scalebar = TRUE,
+                         show_title = TRUE, show_legend = FALSE)
+
+      combined <- wrap_plots(list(p1, p2, p3), nrow = 1, guides = "collect") +
+        plot_annotation(
+          title    = sprintf("%s morphology  (n = %d)", tp, n_cells),
+          subtitle = "GABA sign-inverter pool member -- ppk23/ppk25 contact input and mAL_m projection",
+          caption  = per_type_caption(tp, n_cells),
+          theme    = theme(
+            plot.title    = element_text(face = "bold", size = 12, hjust = 0,
+                                         margin = margin(b = 2)),
+            plot.subtitle = element_text(size = 9, color = "grey25", hjust = 0,
+                                         margin = margin(b = 4)),
+            plot.caption  = element_text(size = 7, color = "grey35",
+                                         hjust = 0, lineheight = 1.2,
+                                         margin = margin(t = 6))
+          )
+        ) &
+        theme(legend.position = "bottom",
+              legend.text     = element_text(size = 8),
+              legend.key.size = unit(0.35, "cm")) &
+        guides(
+          color = guide_legend(
+            override.aes = list(size = 3, alpha = 1, shape = 16),
+            nrow = 1, byrow = TRUE),
+          fill  = "none", alpha = "none", size = "none"
+        )
+
+      fig_w <- 14
+      fig_h <- 6
+    }
+
+    pdf_path <- file.path(pdf_dir, sprintf("panel_M_morphology_%s.pdf", tp))
+    png_path <- file.path(png_dir, sprintf("panel_M_morphology_%s.png", tp))
+
+    ggsave(pdf_path, plot = combined, width = fig_w, height = fig_h,
+           device = pdf_dev, limitsize = FALSE)
+    ggsave(png_path, plot = combined, width = fig_w, height = fig_h,
+           dpi = 200, limitsize = FALSE)
+
+    written_pdfs <- c(written_pdfs, pdf_path)
+    written_pngs <- c(written_pngs, png_path)
+
+    cat(sprintf("wrote %s  (%.2f MB)  [%s, %dx%d]\n",
+                pdf_path, file.info(pdf_path)$size / 1e6,
+                if (is_IN) "IN / 2 panels" else "AN / 3 panels",
+                fig_w, fig_h))
+  }
+} else {
+  fallback <- ggplot() + theme_void() +
+    annotate("text", x = 0, y = 0.5,
+             label = "SI pool morphology -- data unavailable",
+             size = 6, fontface = "bold") +
+    xlim(-1, 1) + ylim(0, 1)
+  pdf_path <- file.path(pdf_dir, "panel_M_morphology_NA.pdf")
+  ggsave(pdf_path, plot = fallback, width = 14, height = 6,
+         device = pdf_dev, limitsize = FALSE)
+  cat("data unavailable -- wrote placeholder ", pdf_path, "\n", sep = "")
+}
+
+cat("\nTotal PDFs written:", length(written_pdfs), "\n")
+```

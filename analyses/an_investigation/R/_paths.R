@@ -15,7 +15,7 @@ SITE <- "/Users/fkampf/Documents/AVLP743m_connectomics/website"
 
 for (p in c(RAW, DERIVED, PLOTS)) dir.create(p, recursive = TRUE, showWarnings = FALSE)
 
-MCNS_DATASET <- "male-cns:v0.9"
+MCNS_DATASET <- "male-cns:v1.0"
 MCNS_SERVER  <- "https://neuprint-cns.janelia.org"
 
 # --- cases ------------------------------------------------------------------

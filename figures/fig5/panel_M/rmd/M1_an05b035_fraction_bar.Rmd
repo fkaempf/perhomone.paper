@@ -1,0 +1,219 @@
+---
+title: "[DEPRECATED] Figure 5 CE1: AN05B035 inhibitory routing fraction per mAL_m subtype (ppk23 only)"
+output: html_document
+---
+
+> **DEPRECATED -- do not cite as a separate panel.**
+>
+> This figure is a 2-category, single-channel (ppk23-only) subset of the
+> primary `panel_M_inhibitory_sources.Rmd`, which shows the full 4-source
+> decomposition on BOTH ppk23 and ppk25 simultaneously. Retained for
+> reproducibility; rendering still works and uses the shared palette +
+> sort order.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+```
+
+## Extract ppk23 paths ending at mAL_m subtypes
+
+```{r ppk23-paths}
+ppk23_paths <- mal_paths %>%
+  filter(modality == "ppk23", end %in% mal_subtypes)
+
+ppk23_paths <- ppk23_paths %>%
+  mutate(
+    via_an05b035 = grepl("AN05B035", path, fixed = TRUE),
+    route = if_else(via_an05b035,
+                    "AN05B035 (GABA)",
+                    "non-AN05B035 (direct / AN09B017)")
+  )
+```
+
+## Per-mAL routing totals
+
+```{r routing-totals}
+routing <- ppk23_paths %>%
+  group_by(end, route) %>%
+  summarise(total_strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::complete(end = mal_subtypes, route,
+                  fill = list(total_strength = 0)) %>%
+  group_by(end) %>%
+  mutate(
+    grand_total = sum(total_strength),
+    fraction    = if_else(grand_total > 0, total_strength / grand_total, 0)
+  ) %>%
+  ungroup()
+
+inh_fraction <- routing %>%
+  filter(route == "AN05B035 (GABA)") %>%
+  select(end, inh_fraction = fraction, grand_total)
+
+# Pass 2: use shared sort order when available
+sort_path <- file.path(fig5_dir, "plots_mspecific", "panel_M",
+                       "panel_M_mal_sort_order.rds")
+if (file.exists(sort_path)) {
+  ord <- readRDS(sort_path)
+  ord <- ord[ord %in% mal_subtypes]
+  ord <- c(ord, setdiff(mal_subtypes, ord))
+  message("  Using shared sort order from panel_M_inhibitory_sources.")
+} else {
+  ord <- inh_fraction %>%
+    arrange(desc(inh_fraction), desc(grand_total)) %>%
+    pull(end)
+}
+
+routing <- routing %>%
+  mutate(
+    end   = factor(end, levels = rev(ord)),
+    route = factor(route, levels = c("non-AN05B035 (direct / AN09B017)",
+                                     "AN05B035 (GABA)"))
+  )
+
+dom_groups <- inh_fraction %>%
+  mutate(group = case_when(
+    inh_fraction >= 0.5  ~ "AN05B035-dominant",
+    inh_fraction <= 0.1  ~ "AN09B017-dominant",
+    TRUE                 ~ "mixed"
+  ))
+```
+
+## Stacked horizontal bar chart
+
+```{r bar-plot, fig.width=10, fig.height=7}
+# Pass 1: shared palette -- AN05B035 = canonical deep blue, non-AN05B035
+# collapsed into the grey complement (was red previously).
+route_colors <- c(
+  "non-AN05B035 (direct / AN09B017)" = "grey70",
+  "AN05B035 (GABA)"                  = "#1F4E79"
+)
+
+# Pass 3: in-bar percentage labels where segment > 8%
+routing <- routing %>%
+  mutate(
+    lbl   = ifelse(fraction > 0.08, sprintf("%.0f%%", 100 * fraction), ""),
+    lbl_c = ifelse(route == "AN05B035 (GABA)", "white", "grey15")
+  )
+
+p_bar <- ggplot(routing, aes(x = fraction, y = end, fill = route)) +
+  geom_col(width = 0.82, color = "white", linewidth = 0.2) +
+  geom_text(aes(label = lbl, color = lbl_c),
+            position = position_stack(vjust = 0.5),
+            size = 3, show.legend = FALSE) +
+  scale_color_identity() +
+  geom_vline(xintercept = 0.5, linewidth = 0.4, linetype = "dashed",
+             color = "grey40") +
+  scale_fill_manual(values = route_colors, name = "Route from ppk23") +
+  # Pass 6: explicit [0, 100%] range
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1),
+                     limits = c(0, 1.001),
+                     breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(x = "Fraction of ppk23 -> mAL path strength",
+       y = NULL,
+       # Pass 8: informative title instead of generic
+       caption = "DEPRECATED: see panel_M_inhibitory_sources for the full 4-source, 2-channel decomposition.") +
+  theme_pub(base_size = 12) +
+  theme(
+    legend.position    = "top",
+    # Pass 7
+    axis.text.y        = element_text(size = rel(1.15), face = "bold"),
+    axis.text.x        = element_text(angle = 0, hjust = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    plot.caption       = element_text(size = 9, color = "grey40",
+                                      face = "italic", hjust = 0)
+  )
+
+# Dominance bracket annotations (retained, but simpler)
+ord_top_to_bottom <- ord
+n <- length(ord_top_to_bottom)
+ann_df <- dom_groups %>% mutate(rank = match(end, ord_top_to_bottom))
+an05_rows <- ann_df %>% filter(group == "AN05B035-dominant")
+an09_rows <- ann_df %>% filter(group == "AN09B017-dominant")
+
+if (nrow(an05_rows) > 0) {
+  p_bar <- p_bar +
+    annotate("segment",
+             x = 1.03, xend = 1.03,
+             y = n - min(an05_rows$rank) + 1 + 0.35,
+             yend = n - max(an05_rows$rank) + 1 - 0.35,
+             linewidth = 1.1, color = "#1F4E79") +
+    annotate("text", x = 1.05,
+             y = mean(c(n - min(an05_rows$rank) + 1,
+                        n - max(an05_rows$rank) + 1)),
+             label = "AN05B035-\ndominant", hjust = 0, size = 3.2,
+             color = "#1F4E79", fontface = "bold", lineheight = 0.9)
+}
+if (nrow(an09_rows) > 0) {
+  p_bar <- p_bar +
+    annotate("segment",
+             x = 1.03, xend = 1.03,
+             y = n - min(an09_rows$rank) + 1 + 0.35,
+             yend = n - max(an09_rows$rank) + 1 - 0.35,
+             linewidth = 1.1, color = "grey45") +
+    annotate("text", x = 1.05,
+             y = mean(c(n - min(an09_rows$rank) + 1,
+                        n - max(an09_rows$rank) + 1)),
+             label = "non-AN05B035-\ndominant", hjust = 0, size = 3.2,
+             color = "grey40", fontface = "bold", lineheight = 0.9)
+}
+
+p_bar <- p_bar + coord_cartesian(xlim = c(0, 1), clip = "off") +
+  theme(plot.margin = margin(6, 100, 6, 6))
+
+print(p_bar)
+```
+
+## Save outputs
+
+```{r save}
+# Keep old panel path name for backward compatibility but also write to the
+# canonical panel_M folder so it groups with its siblings.
+pdf_dir_main <- panel_plot_dir("panel_M", "pdf")
+png_dir_main <- panel_plot_dir("panel_M", "png")
+
+ggsave(file.path(pdf_dir_main, "panel_M_an05b035_fraction_bar.pdf"),
+       plot = p_bar, width = 10, height = 7)
+ggsave(file.path(png_dir_main, "panel_M_an05b035_fraction_bar.png"),
+       plot = p_bar, width = 10, height = 7, dpi = 300)
+
+write.csv(
+  routing %>% mutate(end = as.character(end)) %>%
+    select(end, route, total_strength, grand_total, fraction) %>%
+    arrange(end, route),
+  file.path(pdf_dir_main, "panel_M_an05b035_fraction_bar_data.csv"),
+  row.names = FALSE
+)
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+n_total <- nrow(dom_groups)
+n_an05 <- sum(dom_groups$group == "AN05B035-dominant")
+n_an09 <- sum(dom_groups$group == "AN09B017-dominant")
+n_mix  <- sum(dom_groups$group == "mixed")
+
+narrative <- sprintf(
+"[DEPRECATED] PANEL CE1: AN05B035 as the GABAergic sign-inverter in ppk23 -> mAL
+================================================================================
+
+2-category, ppk23-only view. Superseded by panel_M_inhibitory_sources which
+shows the full 4-source decomposition on BOTH ppk23 and ppk25.
+
+Group counts (retained for reference):
+  AN05B035-dominant (fraction >= 50%%):  %d / %d
+  non-AN05B035-dominant (<= 10%%):        %d / %d
+  mixed:                                 %d
+",
+n_an05, n_total,
+n_an09, n_total,
+n_mix
+)
+
+writeLines(narrative, file.path(pdf_dir_main,
+                                "panel_M_an05b035_fraction_bar_narrative.txt"))
+cat(narrative)
+```

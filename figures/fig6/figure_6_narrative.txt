@@ -95,26 +95,87 @@ Method:
     Negative = opposition (sub-additive)
     Zero = independence (linear summation)
 
-Key story points:
-  1. Synergistic pairs -- specific modality combinations are
-     super-additive at specific targets. The circuit is wired for
-     particular multimodal conjunctions.
+Panel L  Synergistic pairs
+  7x7 interaction heatmaps showing pairwise synergy scores averaged
+  across target neurons in each group. Identifies which modality
+  combinations are super-additive: the circuit is wired for specific
+  multimodal conjunctions, not generic convergence.
+  Source: interaction_heatmap_{tg}.pdf, summary_interaction_heatmap.pdf
+  Key question: which sensory combinations amplify each other?
 
-  2. Opposing pairs -- some combinations are sub-additive, suggesting
-     competitive inhibition between channels via shared inhibitory
-     interneurons.
+Panel M  Opposing pairs
+  Same interaction framework, but focused on negative R_ij values
+  (sub-additive combinations). Forest plots rank all 21 modality
+  pairs by interaction strength, separating synergistic from opposing.
+  Opposing pairs reveal competitive inhibition between channels via
+  shared inhibitory interneurons (connects back to Panel C's E/I
+  valence and Panel G's shared intermediates).
+  Source: interaction_forest.pdf, interaction_forest_clustered.pdf
+  Key question: which sensory channels compete?
 
-  3. Target-group specificity -- the interaction structure differs
-     between aSP-f, aSP-g, and PPN1/vAB3 targets. Different targets
-     compute different functions over the same sensory inputs.
+Panel N  Target-group-specific interaction profiles
+  The interaction structure differs fundamentally between target
+  groups. Per-neuron interaction profile heatmaps (rows = target
+  neurons, columns = modality pairs, color = R_ij) reveal that
+  aSP-f, aSP-g, and PPN1/vAB3 downstream neurons compute different
+  functions over the same sensory inputs. Clustering targets by
+  their interaction profiles groups them differently than clustering
+  by raw strength (Panel B) -- neurons that receive the same
+  modalities may integrate them in opposite ways.
+  Source: interaction_profile_{tg}.pdf, target_clustering.pdf,
+         activation_profiles.pdf
+  Key question: do different targets compute different things?
 
-  4. Robustness -- results hold across activation functions (ReLU,
-     sigmoid, leaky ReLU), normalization schemes, and propagation
-     depths (sensitivity analysis).
+Panel O  Robustness and sensitivity
+  Results hold across activation functions (ReLU, sigmoid, leaky
+  ReLU), normalization schemes (post, pre, raw), and propagation
+  depths (2-5 hops). Sensitivity grid shows that the qualitative
+  interaction landscape is a property of the wiring, not an artifact
+  of the model. Sustained vs. pulse input produces similar patterns.
+  Source: sensitivity_grid.pdf, plots_sustained/
+  Key question: are these findings robust?
 
-  5. Sustained vs. pulse -- continuous stimulation (modeling persistent
-     pheromone exposure) vs. transient input produces qualitatively
-     similar but quantitatively different interaction landscapes.
+
+Narrative flow across all panels
+--------------------------------
+The figure builds a layered argument:
+
+  Structure (A-C)
+    "Here is the multimodal courtship circuit and its E/I architecture"
+        |
+        v
+  Quantification (D-F)
+    "Most targets are genuinely multimodal, with structured modality
+     groupings and diverse routing strategies"
+        |
+        v
+  Mechanism (G-H)
+    "Integration happens at specific hub neurons that sit at the
+     crossroads of multiple modalities"
+        |
+        v
+  Specificity (I-J)
+    "Different target populations and different neurotransmitter
+     sequences create distinct integration profiles"
+        |
+        v
+  Depth (K)
+    "Integration builds progressively across circuit layers --
+     early layers are modality-specific, deep layers are multimodal"
+        |
+        v
+  Function (L-O)   <-- the punchline
+    "The wiring doesn't just converge -- it computes. Specific
+     modality pairs are synergistic (L), others are opposing (M),
+     and the interaction landscape is target-specific (N). These
+     are robust properties of the connectome (O)."
+
+The final message: the male courtship circuit is not a passive
+funnel that pools sensory information. It is a structured
+computational device where specific combinations of cues are
+amplified, others are suppressed, and different output populations
+extract different multimodal features from the same sensory input
+space.
 
 
 Panel summary table
@@ -132,4 +193,7 @@ H      Spotlight integrators            "Key hub neurons"
 I      aSP-f vs. aSP-g                  "Target-specific differences"
 J      Valence patterns                 "Different routes, different signs"
 K      Layer-by-layer integration       "Integration builds with depth"
-NEW    Combinatorial signal flow        "Does the wiring compute?"
+L      Synergistic pairs                "Which combinations amplify"
+M      Opposing pairs                   "Which channels compete"
+N      Target-specific interactions     "Different targets, different computations"
+O      Robustness / sensitivity         "These are properties of the wiring"

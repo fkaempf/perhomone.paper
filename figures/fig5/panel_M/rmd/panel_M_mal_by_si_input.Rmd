@@ -1,0 +1,162 @@
+---
+title: "Panel M: mAL_m subtypes ordered by SI input (strength recalculated from SI)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/panel_M/compute_si_paths.R")
+library(viridisLite)
+```
+
+## Goal
+
+Bar plot of the 16 mAL_m subtypes (x-axis, ordered descending by total
+SI-driven input) stacked by GABA sign-inverter (SI) identity. Segment
+heights are "strength *recalculated from the SI*" — meaning the
+strongest-path computation is re-run with the SI as the source and the
+mAL_m as the target, so the ORN -> SI prefix is dropped by
+construction.
+
+## Load SI -> mAL_m cache
+
+```{r load}
+si_to_mal <- load_paths_si_to_mal()
+stopifnot(nrow(si_to_mal) > 0)
+
+df <- si_to_mal %>%
+  filter(start %in% gaba_sign_inverter_types, end %in% mal_subtypes) %>%
+  group_by(mal = end, si = start) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop")
+
+# Totals for ordering
+totals <- df %>%
+  group_by(mal) %>%
+  summarise(total = sum(strength), .groups = "drop") %>%
+  arrange(desc(total))
+
+# Fill in zero bars for mAL_m subtypes with no SI input (if any)
+missing_mal <- setdiff(mal_subtypes, totals$mal)
+if (length(missing_mal) > 0) {
+  totals <- bind_rows(totals,
+                      tibble(mal = missing_mal, total = 0))
+}
+
+mal_order <- totals$mal
+df <- df %>% mutate(mal = factor(mal, levels = mal_order))
+print(totals)
+```
+
+## SI ordering + palette (AN05B035 keyed to the SI-pool dark blue)
+
+```{r palette}
+si_ranking <- df %>%
+  group_by(si) %>%
+  summarise(mean_contribution = mean(strength), .groups = "drop") %>%
+  arrange(desc(mean_contribution))
+# Ensure every pool member appears even if absent from df
+si_ranking <- bind_rows(
+  si_ranking,
+  tibble(si = setdiff(gaba_sign_inverter_types, si_ranking$si),
+         mean_contribution = 0)
+)
+si_levels <- si_ranking$si
+
+pal <- viridisLite::turbo(length(si_levels), begin = 0.05, end = 0.95)
+names(pal) <- si_levels
+if ("AN05B035" %in% names(pal)) {
+  pal[["AN05B035"]] <- unname(panel_M_palette[["gaba_si"]])
+}
+
+df <- df %>% mutate(si = factor(si, levels = si_levels))
+```
+
+## Plot
+
+```{r plot, fig.width=11, fig.height=6.5}
+p <- ggplot(df, aes(x = mal, y = strength, fill = si)) +
+  geom_col(position = "stack", color = "white", linewidth = 0.15) +
+  scale_fill_manual(values = pal, name = "GABA sign-inverter") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    title = NULL, subtitle = NULL,
+    x = NULL,
+    y = "SI -> mAL_m path strength  (recalculated from SI)"
+  ) +
+  theme_pub(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+print(p)
+```
+
+## Save
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+data_dir <- panel_plot_dir("panel_M", "data")
+
+pdf_path <- file.path(pdf_dir, "panel_M_mal_by_si_input.pdf")
+png_path <- file.path(png_dir, "panel_M_mal_by_si_input.png")
+csv_path <- file.path(data_dir, "panel_M_mal_by_si_input_data.csv")
+
+pdf_device <- if (capabilities("cairo")) cairo_pdf else grDevices::pdf
+ggsave(pdf_path, plot = p, width = 11, height = 6.5, device = pdf_device)
+ggsave(png_path, plot = p, width = 11, height = 6.5, dpi = 300)
+write.csv(df, csv_path, row.names = FALSE)
+
+cat(sprintf("Saved PDF: %s  (%.1f KB)\n", pdf_path,
+            file.info(pdf_path)$size / 1024))
+cat(sprintf("Saved PNG: %s  (%.1f KB)\n", png_path,
+            file.info(png_path)$size / 1024))
+cat(sprintf("Saved CSV: %s\n", csv_path))
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+top3 <- head(totals, 3)
+narr <- paste0(
+"PANEL M: mAL_m subtypes ordered by GABA sign-inverter input
+(strength recalculated from SI)
+=============================================================
+
+DESIGN
+------
+x-axis = 16 male-specific mAL_m subtypes, ordered descending by total
+SI-driven path strength. Each bar is stacked by SI pool member. Segment
+heights come from a top-50 strongest-path computation with the SI as
+path source and the mAL_m as path target — so the ORN -> SI prefix is
+dropped by construction and the bar height reflects the SI's
+*downstream reach* onto the mAL_m.
+
+", panel_M_pool_caption, "
+
+TOP 3 mAL_m BY SI DRIVE
+-----------------------
+", paste(sprintf("  %-10s  total SI strength = %.4g", top3$mal, top3$total),
+         collapse = "\n"), "
+
+INTERPRETATION
+--------------
+Bar heights rank mAL_m subtypes by how strongly the SI pool projects
+onto them. The stacked fills show which SI carries the drive — a bar
+dominated by a single color is driven primarily by one SI, whereas a
+multicolored bar receives converging input from several pool members.
+This decomposition is channel-agnostic by construction (the ppk23/ppk25
+ORN prefix has been dropped) and complements the
+panel_M_si_channel_scatter plot, which attributes channel bias per SI.
+
+METHOD NOTES
+------------
+- Cache: strongest.50.paths.gaba_si_pool.2.mAL_m.feather.
+- Strength: multiplicative synapse-weight product from SI to mAL_m.
+- AN05B035 keyed to the Panel M SI-pool dark blue; other SIs on a
+  turbo palette ordered by mean contribution across mAL_m subtypes.
+")
+
+writeLines(narr, file.path(data_dir, "panel_M_mal_by_si_input_narrative.txt"))
+cat(narr)
+```

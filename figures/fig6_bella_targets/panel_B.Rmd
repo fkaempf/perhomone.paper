@@ -13,7 +13,7 @@ knitr::opts_chunk$set(
   fig.height = 12
 )
 
-source("/Users/fkampf/Documents/pheromone.paper/fig6_bella_targets/setup.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig6_bella_targets/setup.R")
 ```
 
 ```{r panel-description, echo=FALSE}
@@ -146,6 +146,7 @@ save_heatmap_both_orientations(
   name       = "panel_B_heatmap_bella",
   width      = 8,
   height     = 10,
+  subdir     = "colnorm",
   clustering_distance_rows = "euclidean",
   clustering_distance_cols = "euclidean",
   clustering_method        = "ward.D2",
@@ -158,6 +159,292 @@ save_heatmap_both_orientations(
   main                     = "Modality input strength to 3rd-order courtship neurons (Bella's targets)",
   angle_col                = 45
 )
+```
+
+## 6b. Row-normalized heatmap
+
+```{r row-norm-matrix}
+# Row-normalize: each neuron's max across modalities = 1
+row_maxes <- apply(mat, 1, max, na.rm = TRUE)
+row_maxes[row_maxes == 0] <- 1
+mat_row_norm <- sweep(mat, 1, row_maxes, "/")
+```
+
+```{r save-row-norm}
+save_heatmap_both_orientations(
+  mat        = mat_row_norm,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  name       = "panel_B_heatmap_bella_rownorm",
+  width      = 8,
+  height     = 10,
+  subdir     = "rownorm",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength (row-normalized, Bella's targets)",
+  angle_col                = 45
+)
+```
+
+## 6c. Unnormalized (raw strength) heatmap
+
+```{r save-raw}
+save_heatmap_both_orientations(
+  mat        = mat,
+  row_annot  = row_annot,
+  col_annot  = col_annot,
+  ann_colors = ann_colors,
+  name       = "panel_B_heatmap_bella_raw",
+  width      = 8,
+  height     = 10,
+  subdir     = "raw",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method        = "ward.D2",
+  cluster_cols             = FALSE,
+  cluster_rows             = TRUE,
+  color                    = viridis(100),
+  border_color             = NA,
+  fontsize_row             = 7,
+  fontsize_col             = 10,
+  main                     = "Modality input strength (unnormalized, Bella's targets)",
+  angle_col                = 45
+)
+```
+
+## 6d. Per-target-group heatmaps (M, F, IR separately)
+
+```{r per-group-heatmaps}
+# Build separate heatmaps for each target group, with all 3 normalizations
+group_list <- list(
+  M  = list(paths = paths.M,  strength = strength.M,  label = "M-downstream"),
+  F  = list(paths = paths.F,  strength = strength.F,  label = "F-downstream"),
+  IR = list(paths = paths.IR, strength = strength.IR, label = "IR-downstream")
+)
+
+for (grp_name in names(group_list)) {
+  grp <- group_list[[grp_name]]
+  mat_grp <- grp$strength
+
+  # Column-normalize
+  cm <- apply(mat_grp, 2, max, na.rm = TRUE)
+  cm[cm == 0] <- 1
+  mat_grp_colnorm <- sweep(mat_grp, 2, cm, "/")
+
+  # Row-normalize
+  rm_grp <- apply(mat_grp, 1, max, na.rm = TRUE)
+  rm_grp[rm_grp == 0] <- 1
+  mat_grp_rownorm <- sweep(mat_grp, 1, rm_grp, "/")
+
+  # Row annotation: just mark all as "yes" for this group
+  grp_ends <- rownames(mat_grp)
+  ra <- data.frame(
+    group = rep("yes", length(grp_ends)),
+    row.names = grp_ends,
+    check.names = FALSE
+  )
+  names(ra) <- grp$label
+
+  ca <- data.frame(
+    modality_group = modality_group[colnames(mat_grp)],
+    row.names      = colnames(mat_grp)
+  )
+
+  ac <- list(modality_group = modality_group_colors)
+  ac[[grp$label]] <- c("yes" = target_set_colors[[paste0(grp_name, "_downstream")]], "no" = "white")
+
+  hm_base <- sprintf("panel_B_heatmap_bella_%s_only", tolower(grp_name))
+  hm_height <- max(6, nrow(mat_grp) * 0.12 + 2)
+
+  # Common heatmap args
+  hm_args <- list(
+    row_annot  = ra,
+    col_annot  = ca,
+    ann_colors = ac,
+    width      = 8,
+    height     = hm_height,
+    clustering_distance_rows = "euclidean",
+    clustering_distance_cols = "euclidean",
+    clustering_method        = "ward.D2",
+    cluster_cols             = FALSE,
+    cluster_rows             = TRUE,
+    color                    = viridis(100),
+    border_color             = NA,
+    fontsize_row             = 7,
+    fontsize_col             = 10,
+    angle_col                = 45
+  )
+
+  # Column-normalized
+  do.call(save_heatmap_both_orientations, c(list(
+    mat    = mat_grp_colnorm,
+    name   = hm_base,
+    subdir = "colnorm",
+    main   = sprintf("Modality input strength (%s only)", grp$label)
+  ), hm_args))
+
+  # Row-normalized
+  do.call(save_heatmap_both_orientations, c(list(
+    mat    = mat_grp_rownorm,
+    name   = paste0(hm_base, "_rownorm"),
+    subdir = "rownorm",
+    main   = sprintf("Modality input strength (row-normalized, %s only)", grp$label)
+  ), hm_args))
+
+  # Raw (unnormalized)
+  do.call(save_heatmap_both_orientations, c(list(
+    mat    = mat_grp,
+    name   = paste0(hm_base, "_raw"),
+    subdir = "raw",
+    main   = sprintf("Modality input strength (unnormalized, %s only)", grp$label)
+  ), hm_args))
+
+  cat(sprintf("%s: %d neurons x %d modalities (colnorm + rownorm + raw saved)\n",
+              grp$label, nrow(mat_grp), ncol(mat_grp)))
+}
+```
+
+## 6e. Rank-transformed scatter (all Bella's targets)
+
+PCA on within-column rank-transformed strength profiles. Ranking removes
+magnitude effects while preserving ordinal structure — neurons that receive
+the same relative ordering of modalities cluster together regardless of
+their absolute strength.
+
+```{r rank-scatter-bella, fig.width=10, fig.height=8}
+# ---------------------------------------------------------------------------
+# Rank-transform each modality column, then PCA
+# ---------------------------------------------------------------------------
+mat_rank_bella <- apply(mat, 2, rank, ties.method = "average")
+pca_rank <- prcomp(mat_rank_bella, center = TRUE, scale. = TRUE)
+
+var_pct <- summary(pca_rank)$importance[2, ] * 100
+
+rank_df <- data.frame(
+  PC1    = pca_rank$x[, 1],
+  PC2    = pca_rank$x[, 2],
+  neuron = rownames(mat),
+  stringsAsFactors = FALSE
+)
+
+# Assign primary target group for coloring
+rank_df$target_group <- {
+  is_M  <- rank_df$neuron %in% M_ends
+  is_F  <- rank_df$neuron %in% F_ends
+  is_IR <- rank_df$neuron %in% IR_ends
+  n_grp <- is_M + is_F + is_IR
+  ifelse(n_grp > 1, "multiple groups",
+  ifelse(is_M,  "M-downstream",
+  ifelse(is_F,  "F-downstream",
+  ifelse(is_IR, "IR-downstream", "other"))))
+}
+
+group_colors_scatter <- c(
+  "M-downstream"   = "#E41A1C",
+  "F-downstream"   = "#377EB8",
+  "IR-downstream"  = "#4DAF4A",
+  "multiple groups" = "#984EA3",
+  "other"          = "grey60"
+)
+
+p_rank <- ggplot(rank_df, aes(x = PC1, y = PC2, color = target_group)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  scale_color_manual(values = group_colors_scatter) +
+  labs(
+    x = sprintf("PC1 (%.1f%% variance)", var_pct[1]),
+    y = sprintf("PC2 (%.1f%% variance)", var_pct[2]),
+    title = "PCA of rank-transformed modality profiles (Bella's targets)",
+    color = "Target group"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "right")
+
+p_rank
+save_fig6_plot(p_rank, "panel_B_rank_scatter_bella", width = 10, height = 8)
+```
+
+## 6f. Correspondence analysis ordination (all Bella's targets)
+
+Correspondence analysis is the natural ordination for compositional data:
+neurons and modalities are projected into the same chi-squared metric space.
+Neurons close to a modality arrow are enriched for that modality relative to
+the average profile.
+
+```{r ca-ordination-bella, fig.width=10, fig.height=8}
+# ---------------------------------------------------------------------------
+# Manual Correspondence Analysis via SVD
+# ---------------------------------------------------------------------------
+mat_ca <- mat
+mat_ca[mat_ca < 0] <- 0
+mat_ca <- mat_ca + 1e-10   # avoid exact zeros
+
+N_total <- sum(mat_ca)
+P_ca    <- mat_ca / N_total
+ri      <- rowSums(P_ca)
+ci      <- colSums(P_ca)
+
+# Standardized residuals
+Z_ca <- diag(1 / sqrt(ri)) %*% (P_ca - outer(ri, ci)) %*% diag(1 / sqrt(ci))
+sv   <- svd(Z_ca)
+
+# Inertia explained per axis
+total_inertia <- sum(sv$d^2)
+inertia_pct   <- sv$d^2 / total_inertia * 100
+
+# Row principal coordinates (neurons)
+F_row <- diag(1 / sqrt(ri)) %*% sv$u[, 1:2] %*% diag(sv$d[1:2])
+rownames(F_row) <- rownames(mat_ca)
+
+# Column principal coordinates (modalities)
+G_col <- diag(1 / sqrt(ci)) %*% sv$v[, 1:2] %*% diag(sv$d[1:2])
+rownames(G_col) <- colnames(mat_ca)
+
+# Build data frames
+ca_neurons <- data.frame(
+  Dim1 = F_row[, 1], Dim2 = F_row[, 2],
+  neuron = rownames(F_row),
+  stringsAsFactors = FALSE
+)
+ca_neurons$target_group <- rank_df$target_group[match(ca_neurons$neuron, rank_df$neuron)]
+
+ca_modalities <- data.frame(
+  Dim1 = G_col[, 1], Dim2 = G_col[, 2],
+  modality = rownames(G_col),
+  stringsAsFactors = FALSE
+)
+
+p_ca <- ggplot() +
+  geom_point(data = ca_neurons,
+             aes(x = Dim1, y = Dim2, color = target_group),
+             size = 2, alpha = 0.6) +
+  geom_segment(data = ca_modalities,
+               aes(x = 0, y = 0, xend = Dim1, yend = Dim2),
+               arrow = arrow(length = unit(0.25, "cm")),
+               color = "grey30", linewidth = 0.8) +
+  geom_text(data = ca_modalities,
+            aes(x = Dim1 * 1.12, y = Dim2 * 1.12, label = modality),
+            color = "grey20", size = 4, fontface = "bold") +
+  scale_color_manual(values = group_colors_scatter) +
+  labs(
+    x = sprintf("CA Dim 1 (%.1f%% inertia)", inertia_pct[1]),
+    y = sprintf("CA Dim 2 (%.1f%% inertia)", inertia_pct[2]),
+    title = "Correspondence analysis: neurons and modalities (Bella's targets)",
+    color = "Target group"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "right") +
+  coord_fixed()
+
+p_ca
+save_fig6_plot(p_ca, "panel_B_ca_ordination_bella", width = 10, height = 8)
 ```
 
 ## 7. Export row clustering order for use in Panel C

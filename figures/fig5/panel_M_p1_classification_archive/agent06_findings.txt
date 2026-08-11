@@ -1,0 +1,24 @@
+Agent06 findings -- P1 subtype to published nomenclature cross-reference
+Date: 2026-04-13
+Scope: grep of claude_research/, figures/fig5/*.Rmd, figures/fig6/*.Rmd,
+figures/fig6/PANEL_DESCRIPTIONS.md, claude_research/manuscript_draft.txt,
+feather/*, project root.
+
+Key finding: the MCNS mba `synonyms` column is the ONLY in-repo mapping
+source and it assigns every P1_* type to the collective "pC1" class
+(Lee 2002, Rideout 2010, Nojima 2021), and most non-dsx_high types also
+to "pMP-e" (Cachero 2010) / "pMP4" (Yu 2010). No finer subdivision to
+Anderson-lab P1a / P1b / P1c or to Auer/Yapici pC1a-d / pC1-A--E is
+stored anywhere in the repository (grep returned zero hits for "P1a",
+"P1b", "P1c", "Anderson", "Hampel", "Yapici", "Auer", "Kohatsu",
+"Watanabe", "Koganezawa" across manuscript_draft.txt, fig5/fig6 Rmds,
+PANEL_DESCRIPTIONS.md, and claude_research/). The only fig6 code hits
+for "pC1" are generic family-level regex groupings in panel_G.Rmd and
+panel_K.Rmd. No csv/tsv/json lookup table exists in feather/ or repo root.
+
+Curated file `panel_M/p1_published_mapping.csv` therefore reports the
+dataset-native synonym (pC1 +/- pMP-e/pMP4) verbatim, with courtship
+vs unknown carried over from agent01. Anderson P1a/b/c and Auer pC1a-d
+remain NA; those assignments would require light-microscopy morphology
+matching (split-GAL4 driver lines) that is not present in mba metadata.
+P1_9a/9b have empty synonyms fields.

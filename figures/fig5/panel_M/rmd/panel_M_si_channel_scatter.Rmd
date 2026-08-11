@@ -1,0 +1,198 @@
+---
+title: "Panel M: ppk23 vs ppk25 upstream path strength onto the GABA SI pool"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/setup_mspecific.R")
+source("/Users/fkampf/Documents/pheromone.paper/figures/fig5/panel_M/compute_si_paths.R")
+library(ggrepel)
+```
+
+## Goal
+
+For each of the 11 GABA sign-inverter pool members (SIs), quantify how
+much upstream path strength arrives from ppk23 vs ppk25 ORNs when the SI
+is taken as the *path endpoint* (not a relay). A scatter of those two
+per-SI sums on linear log-log axes shows which SIs are channel-balanced
+(on the y = x line) and which are channel-biased.
+
+## Load caches
+
+```{r load}
+ppk23_to_si <- load_paths_channel_to_si("ppk23")
+ppk25_to_si <- load_paths_channel_to_si("ppk25")
+stopifnot(nrow(ppk23_to_si) > 0, nrow(ppk25_to_si) > 0)
+
+per_si <- bind_rows(ppk23_to_si, ppk25_to_si) %>%
+  filter(end %in% gaba_sign_inverter_types) %>%
+  group_by(si = end, modality) %>%
+  summarise(strength = sum(strength, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = modality, values_from = strength,
+                     values_fill = 0)
+
+# Make sure every pool member appears even if zero strength
+per_si <- tibble(si = gaba_sign_inverter_types) %>%
+  left_join(per_si, by = "si") %>%
+  mutate(ppk23 = tidyr::replace_na(ppk23, 0),
+         ppk25 = tidyr::replace_na(ppk25, 0))
+
+print(per_si)
+```
+
+## Pseudocount so zeros render on log-log
+
+```{r pseudo}
+pos_vals <- c(per_si$ppk23[per_si$ppk23 > 0],
+              per_si$ppk25[per_si$ppk25 > 0])
+pseudo <- if (length(pos_vals) > 0) 0.5 * min(pos_vals) else 1e-6
+
+per_si <- per_si %>%
+  mutate(ppk23_plot = ifelse(ppk23 > 0, ppk23, pseudo),
+         ppk25_plot = ifelse(ppk25 > 0, ppk25, pseudo))
+```
+
+## Stats on log10-transformed values
+
+```{r stats}
+x <- log10(per_si$ppk23_plot)
+y <- log10(per_si$ppk25_plot)
+
+fit <- lm(y ~ x)
+ci  <- suppressWarnings(confint(fit, parm = "x", level = 0.95))
+pear  <- suppressWarnings(cor.test(x, y, method = "pearson"))
+spear <- suppressWarnings(cor.test(x, y, method = "spearman", exact = FALSE))
+
+stats <- list(
+  n          = nrow(per_si),
+  slope      = unname(coef(fit)[2]),
+  slope_lo   = unname(ci[1, 1]),
+  slope_hi   = unname(ci[1, 2]),
+  r2         = summary(fit)$r.squared,
+  pearson_r  = unname(pear$estimate),
+  pearson_p  = pear$p.value,
+  spearman_r = unname(spear$estimate),
+  spearman_p = spear$p.value,
+  n_ppk25_biased = sum(per_si$ppk25 > per_si$ppk23),
+  n_ppk23_biased = sum(per_si$ppk23 > per_si$ppk25),
+  n_equal        = sum(per_si$ppk23 == per_si$ppk25)
+)
+str(stats)
+```
+
+## Plot
+
+```{r plot, fig.width=8, fig.height=7}
+ax_lims <- range(c(per_si$ppk23_plot, per_si$ppk25_plot))
+ax_lims <- ax_lims * c(0.6, 1.7)   # a little breathing room
+
+label_txt <- sprintf(
+  "Pearson r = %.2f (p = %.2g)\nSpearman rho = %.2f (p = %.2g)\nlog-log slope = %.2f [95%% CI %.2f, %.2f]\nn = %d | ppk25-biased: %d / ppk23-biased: %d",
+  stats$pearson_r, stats$pearson_p,
+  stats$spearman_r, stats$spearman_p,
+  stats$slope, stats$slope_lo, stats$slope_hi, stats$n,
+  stats$n_ppk25_biased, stats$n_ppk23_biased
+)
+
+p <- ggplot(per_si, aes(x = ppk23_plot, y = ppk25_plot)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "grey55", linewidth = 0.4) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, level = 0.95,
+              color = panel_M_palette[["gaba_si"]],
+              fill  = panel_M_palette[["gaba_si"]],
+              linewidth = 0.7, alpha = 0.15) +
+  geom_point(size = 4, color = panel_M_palette[["gaba_si"]], stroke = 0.3) +
+  ggrepel::geom_text_repel(
+    aes(label = si), size = 3, max.overlaps = Inf,
+    min.segment.length = 0, segment.size = 0.25,
+    segment.color = "grey55", box.padding = 0.6, point.padding = 0.35,
+    force = 2.5, max.iter = 5000, seed = 1
+  ) +
+  annotate("text", x = ax_lims[1], y = ax_lims[2],
+           hjust = 0, vjust = 1, size = 2.9,
+           label = label_txt, lineheight = 0.95,
+           color = "grey15", family = "mono") +
+  scale_x_log10(limits = ax_lims) +
+  scale_y_log10(limits = ax_lims) +
+  coord_equal() +
+  labs(
+    title = NULL, subtitle = NULL,
+    x = "Upstream path strength from ppk23 ORNs -> SI  (log10)",
+    y = "Upstream path strength from ppk25 ORNs -> SI  (log10)"
+  ) +
+  theme_pub(base_size = 13)
+
+print(p)
+```
+
+## Save
+
+```{r save}
+pdf_dir <- panel_plot_dir("panel_M", "pdf")
+png_dir <- panel_plot_dir("panel_M", "png")
+data_dir <- panel_plot_dir("panel_M", "data")
+
+pdf_path <- file.path(pdf_dir, "panel_M_si_channel_scatter.pdf")
+png_path <- file.path(png_dir, "panel_M_si_channel_scatter.png")
+csv_path <- file.path(data_dir, "panel_M_si_channel_scatter_data.csv")
+
+pdf_device <- if (capabilities("cairo")) cairo_pdf else grDevices::pdf
+ggsave(pdf_path, plot = p, width = 8, height = 7, device = pdf_device)
+ggsave(png_path, plot = p, width = 8, height = 7, dpi = 300)
+write.csv(per_si, csv_path, row.names = FALSE)
+
+cat(sprintf("Saved PDF: %s  (%.1f KB)\n", pdf_path,
+            file.info(pdf_path)$size / 1024))
+cat(sprintf("Saved PNG: %s  (%.1f KB)\n", png_path, file.info(png_path)$size / 1024))
+cat(sprintf("Saved CSV: %s\n", csv_path))
+```
+
+## Narrative
+
+```{r narrative, echo=FALSE}
+narr <- paste0(
+"PANEL M: GABA sign-inverter pool — ppk23 vs ppk25 upstream path strength
+=========================================================================
+
+DESIGN
+------
+Endpoint = each of the 11 GABA sign-inverter (SI) pool members. For each
+SI, x and y are the summed top-50 strongest-path strengths from the two
+ppk channels' ORNs to that SI. Unlike the rest of Panel M (which treats
+mAL_m as endpoints and uses the SIs as interior relays), here the SI is
+the target — the plot shows *input onto the SI* rather than *routing
+through the SI*.
+
+", panel_M_pool_caption, "
+
+STATISTICS (log10 transformed)
+------------------------------
+n                      = ", stats$n, "
+Pearson r              = ", sprintf("%.3f (p = %.3g)", stats$pearson_r, stats$pearson_p), "
+Spearman rho           = ", sprintf("%.3f (p = %.3g)", stats$spearman_r, stats$spearman_p), "
+OLS slope (log-log)    = ", sprintf("%.3f [95%% CI %.3f, %.3f]", stats$slope, stats$slope_lo, stats$slope_hi), "
+R^2                    = ", sprintf("%.3f", stats$r2), "
+ppk25-biased SIs       = ", stats$n_ppk25_biased, " / 11
+ppk23-biased SIs       = ", stats$n_ppk23_biased, " / 11
+
+INTERPRETATION
+--------------
+SIs above the y = x diagonal receive more drive from the ppk25 (female
+contact pheromone) channel; SIs below the diagonal are ppk23-biased.
+Points near the diagonal are channel-symmetric and are candidates for
+'dual-channel' sign-inverters that can route inhibition from either
+contact-pheromone context onto mAL_m.
+
+METHOD NOTES
+------------
+- Caches: strongest.50.paths.{ppk23,ppk25}.2.gaba_si_pool.feather.
+- Strength: multiplicative synapse-weight product along the path
+  (same definition as mal_paths).
+- Pseudocount (half the minimum positive strength) applied only for the
+  log transform so SIs with zero strength on one channel are visible.
+")
+
+writeLines(narr, file.path(data_dir, "panel_M_si_channel_scatter_narrative.txt"))
+cat(narr)
+```

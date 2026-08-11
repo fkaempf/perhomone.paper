@@ -1,0 +1,15 @@
+Agent 07 -- P1 lateral/recurrent connectivity findings
+Date: 2026-04-13
+
+Built a 45 x 45 P1 x P1 connectivity matrix by extracting the P1 block of the project's type-level adj.matrix (entries already sum across all instances of each subtype pair; normalized by the project's default pipeline). Total within-ensemble weight = 3.690 (diag = 0.276; density = 17.8% of subtype-pairs have >=1 edge). 1 of 45 subtypes are fully isolated (no outgoing or incoming P1<->P1 edge): P1_8a.
+
+Top-5 reciprocal pairs (ranked by geometric mean of bidirectional weight): P1_13b<->P1_16a (min=0, geom=0.1); P1_13a<->P1_16a (min=0, geom=0.0); P1_7a<->P1_7b (min=0, geom=0.0); P1_17b<->P1_7b (min=0, geom=0.0); P1_1a<->P1_3c (min=0, geom=0.0). These reciprocal hubs likely form the functional backbone of P1 lateral integration and are candidates for mutual recurrent excitation or feedback sharpening.
+
+Ward.D2 hierarchical clustering on log-scaled, row-normalized out+in connectivity profiles of 44 active subtypes yielded k=4 clusters (silhouette-optimal). Cluster sizes: c1:n=38, c2:n=4, c3:n=1, c4:n=1.
+
+Cross-scheme agreement:
+  Agent 4 (input clustering) (p1_input_clusters.csv): ARI = 0.112 over n=44 subtypes.
+  Agent 2 (downstream-DN clustering): no cluster file found on disk -- cross-comparison deferred.
+
+Interpretation: if lateral clusters align with Agent 4 input-based clusters but not Agent 2 DN-output clusters, lateral wiring mirrors shared sensory drive (co-activation groups). If it aligns with Agent 2 instead, lateral recurrence enforces output-module coherence (courtship vs aggression pools). Weak agreement with both implies lateral wiring is an independent organizational axis.
+

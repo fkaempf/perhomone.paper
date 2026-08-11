@@ -1,0 +1,19 @@
+PANEL M (PRIMARY): inhibitory source attribution
+=================================================
+
+For every male-specific mAL_m subtype and each of ppk23 / ppk25, every
+cached inhibitory path is classified by the first relay category it
+passes through:
+  1. GABA sign-inverter pool (11 AN05B/IN05 GABA relay types:
+     AN05B021, AN05B023a-d, AN05B025, AN05B035, AN05B050_a,
+     IN05B002, IN05B011a, IN05B011b)
+  2. mAL lateral (mAL <-> mAL GABA)
+  3. other (unclassified GABA node; not in 1-2)
+Paths crossing multiple categories are split equally across the categories
+they touch (fractional attribution). Rows are sorted by GABA sign-inverter share.
+
+Mean share of inhibitory drive (across 16 mAL_m subtypes):
+  GABA sign-inverter    ppk23 =  57.7%  |  ppk25 =  59.6%
+  mAL lateral           ppk23 =  36.6%  |  ppk25 =  34.7%
+  other                 ppk23 =   6.5%  |  ppk25 =   5.7%
+

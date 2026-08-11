@@ -30,7 +30,11 @@ MCNS_SERVER  <- "https://neuprint-cns.janelia.org"
 CASES <- list(
   an05b023bc = list(
     targets = c("AN05B023b", "AN05B023c"),
-    focus   = c("WG3", "WG4", "LgLG1a", "LgLG1b")
+    focus   = c("WG3", "WG4", "LgLG1a", "LgLG1b"),
+    # two target types make for a one-branch dendrogram, so the clustered figures
+    # say nothing here; the receptor table is reference material and lives on the
+    # AN09B017 page
+    figures = FALSE, billy = FALSE
   ),
   an09b017 = list(
     targets = c("AN09B017a", "AN09B017b", "AN09B017c", "AN09B017d",
@@ -38,7 +42,15 @@ CASES <- list(
     # LgLG5-8 are the family's own drivers; LgLG1a/1b are included because
     # AN09B017d is the only member that receives them, which is what separates
     # it from a/b/c/f
-    focus   = c("LgLG5", "LgLG6", "LgLG7", "LgLG8", "LgLG1a", "LgLG1b")
+    focus   = c("LgLG5", "LgLG6", "LgLG7", "LgLG8", "LgLG1a", "LgLG1b"),
+    figures = TRUE, billy = TRUE
+  ),
+  an05b102 = list(
+    targets = c("AN05B102a", "AN05B102b", "AN05B102c", "AN05B102d"),
+    # a/b/c are LgLG1a/WG4/LgLG1b/WG3 cells; AN05B102d is a different animal,
+    # driven by WG1 and LgLG2, so both sets are needed to show the split
+    focus   = c("WG3", "WG4", "LgLG1a", "LgLG1b", "WG1", "LgLG2"),
+    figures = TRUE, billy = TRUE
   )
 )
 
@@ -48,6 +60,11 @@ if (!CASE %in% names(CASES)) {
 }
 
 TARGET_TYPES <- CASES[[CASE]]$targets
+
+# optional page sections, on unless the case turns them off
+`%||%` <- function(a, b) if (is.null(a)) b else a
+SHOW_FIGURES <- isTRUE(CASES[[CASE]]$figures %||% TRUE)
+SHOW_BILLY   <- isTRUE(CASES[[CASE]]$billy   %||% TRUE)
 
 # --- focus sensory inputs ---------------------------------------------------
 # Types are named as they are in the connectome. No receptor-channel grouping:
@@ -72,7 +89,9 @@ WEB_PALETTE <- c(WG3    = "#00E676",   # green
                  LgLG5  = "#FFFF00",   # yellow
                  LgLG6  = "#7C4DFF",   # violet
                  LgLG7  = "#FF6D00",   # orange
-                 LgLG8  = "#18FFFF")   # cyan
+                 LgLG8  = "#18FFFF",   # cyan
+                 WG1    = "#FF5252",   # red
+                 LgLG2  = "#B2FF59")   # lime
 
 if (!all(FOCUS %in% names(WEB_PALETTE))) {
   stop("no colour for: ", paste(setdiff(FOCUS, names(WEB_PALETTE)), collapse = ", "))

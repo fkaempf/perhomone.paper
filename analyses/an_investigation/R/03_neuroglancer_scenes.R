@@ -167,6 +167,22 @@ hc_segments <- function(hc) {
 # xtabs results carry class "table", which jsonlite cannot serialise
 as_plain <- function(x) matrix(as.numeric(x), nrow(x), ncol(x))
 
+# --- literature names, straight from the maleCNS synonyms annotation ---------
+syn_cache <- file.path(DERIVED, paste0(CASE, "_synonyms.rds"))
+if (file.exists(syn_cache)) {
+  alias_tbl <- readRDS(syn_cache)
+} else {
+  suppressMessages(library(malecns))
+  alias_tbl <- mcns_body_annotations() %>%
+    filter(type %in% TARGET_TYPES, !is.na(synonyms), nzchar(synonyms)) %>%
+    distinct(type, synonyms)
+  saveRDS(alias_tbl, syn_cache)
+}
+
+# entries look like "Yu 2010: vAB3" - the name after the colon, the citation before
+TYPE_ALIAS <- setNames(trimws(sub("^[^:]*:", "", alias_tbl$synonyms)), alias_tbl$type)
+ALIAS_CITE <- unique(trimws(sub(":.*$", "", alias_tbl$synonyms)))
+
 fig_data <- list(
   rows = rownames(comp),
   cols = colnames(comp),
@@ -213,22 +229,6 @@ per_body <- per_body %>% left_join(bilat, by = "bodyid")
 uni_types <- per_body %>%
   summarise(uni = all(contra < 0.01, na.rm = TRUE), .by = type) %>%
   filter(uni) %>% pull(type)
-
-# --- literature names, straight from the maleCNS synonyms annotation ---------
-syn_cache <- file.path(DERIVED, paste0(CASE, "_synonyms.rds"))
-if (file.exists(syn_cache)) {
-  alias_tbl <- readRDS(syn_cache)
-} else {
-  suppressMessages(library(malecns))
-  alias_tbl <- mcns_body_annotations() %>%
-    filter(type %in% TARGET_TYPES, !is.na(synonyms), nzchar(synonyms)) %>%
-    distinct(type, synonyms)
-  saveRDS(alias_tbl, syn_cache)
-}
-
-# entries look like "Yu 2010: vAB3" - the name after the colon, the citation before
-TYPE_ALIAS <- setNames(trimws(sub("^[^:]*:", "", alias_tbl$synonyms)), alias_tbl$type)
-ALIAS_CITE <- unique(trimws(sub(":.*$", "", alias_tbl$synonyms)))
 
 alias_types <- intersect(names(TYPE_ALIAS), TARGET_TYPES)
 alias_note <- if (length(alias_types)) {
@@ -311,6 +311,35 @@ rows <- paste(vapply(seq_len(nrow(per_body)), function(i) {
 legend <- paste(sprintf(
   '<li><span class="sw" style="background:%s"></span>%s</li>',
   unname(focus_cols), names(focus_cols)), collapse = "\n")
+
+# optional sections, assembled here so a case can leave them out entirely
+figs_section <- if (SHOW_FIGURES) {
+  sprintf('<h2>Input structure</h2>
+<p class="note">The same synapses as the scenes, collapsed to type level and
+clustered on the target axis. Correlation distance, Ward.D2 linkage. The three
+panels differ only by a per-column rescaling, and correlation is scale-free, so
+they share one dendrogram, and only the colour scale changes. Hover a cell for
+the exact value.</p>
+
+<div id="figs" class="figs"></div>
+<p class="note" style="margin-top:.6rem">%s</p>
+<script id="figdata" type="application/json">%s</script>
+', bilat_note, fig_json)
+} else {
+  sprintf('<p class="note">%s</p>', bilat_note)
+}
+
+billy_section <- if (SHOW_BILLY) sprintf('<h2>Receptor assignment</h2>
+<p class="note"><b>Billy&rsquo;s assignment, reproduced here.</b> This is a
+light-level receptor-to-type call and is not derived from any of the
+connectivity on this page. Types outlined below are the ones used as focus
+inputs here; the rest are shown for completeness.</p>
+
+<table class="billy">
+<tr><th>Receptor</th><th>Detects</th><th>mCNS type</th></tr>
+%s
+</table>
+', billy_rows) else ""
 
 html_head <- sprintf('<!doctype html>
 <meta charset="utf-8">
@@ -413,27 +442,7 @@ them in the layer bar.</p>
   types overlaid.
 </a>
 
-<h2>Input structure</h2>
-<p class="note">The same synapses as the scenes, collapsed to type level and
-clustered on the target axis. Correlation distance, Ward.D2 linkage. The three
-panels differ only by a per-column rescaling, and correlation is scale-free, so
-they share one dendrogram, and only the colour scale changes. Hover a cell for
-the exact value.</p>
-
-<div id="figs" class="figs"></div>
-<p class="note" style="margin-top:.6rem">%s</p>
-<script id="figdata" type="application/json">%s</script>
-
-<h2>Receptor assignment</h2>
-<p class="note"><b>Billy&rsquo;s assignment, reproduced here.</b> This is a
-light-level receptor-to-type call and is not derived from any of the
-connectivity on this page. Types outlined below are the ones used as focus
-inputs here; the rest are shown for completeness.</p>
-
-<table class="billy">
-<tr><th>Receptor</th><th>Detects</th><th>mCNS type</th></tr>
-%s
-</table>
+%s%s
 
 <h2>Scenes</h2>
 
@@ -450,7 +459,7 @@ inputs here; the rest are shown for completeness.</p>
 </ul>
 
 ',
-  CASE_LABEL, overview_url, nrow(per_body), bilat_note, fig_json, billy_rows,
+  CASE_LABEL, overview_url, nrow(per_body), figs_section, billy_section,
   thead, rows, legend)
 
 # not passed through sprintf: the whole thing exceeds sprintf's 8192-char
@@ -458,7 +467,8 @@ inputs here; the rest are shown for completeness.</p>
 html_js <- '<div id="tip"></div>
 <script>
 (function () {
-  var D = JSON.parse(document.getElementById("figdata").textContent);
+  var dataEl = document.getElementById("figdata");
+  var D = dataEl ? JSON.parse(dataEl.textContent) : null;
   var NS = "http://www.w3.org/2000/svg";
   // CW == CH so the cells stay square at any rendered size: the viewBox scales
   // uniformly, so a square here is a square on screen
@@ -515,7 +525,7 @@ html_js <- '<div id="tip"></div>
     });
   }
 
-  D.panels.forEach(function (P) {
+  if (D) D.panels.forEach(function (P) {
     var nr = D.rows.length, nc = D.cols.length;
     var W = LBLW + nc * CW + PADL, H = TREE + nr * CH + LBLH + PADT;
     var wrap = document.createElement("div");

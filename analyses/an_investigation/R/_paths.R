@@ -65,7 +65,7 @@ CASES <- list(
     embed   = list(body = 12286,
                    position    = c(49768.5, 60317.5, 100391.5),
                    orientation = c(0.5, -0.5, -0.5, -0.5),
-                   scale       = 25967.26498891576),
+                   scale       = 30500),
     # w/h are the intrinsic pixel sizes, used to flex each panel by its aspect.
     # rot is left FALSE: these are template-aligned stacks and turning one on its
     # side would misrepresent the standard anatomical orientation

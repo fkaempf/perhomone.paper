@@ -480,8 +480,11 @@ html_head <- sprintf('<!doctype html>
     It is also grown past the layer bar height and pulled up, letting the box
     overflow clip the bar: Clio-NG keeps it whatever the state says, and a
     cross-origin frame cannot be restyled from here. */
- .ngrow .box iframe{position:absolute;left:0;top:-48px;
-                    width:200%%;height:calc(200%% + 96px);
+ /* the frame also overhangs the box by 6px on the other three sides, so the
+    focus ring the browser draws on click falls outside the clipped area:
+    outline:none does not reach a ring drawn inside a cross-origin frame */
+ .ngrow .box iframe{position:absolute;left:-6px;top:-48px;
+                    width:calc(200%% + 24px);height:calc(200%% + 120px);
                     transform:scale(.5);transform-origin:0 0;
                     z-index:1;border:0;display:block;outline:none}
  /* clicking an iframe focuses it and the browser draws a focus ring, which is
